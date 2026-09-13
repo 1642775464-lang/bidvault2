@@ -53,19 +53,6 @@
   .note { background:var(--accent-soft); border-radius:8px; padding:10px 16px; font-size:12.5px; color:var(--ink); margin:14px 0; }
   .note b { color:var(--accent); }
   .foot { margin-top:36px; padding-top:14px; border-top:1px solid var(--line); font-size:11px; color:var(--muted); font-family:Consolas,monospace; }
-  .icon-sets { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
-  .set-card { border:1.5px solid var(--line); border-radius:10px; padding:12px; cursor:pointer; transition:border-color .15s; }
-  .set-card:hover { border-color:var(--accent); }
-  .set-card.sel { border-color:var(--accent); background:var(--accent-soft); }
-  .set-head { display:flex; justify-content:space-between; align-items:baseline; }
-  .set-head b { color:var(--accent); font-size:13.5px; }
-  .set-head .lic { font-size:9.5px; color:var(--muted); font-family:Consolas,monospace; }
-  .set-desc { font-size:10.5px; color:var(--muted); margin:4px 0 10px; min-height:30px; }
-  .set-icons { display:grid; grid-template-columns:repeat(5,1fr); gap:4px; }
-  .set-ico { display:flex; flex-direction:column; align-items:center; gap:3px; padding:6px 2px; border-radius:6px; background:var(--bg); }
-  .set-ico svg { width:18px; height:18px; color:var(--ink); }
-  .set-ico i { font-style:normal; font-size:9px; color:var(--muted); }
-  .set-pick { margin-top:8px; font-size:10.5px; color:var(--accent); font-weight:600; text-align:center; min-height:16px; }
 </style>
 </head>
 <body>
@@ -145,7 +132,6 @@ function renderIcons() {
     const it = set[i];
     el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${it.stroke}" stroke-linecap="round" stroke-linejoin="round">${it.inner}</svg>`;
   });
-  document.querySelectorAll('.set-card').forEach(c => c.classList.toggle('sel', c.dataset.set === currentSet));
 }
 
 function pickSet(name) {
@@ -171,26 +157,6 @@ function go(id, el) {
   window.scrollTo(0, 0);
 }
 
-// 图标对比区
-const SET_META = [
-  ['lucide', 'Lucide', '2px 圆头描边，Feather 现代延续，B端主流首选', 'ISC'],
-  ['tabler', 'Tabler', '2px 描边，5000+ 覆盖最广，中后台常用', 'MIT'],
-  ['feather', 'Feather', '2px 极简经典，最轻量（数量少）', 'MIT'],
-  ['hero', 'Heroicons', '1.5px 细描边，Tailwind 官方，柔和现代', 'MIT'],
-  ['iconoir', 'Iconoir', '1.5px 冷静几何感，设计感强', 'MIT'],
-];
-const NAMES = ['工作台', '项目库', '文档库', '素材库', '设置'];
-document.getElementById('iconSets').innerHTML = SET_META.map(([key, name, desc, lic]) => `
-  <div class="set-card" data-set="${key}" onclick="pickSet('${key}')">
-    <div class="set-head"><b>${name}</b><span class="lic">${lic}</span></div>
-    <div class="set-desc">${desc}</div>
-    <div class="set-icons">${NAMES.map((n, i) => {
-      const it = ICONS[key][i];
-      return `<div class="set-ico" title="${n}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${it.stroke}" stroke-linecap="round" stroke-linejoin="round">${it.inner}</svg><i>${n}</i></div>`;
-    }).join('')}</div>
-    <div class="set-pick">${currentSet === key ? '✓ 当前使用' : '点击选用'}</div>
-  </div>
-`).join('');
 renderIcons();
 </script>
 </body>
