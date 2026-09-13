@@ -53,6 +53,37 @@
   .note { background:var(--accent-soft); border-radius:8px; padding:10px 16px; font-size:12.5px; color:var(--ink); margin:14px 0; }
   .note b { color:var(--accent); }
   .foot { margin-top:36px; padding-top:14px; border-top:1px solid var(--line); font-size:11px; color:var(--muted); font-family:Consolas,monospace; }
+  /* P1 工作台 · 标书编辑工作区 */
+  .ws-bar { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+  .ws-fname { font-size:12.5px; color:var(--ink); font-weight:600; }
+  .ws-pill { font-size:11px; padding:2px 10px; border-radius:999px; font-weight:600; }
+  .ws-pill.bad { background:#FEE2E2; color:var(--danger); }
+  .ws-pill.blue { background:var(--accent-soft); color:var(--accent); }
+  .ws-pill.ok { background:#DCFCE7; color:var(--ok); }
+  .ws-export { margin-left:auto; padding:7px 20px; }
+  .ws-split { display:flex; gap:12px; height:calc(100vh - 210px); min-height:420px; }
+  .ws-doc { flex:1.35; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-lg); display:flex; flex-direction:column; overflow:hidden; }
+  .doc-page { flex:1; overflow-y:auto; padding:26px 34px; }
+  .doc-page h1 { font-size:19px; margin-bottom:14px; }
+  .doc-page h3 { font-size:14.5px; margin:16px 0 8px; color:#0F172A; }
+  .doc-page p { margin-bottom:10px; color:#334155; }
+  .mk-bad { background:#FEE2E2; border-bottom:2px solid var(--danger); padding:0 2px; border-radius:3px 3px 0 0; cursor:pointer; }
+  .mk-warn { background:#FEF3C7; border-bottom:2px solid var(--warn); padding:0 2px; border-radius:3px 3px 0 0; cursor:pointer; }
+  .ws-sync { font-size:10.5px; color:var(--ok); padding:7px 16px; border-top:1px solid var(--line); background:var(--bg); }
+  .ws-right { flex:1; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-lg); display:flex; flex-direction:column; overflow:hidden; }
+  .ws-tabs { display:flex; border-bottom:1px solid var(--line); }
+  .ws-tabs span { flex:1; text-align:center; padding:11px 4px; cursor:pointer; color:var(--muted); font-size:13px; border-bottom:2.5px solid transparent; }
+  .ws-tabs span.on { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  .ws-list { flex:1; overflow-y:auto; padding:12px; }
+  .it { border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px; margin-bottom:9px; font-size:12.5px; }
+  .it .h { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .tg { font-size:10.5px; padding:1px 8px; border-radius:4px; font-weight:600; }
+  .tg.bad { background:#FEE2E2; color:var(--danger); }
+  .tg.warn { background:#FEF3C7; color:var(--warn); }
+  .tg.blue { background:var(--accent-soft); color:var(--accent); }
+  .tg.ok { background:#DCFCE7; color:var(--ok); }
+  .it .a { margin-left:auto; color:var(--accent); cursor:pointer; font-size:11.5px; font-weight:500; }
+  .it .m { font-size:11px; color:var(--muted); margin-top:4px; }
 </style>
 </head>
 <body>
@@ -72,19 +103,36 @@
   <main class="main">
     <div class="topbar"><span class="crumb">标库 / <b id="crumb">工作台</b></span><span class="safe"></span></div>
     <div class="wrap">
-      <!-- P1 工作台 -->
+      <!-- P1 工作台 · 标书编辑工作区（方案E定稿：左右分栏+右侧单栏切换） -->
       <div class="page on" id="p1">
-        <h2 class="sec">库内概览</h2>
-        <div class="panel"><div class="t">统计卡 ×4（库内文档 / 已索引 / 处理中 / 失败）</div></div>
-        <h2 class="sec">快速检索</h2>
-        <div class="panel"><div class="t">检索框（全局入口）</div></div>
-        <h2 class="sec">废标自查入口（已按你的要求归入工作台）</h2>
-        <div class="panel"><div class="t">废标自查卡片</div></div>
-        <h2 class="sec">最近文件 / 备份状态</h2>
-        <div class="sk"></div><div class="sk" style="width:80%;"></div><div class="sk" style="width:66%;"></div>
+        <div class="ws-bar">
+          <span class="ws-fname mono">智慧园区项目-投标文件-v0.3.docx</span>
+          <span class="ws-pill bad">废标 4</span><span class="ws-pill blue">案例 3</span><span class="ws-pill ok">人员 2</span>
+          <button class="btn btn-accent ws-export">导出</button>
+        </div>
+        <div class="ws-split">
+          <div class="ws-doc">
+            <div class="doc-page">
+              <h1>智慧园区数据中心项目投标文件</h1>
+              <h3>第三章 技术方案</h3>
+              <p>本项目采用模块化机房建设方案，配置<span class="mk-bad">精密空调 2 台</span>，施工工期 <span class="mk-warn">180 日历天</span>，质量标准符合国家现行规范。</p>
+              <h3>第四章 类似项目业绩</h3>
+              <p>公司近年完成多个同类项目，其中<span class="mk-bad">〔待补充案例〕</span>具有代表性。</p>
+              <h3>第二章 授权委托书</h3>
+              <p>委托代理人：王志强，联系电话 138××××××××。</p>
+            </div>
+            <div class="ws-sync">● 自动保存 2 分钟前 · 编辑后 30 秒自动重检测</div>
+          </div>
+          <div class="ws-right">
+            <div class="ws-tabs">
+              <span class="on" onclick="wsTab('废标检测', this)">废标检测</span><span onclick="wsTab('案例推荐', this)">案例推荐</span><span onclick="wsTab('人员介绍', this)">人员介绍</span>
+            </div>
+            <div class="ws-list" id="wsList"></div></div>
+            </div>
+          </div>
+        </div>
       </div>
-
-      <!-- P2 项目库 -->
+            <!-- P2 项目库 -->
       <div class="page" id="p2">
         <h2 class="sec">项目库</h2>
         <div class=panel><div class=t>全部项目</div><div class=d>搜索 · 行业筛选</div></div>
@@ -138,8 +186,33 @@ function pickSet(name) {
   currentSet = name;
   localStorage.setItem('bv-icon-set', name);
   renderIcons();
+wsTab('废标检测', document.querySelector('.ws-tabs span.on'));
 }
 
+const WS_DATA = {
+  '废标检测': [
+    ['bad', '未响应', '修复建议 ›', '精密空调未注明一级能效', '对应正文高亮 · 招标 3.2 条'],
+    ['bad', '偏差', '详情 ›', '工期 180 天 vs 要求 150 天', '对应正文高亮 · 招标 2.1 条'],
+    ['bad', '缺项', '插入模板 ›', '开标一览表未编写', '格式要求第 4 项'],
+    ['bad', '缺证据', '去补挂 ›', '王志强社保证明未挂接', '资格审查必备'],
+  ],
+  '案例推荐': [
+    ['blue', '机房类', '插入 ›', '××银行机房监控项目', '486 万 · 2023 · 含合同+验收证据'],
+    ['blue', '园区类', '插入 ›', '××智慧园区一期信息化', '890 万 · 2024 · 与本项目最相似'],
+    ['blue', '信誉', '插入 ›', '市级优秀企业奖 · 无不良记录', '近三年有效'],
+  ],
+  '人员介绍': [
+    ['ok', '材料齐', '插入介绍 ›', '张建国 · 法定代表人', '一级建造师（机电）· 12 个项目'],
+    ['bad', '缺社保证明', '去补挂 ›', '王志强 · 授权代表', '高级工程师 · 金融行业 ×3'],
+  ],
+};
+function wsTab(name, el) {
+  document.querySelectorAll('.ws-tabs span').forEach(x => x.classList.remove('on'));
+  if (el) el.classList.add('on');
+  document.getElementById('wsList').innerHTML = WS_DATA[name].map(([tg, tag, act, title, meta]) =>
+    '<div class="it"><div class="h"><span class="tg ' + tg + '">' + tag + '</span><span class="a">' + act + '</span></div>' + title + '<div class="m">' + meta + '</div></div>'
+  ).join('');
+}
 function sideClick(e) {
   if (e.target.closest('a')) return; // 导航项点击不触发收缩
   toggleSide();
