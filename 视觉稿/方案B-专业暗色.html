@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>方案B · 专业暗色工作台 · 标库v2</title>
+<style>
+  :root { --bg:#16181D; --panel:#1E2128; --panel2:#242832; --ink:#E8EAED; --muted:#9AA0A8; --line:#2E323C; --accent:#4DB8A4; --accent-dim:rgba(77,184,164,.14); --ok:#5BB98C; --warn:#D9A441; --danger:#E06C5B; --mono:"Cascadia Mono",Consolas,monospace; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--ink); font:13.5px/1.6 "Segoe UI","Microsoft YaHei",sans-serif; }
+  .topbar { background:var(--panel); border-bottom:1px solid var(--line); padding:12px 32px; display:flex; align-items:center; gap:28px; }
+  .logo { font-weight:700; font-size:17px; letter-spacing:.02em; } .logo i { color:var(--accent); font-style:normal; }
+  .nav { display:flex; gap:4px; } .nav span { padding:6px 14px; border-radius:6px; color:var(--muted); cursor:pointer; }
+  .nav b { background:var(--accent-dim); color:var(--accent); border-radius:6px; padding:6px 14px; }
+  .st { margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--ok); }
+  .wrap { max-width:1160px; margin:0 auto; padding:28px 32px 80px; }
+  h2.sec { font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); font-family:var(--mono); margin:30px 0 12px; }
+  .paths { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .path { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .path b { font-family:var(--mono); font-size:11.5px; color:var(--ink); display:block; }
+  .path .s { font-size:11px; margin-top:4px; display:flex; justify-content:space-between; } .okc { color:var(--ok); } .acc { color:var(--accent); cursor:pointer; }
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:10px; }
+  .kpi { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; }
+  .kpi .n { font-family:var(--mono); font-size:24px; font-weight:600; color:var(--accent); }
+  .kpi .n small { font-size:12px; color:var(--muted); }
+  .kpi .l { font-size:11.5px; color:var(--muted); margin-top:2px; }
+  .kpi.hot .n { color:var(--warn); }
+  .search { display:flex; gap:8px; margin:10px 0 6px; }
+  .search input { flex:1; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; color:var(--ink); font-size:14px; outline:none; }
+  .search input:focus { border-color:var(--accent); }
+  .search button { background:var(--accent); color:#10231F; border:none; border-radius:8px; padding:0 24px; font-weight:600; cursor:pointer; }
+  .duo { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+  .mini { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:13px 16px; font-size:12.5px; color:var(--muted); }
+  .mini b { color:var(--ink); display:block; margin-bottom:3px; }
+  /* 素材库 */
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+  .chip { font-size:11.5px; padding:3px 11px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:var(--panel); cursor:pointer; }
+  .chip.on { background:var(--accent-dim); border-color:var(--accent); color:var(--accent); }
+  .tabs { display:flex; gap:2px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:3px; width:fit-content; margin-bottom:6px; }
+  .tabs span { padding:5px 16px; border-radius:6px; color:var(--muted); font-size:12.5px; }
+  .tabs b { background:var(--panel2); color:var(--accent); border-radius:6px; padding:5px 16px; font-size:12.5px; }
+  .pcard { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 18px; margin-top:10px; border-left:3px solid var(--accent); }
+  .pcard .h { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .pcard .nm { font-size:17px; font-weight:600; }
+  .tag { font-size:10.5px; padding:2px 8px; border-radius:4px; background:var(--accent-dim); color:var(--accent); font-family:var(--mono); }
+  .tag.ok { background:rgba(91,185,140,.14); color:var(--ok); }
+  .tag.warn { background:rgba(217,164,65,.14); color:var(--warn); }
+  .pcard .m { font-size:11.5px; color:var(--muted); margin-top:4px; }
+  .evi { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .evi a { font-size:11px; padding:2px 9px; background:var(--panel2); border-radius:4px; color:var(--ink); text-decoration:none; font-family:var(--mono); }
+  .evi a:hover { color:var(--accent); }
+  .proj { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--line); font-size:12px; color:var(--muted); }
+  .proj:last-child { border:none; } .proj a { color:var(--accent); text-decoration:none; font-family:var(--mono); }
+  .foot { margin-top:40px; font-size:10.5px; color:var(--muted); font-family:var(--mono); }
+</style>
+</head>
+<body>
+<div class="topbar"><div class="logo">标库<i>.</i></div>
+  <div class="nav"><b>工作台</b><span>文档库</span><span>素材库</span><span>废标检查</span><span>规则库</span></div>
+  <div class="st">● 服务运行中 · 自动备份已启用</div>
+</div>
+<div class="wrap">
+  <h2 class="sec" style="margin-top:0;">收藏路径 / Auto Archive</h2>
+  <div class="paths">
+    <div class="path"><b>D:\标书库\2025\</b><div class="s"><span class="okc">● 监视中</span><span class="acc">立即扫描 ›</span></div></div>
+    <div class="path"><b>D:\标书库\2024归档\</b><div class="s"><span class="okc">● 监视中</span><span class="acc">立即扫描 ›</span></div></div>
+    <div class="path"><b>E:\历史投标\金融行业\</b><div class="s"><span class="warn">昨夜新增 12 份</span><span class="acc">立即扫描 ›</span></div></div>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><div class="n">3,214</div><div class="l">库内文档</div></div>
+    <div class="kpi"><div class="n">2,891</div><div class="l">已抽取</div></div>
+    <div class="kpi hot"><div class="n">37</div><div class="l">待人工复核</div></div>
+    <div class="kpi hot"><div class="n">12</div><div class="l">涉密待确认</div></div>
+  </div>
+  <h2 class="sec">快速检索</h2>
+  <div class="search"><input placeholder="找素材：一句话或关键词，如「金融行业 一级建造师 机电」"><button>检索</button></div>
+  <div class="duo">
+    <div class="mini"><b>废标自查 · 上次检查</b>智慧园区数据中心项目 · 68 条标准 · 风险 2 / 偏差 5 · 2026-09-10</div>
+    <div class="mini"><b>备份状态</b>昨日 02:00 已完成 · 连续 46 天 · 剩余空间 812 GB</div>
+  </div>
+
+  <h2 class="sec">素材库 · 复用清单</h2>
+  <div class="chips">
+    <span class="chip on">全部行业</span><span class="chip">金融</span><span class="chip">知识产权</span><span class="chip">建筑</span><span class="chip">医疗</span><span class="chip">市政</span><span class="chip">＋ 添加</span>
+  </div>
+  <div class="tabs"><b>人员 214</b><span>类似项目 96</span><span>案例 58</span><span>信誉 41</span></div>
+  <div class="pcard">
+    <div class="h"><span class="nm">张建国</span><span class="tag">一级建造师·机电</span><span class="tag ok">高级工程师</span><span class="tag warn">金融×3 知产×2</span></div>
+    <div class="m">参与项目 12 个 · 最近使用 2026-08 · 来源标书 5 份</div>
+    <div class="evi"><a>社保证明.pdf P.14</a><a>证书扫描件.jpg</a><a>合同关键页.pdf P.3</a></div>
+    <div style="margin-top:8px;">
+      <div class="proj"><span>××银行机房监控系统项目 · 486 万 · 中标 2023-08</span><a>原文 P.22 ›</a></div>
+      <div class="proj"><span>××知识产权服务平台运维 · 156 万 · 中标 2024-03</span><a>原文 P.18 ›</a></div>
+    </div>
+  </div>
+  <div class="pcard">
+    <div class="h"><span class="nm">李伟</span><span class="tag">二级建造师·市政</span><span class="tag warn">市政×4</span></div>
+    <div class="m">参与项目 7 个 · 来源标书 3 份</div>
+    <div class="evi"><a>社保证明.pdf P.9</a></div>
+  </div>
+  <div class="foot">方案B · 专业暗色工作台（深炭底/青绿accent/mono数据/信息密度优先）· 示例数据</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>方案A · 明快效率（延续v1方案C）· 标库v2</title>
+<style>
+  :root { --bg:#FAF8F3; --surface:#fff; --ink:#221F1A; --muted:#6E675C; --line:#E6E0D4; --accent:#C2571B; --accent-soft:rgba(194,87,27,.08); --ok:#3D6B4F; --warn:#A3742A; --danger:#A33D2E; --disp:Georgia,"STSong",serif; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--ink); font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif; }
+  .topbar { border-bottom:2px solid var(--ink); padding:14px 40px; display:flex; align-items:baseline; gap:32px; }
+  .logo { font-family:var(--disp); font-size:22px; font-weight:700; } .logo i { color:var(--accent); font-style:normal; }
+  .nav { display:flex; gap:20px; color:var(--muted); } .nav b { color:var(--accent); }
+  .wrap { max-width:1080px; margin:0 auto; padding:36px 40px 80px; }
+  h2.sec { font-family:var(--disp); font-size:19px; border-bottom:2px solid var(--ink); padding-bottom:8px; margin:36px 0 14px; }
+  .paths { display:flex; gap:10px; flex-wrap:wrap; }
+  .path { background:var(--surface); border:1.5px solid var(--ink); border-radius:6px; padding:8px 14px; box-shadow:3px 3px 0 rgba(34,31,26,.12); font-size:12.5px; }
+  .path b { font-family:Consolas,monospace; font-size:12px; } .path .st { color:var(--ok); margin-left:8px; } .path .scan { color:var(--accent); margin-left:8px; cursor:pointer; }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:24px; border-block:1px solid var(--line); padding:16px 0; margin:22px 0; }
+  .stats .n { font-family:var(--disp); font-size:28px; font-weight:700; } .stats .n small { font-size:13px; color:var(--muted); font-weight:400; }
+  .stats .l { font-size:12px; color:var(--muted); }
+  .search { display:flex; gap:8px; margin:8px 0 20px; }
+  .search input { flex:1; border:1px solid var(--line); border-radius:6px; padding:12px 14px; background:var(--surface); font-size:15px; }
+  .search button { background:var(--accent); color:#fff; border:none; border-radius:6px; padding:0 26px; font-weight:600; cursor:pointer; }
+  .cards { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .card { background:var(--surface); border:1.5px solid var(--ink); border-radius:10px; padding:18px 20px; box-shadow:5px 5px 0 rgba(34,31,26,.12); }
+  .card h4 { font-family:var(--disp); font-size:15px; margin-bottom:8px; }
+  .card .d { font-size:12.5px; color:var(--muted); }
+  /* 素材库 */
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .chip { font-size:12px; padding:3px 12px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:var(--surface); }
+  .chip.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .tabs { display:flex; gap:18px; border-bottom:1px solid var(--line); margin-bottom:4px; font-size:13.5px; }
+  .tabs span { padding:8px 2px; color:var(--muted); } .tabs b { color:var(--ink); border-bottom:2px solid var(--accent); padding-bottom:6px; }
+  .pcard { background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:6px; padding:14px 18px; margin-top:12px; }
+  .pcard .h { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .pcard .nm { font-family:var(--disp); font-size:18px; font-weight:700; }
+  .badge { font-size:10.5px; padding:1px 7px; border:1px solid currentColor; border-radius:3px; color:var(--accent); }
+  .badge.ok { color:var(--ok); } .badge.warn { color:var(--warn); }
+  .pcard .m { font-size:12px; color:var(--muted); margin-top:4px; }
+  .evi { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+  .evi a { font-size:11.5px; padding:2px 9px; border:1px dashed var(--accent); border-radius:4px; color:var(--accent); text-decoration:none; }
+  .proj { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px dashed var(--line); font-size:12.5px; }
+  .proj:last-child { border:none; } .proj a { color:var(--accent); text-decoration:none; white-space:nowrap; }
+  .foot { margin-top:40px; font-size:11px; color:var(--muted); font-family:Consolas,monospace; }
+</style>
+</head>
+<body>
+<div class="topbar"><div class="logo">标库<i>.</i></div>
+  <div class="nav"><b>工作台</b><span>文档库</span><span>素材库</span><span>废标检查</span><span>规则库</span></div>
+</div>
+<div class="wrap">
+  <h2 class="sec" style="margin-top:0;">收藏路径 · 自动归档</h2>
+  <div class="paths">
+    <div class="path"><b>D:\标书库\2025\</b><span class="st">● 监视中</span><span class="scan">立即扫描</span></div>
+    <div class="path"><b>D:\标书库\2024归档\</b><span class="st">● 监视中</span><span class="scan">立即扫描</span></div>
+    <div class="path"><b>E:\历史投标\金融行业\</b><span class="st">昨夜新增 12 份</span><span class="scan">立即扫描</span></div>
+  </div>
+  <div class="stats">
+    <div><div class="n">3,214<small> 份</small></div><div class="l">库内文档</div></div>
+    <div><div class="n">2,891<small> 份</small></div><div class="l">已抽取</div></div>
+    <div><div class="n">37<small> 份</small></div><div class="l">待人工复核</div></div>
+    <div><div class="n">12<small> 份</small></div><div class="l">涉密待确认</div></div>
+  </div>
+  <div class="search"><input placeholder="找素材：一句话或关键词，如「金融行业 一级建造师 机电」"><button>检索</button></div>
+  <div class="cards">
+    <div class="card"><h4>废标自查 · 上次检查</h4><div class="d">智慧园区数据中心项目 · 68 条标准 · 风险 2 / 偏差 5 · 2026-09-10</div></div>
+    <div class="card"><h4>备份</h4><div class="d">昨日 02:00 已完成 · 连续 46 天 · 剩余空间 812 GB</div></div>
+  </div>
+
+  <h2 class="sec">素材库 · 复用清单</h2>
+  <div class="chips">
+    <span class="chip on">全部行业</span><span class="chip">金融</span><span class="chip">知识产权</span><span class="chip">建筑</span><span class="chip">医疗</span><span class="chip">市政</span><span class="chip">＋ 添加</span>
+  </div>
+  <div class="tabs"><b>人员 214</b><span>类似项目 96</span><span>案例 58</span><span>信誉 41</span></div>
+  <div class="pcard">
+    <div class="h"><span class="nm">张建国</span><span class="badge">一级建造师 · 机电</span><span class="badge ok">高级工程师</span><span class="badge warn">金融 ×3 · 知产 ×2</span></div>
+    <div class="m">参与项目 12 个 · 最近使用 2026-08 · 来源标书 5 份</div>
+    <div class="evi"><a>▸ 社保证明.pdf P.14</a><a>▸ 证书扫描件.jpg</a><a>▸ 合同关键页.pdf P.3</a></div>
+    <div style="margin-top:10px;">
+      <div class="proj"><span>××银行机房监控系统项目 · 486 万 · 中标 2023-08</span><a>原文 P.22 ›</a></div>
+      <div class="proj"><span>××知识产权服务平台运维 · 156 万 · 中标 2024-03</span><a>原文 P.18 ›</a></div>
+    </div>
+  </div>
+  <div class="pcard">
+    <div class="h"><span class="nm">李伟</span><span class="badge">二级建造师 · 市政</span><span class="badge warn">市政 ×4</span></div>
+    <div class="m">参与项目 7 个 · 来源标书 3 份</div>
+    <div class="evi"><a>▸ 社保证明.pdf P.9</a></div>
+  </div>
+  <div class="foot">方案A · 明快效率（延续 v1 方案C：米白纸感/赭橙/衬线标题/实体偏移阴影）· 示例数据</div>
+</div>
+</body>
+</html>
