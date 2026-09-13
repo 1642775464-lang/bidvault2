@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>方案A · 右侧监控栏</title>
+<style>
+  :root { --bg:#F4F7FB; --surface:#fff; --ink:#1E293B; --muted:#64748B; --line:#E2E8F0; --accent:#2563EB; --accent-soft:#EFF4FF; --ok:#16A34A; --warn:#D97706; --danger:#DC2626; --radius:8px; --radius-lg:12px; --shadow:0 1px 2px rgba(30,41,59,.04); }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--ink); font:13.5px/1.65 "Segoe UI","Microsoft YaHei",sans-serif; }
+  .bar { background:var(--surface); border-bottom:1px solid var(--line); padding:10px 24px; display:flex; align-items:center; gap:16px; }
+  .bar b { color:var(--accent); }
+  .bar .fname { font-family:Consolas,monospace; font-size:12px; color:var(--muted); }
+  .bar .st { font-size:11.5px; color:var(--ok); }
+  .bar .btn { margin-left:auto; background:var(--accent); color:#fff; border:none; border-radius:8px; padding:7px 18px; font-weight:600; cursor:pointer; }
+  .layout { display:flex; height:calc(100vh - 45px); }
+  .doc { flex:1; padding:24px 36px; overflow-y:auto; }
+  .doc h1 { font-size:20px; margin-bottom:14px; }
+  .doc h3 { font-size:15px; margin:18px 0 8px; color:var(--accent); }
+  .doc p { margin-bottom:10px; color:#334155; }
+  .doc .hl { background:#FEF3C7; border-bottom:2px solid var(--warn); padding:0 2px; }
+  .doc .hl.bad { background:#FEE2E2; border-color:var(--danger); }
+  .side { width:400px; background:var(--surface); border-left:1px solid var(--line); display:flex; flex-direction:column; }
+  .tabs { display:flex; border-bottom:1px solid var(--line); }
+  .tabs span { flex:1; text-align:center; padding:11px 4px; cursor:pointer; color:var(--muted); font-size:13px; border-bottom:2.5px solid transparent; }
+  .tabs span.on { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  .pane { flex:1; overflow-y:auto; padding:14px; display:none; }
+  .pane.on { display:block; }
+  .item { border:1px solid var(--line); border-radius:8px; padding:11px 13px; margin-bottom:10px; }
+  .item .h { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
+  .tag { font-size:10.5px; padding:1px 8px; border-radius:4px; font-weight:600; }
+  .tag.bad { background:#FEE2E2; color:var(--danger); } .tag.warn { background:#FEF3C7; color:var(--warn); } .tag.ok { background:#DCFCE7; color:var(--ok); } .tag.blue { background:var(--accent-soft); color:var(--accent); }
+  .item .t { font-size:12.5px; }
+  .item .m { font-size:11px; color:var(--muted); margin-top:4px; display:flex; gap:10px; }
+  .item .use { margin-top:7px; font-size:11.5px; color:var(--accent); cursor:pointer; font-weight:500; }
+  .prog { font-size:11.5px; color:var(--muted); padding:6px 14px; border-top:1px solid var(--line); background:var(--bg); display:flex; justify-content:space-between; }
+  .foot-note { padding:8px 14px; font-size:11px; color:var(--muted); border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>标库</b><span class="fname">智慧园区项目-投标文件-v0.3.docx</span><span class="st">● 自动保存 2 分钟前</span>
+  <button class="btn">导出</button>
+</div>
+<div class="layout">
+  <div class="doc">
+    <h1>智慧园区数据中心项目投标文件</h1>
+    <h3>第一章 法定代表人身份证明</h3>
+    <p>兹证明<span class="hl">张建国</span>为本公司法定代表人，单位性质为有限责任公司。</p>
+    <h3>第二章 授权委托书</h3>
+    <p>本人张建国系法定代表人，现委托代理人<span class="hl">王志强</span>参加本项目投标活动。</p>
+    <h3>第三章 技术方案</h3>
+    <p>本项目采用模块化机房建设方案，配置<span class="hl bad">精密空调 2 台</span>，占总投资比例较高，建议核减预算。</p>
+    <p>施工工期计划 <span class="hl">180 日历天</span>，质量标准符合国家现行规范。</p>
+    <h3>第四章 售后服务承诺</h3>
+    <p>质保期三年，7×24 小时响应，故障 4 小时内到场处理。</p>
+  </div>
+  <div class="side">
+    <div class="tabs"><span class="on">废标检测 6</span><span>案例推荐 4</span><span>人员介绍 2</span></div>
+    <div class="pane on">
+      <div class="item"><div class="h"><span class="tag bad">废标风险</span><span style="font-size:11px;color:var(--muted);">第三章 · 精密空调</span></div><div class="t">招标文件要求「空调品牌不低于一级能效」，初稿未注明能效等级，可能构成未响应。</div><div class="m"><span>依据：评分办法 3.2 条</span></div><div class="use">一键修改建议 ›</div></div>
+      <div class="item"><div class="h"><span class="tag warn">偏差</span><span style="font-size:11px;color:var(--muted);">第三章 · 工期</span></div><div class="t">工期 180 天 vs 招标要求 ≤150 天，存在偏差，需说明理由或调整。</div><div class="m"><span>依据：项目概况 2.1</span></div><div class="use">查看招标原文 ›</div></div>
+      <div class="item"><div class="h"><span class="tag warn">缺项提醒</span><span style="font-size:11px;color:var(--muted);">全文</span></div><div class="t">未检测到「开标一览表」章节——招标文件格式要求必备。</div><div class="m"><span>依据：格式要求 第4项</span></div><div class="use">插入模板 ›</div></div>
+    </div>
+    <div class="prog"><span>同步检测：6 项待处理</span><span>上次扫描 1 分钟前</span></div>
+  </div>
+</div>
+<div class="foot-note">方案A · 右侧监控栏 —— 编辑器为主，检测/推荐/人员以标签页堆叠在右栏，切换查看。风格克制、上手零成本。</div>
+</body>
+</html>

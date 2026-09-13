@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>方案D · 沉浸气泡</title>
+<style>
+  :root { --bg:#F4F7FB; --surface:#fff; --ink:#1E293B; --muted:#64748B; --line:#E2E8F0; --accent:#2563EB; --accent-soft:#EFF4FF; --ok:#16A34A; --warn:#D97706; --danger:#DC2626; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--surface); color:var(--ink); font:14.5px/1.9 "Segoe UI","Microsoft YaHei",sans-serif; }
+  .bar { position:sticky; top:0; background:var(--surface); border-bottom:1px solid var(--line); padding:10px 24px; display:flex; align-items:center; gap:16px; z-index:5; }
+  .bar b { color:var(--accent); }
+  .bar .fname { font-family:Consolas,monospace; font-size:12px; color:var(--muted); }
+  .bar .score { margin-left:auto; font-size:12px; color:var(--muted); }
+  .bar .score b { color:var(--warn); font-size:15px; }
+  .bar .btn { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:7px 18px; font-weight:600; cursor:pointer; }
+  .page { max-width:820px; margin:0 auto; padding:34px 40px 300px; }
+  h1 { font-size:21px; margin-bottom:16px; }
+  h3 { font-size:15.5px; margin:22px 0 8px; color:#0F172A; }
+  p { margin-bottom:12px; color:#334155; }
+  .iss { position:relative; }
+  .iss .mark { border-bottom:2px wavy; text-decoration:underline wavy var(--danger) 2px; cursor:pointer; background:#FEF2F2; padding:0 2px; border-radius:3px; }
+  .iss .mark.warn { text-decoration-color:var(--warn); background:#FFFBEB; }
+  .bubble { position:absolute; left:0; right:0; top:100%; margin-top:6px; background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:0 4px 16px rgba(30,41,59,.12); padding:13px 16px; z-index:3; }
+  .bubble .h { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .tag { font-size:10.5px; padding:1px 8px; border-radius:4px; font-weight:600; }
+  .tag.bad { background:#FEE2E2; color:var(--danger); } .tag.warn { background:#FEF3C7; color:var(--warn); } .tag.blue { background:var(--accent-soft); color:var(--accent); }
+  .bubble .src { font-size:11px; color:var(--muted); margin-bottom:8px; }
+  .bubble .reco { background:var(--bg); border-radius:8px; padding:9px 12px; margin-top:8px; font-size:12.5px; }
+  .bubble .reco .rc { font-size:10.5px; color:var(--muted); letter-spacing:.08em; font-family:Consolas,monospace; margin-bottom:4px; }
+  .bubble .acts { display:flex; gap:14px; margin-top:9px; }
+  .bubble .acts a { color:var(--accent); font-size:12px; cursor:pointer; font-weight:500; }
+  .scorecard { position:fixed; right:28px; bottom:28px; background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:0 4px 16px rgba(30,41,59,.12); padding:14px 20px; font-size:12px; color:var(--muted); }
+  .scorecard b { font-size:20px; color:var(--warn); font-family:Consolas,monospace; }
+  .scorecard .l { display:flex; gap:14px; margin-top:6px; }
+  .scorecard .l span b { font-size:13px; }
+</style>
+</head>
+<body>
+<div class="bar"><b>标库</b><span class="fname">智慧园区项目-投标文件-v0.3.docx</span>
+  <span class="score">废标风险分 <b>72</b>（高风险）</span>
+  <button class="btn">导出</button>
+</div>
+<div class="page">
+  <h1>智慧园区数据中心项目投标文件</h1>
+  <h3>第一章 法定代表人身份证明</h3>
+  <p>兹证明张建国为本公司法定代表人，单位性质为有限责任公司。</p>
+  <h3>第三章 技术方案</h3>
+  <div class="iss">
+    <p>本项目采用模块化机房建设方案，配置<span class="mark">精密空调 2 台</span>，占总投资比例较高。</p>
+    <div class="bubble">
+      <div class="h"><span class="tag bad">✖ 废标风险</span><span>第三章 · 技术方案</span></div>
+      <div class="src">招标文件要求「精密空调不低于一级能效」（评分办法 3.2 条 · 招标原文 P.12）——初稿未注明能效等级</div>
+      <div class="reco"><div class="rc">推荐修复</div>改为：「配置一级能效精密空调 2 台（××品牌 ×× 型号）」</div>
+      <div class="acts"><a>采纳修改</a><a>查看招标原文 P.12</a><a>忽略此项</a></div>
+    </div>
+  </div>
+  <div class="iss">
+    <p>施工工期计划 <span class="mark warn">180 日历天</span>，质量标准符合国家现行规范。</p>
+    <div class="bubble">
+      <div class="h"><span class="tag warn">⚠ 偏差</span><span>工期</span></div>
+      <div class="src">招标要求工期 ≤150 日历天（项目概况 2.1 · P.5）——当前 180 天</div>
+      <div class="acts"><a>调整工期</a><a>查看招标原文 P.5</a><a>忽略此项</a></div>
+    </div>
+  </div>
+  <h3>第四章 类似项目业绩</h3>
+  <div class="iss">
+    <p>公司近年完成多个同类项目，其中<span class="mark warn">〔此处待补充案例〕</span>具有代表性。</p>
+    <div class="bubble">
+      <div class="h"><span class="tag blue">推荐案例 · 素材库</span></div>
+      <div class="reco"><div class="rc">最匹配（金融行业 · 机房类 · 金额相近）</div>××银行机房监控系统项目 · 486 万 · 2023 年竣工 · 含验收报告与合同关键页证据</div>
+      <div class="acts"><a>插入此案例</a><a>换一个 ›</a></div>
+    </div>
+  </div>
+  <h3>第二章 授权委托书</h3>
+  <p>本人张建国系法定代表人，现委托代理人王志强参加本项目投标活动。</p>
+  <div class="scorecard"><b>72</b> 废标风险分<div class="l"><span>✖ 3</span><span>⚠ 2</span><span>缺项 1</span></div></div>
+</div>
+<div class="foot-note" style="position:fixed;bottom:0;left:0;right:0;background:var(--bg);border-top:1px solid var(--line);padding:6px 16px;font-size:11px;color:var(--muted);">方案D · 沉浸气泡 —— 问题直接标注在文档字句上（波浪线），结论与修复建议以气泡就地展开；右下角常驻风险分。最接近 Word 修订体验。</div>
+</body>
+</html>

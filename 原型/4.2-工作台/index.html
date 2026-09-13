@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>工作台编辑页 · 五版原型对比</title>
+<style>
+  :root { --bg:#F4F7FB; --surface:#fff; --ink:#1E293B; --muted:#64748B; --line:#E2E8F0; --accent:#2563EB; --accent-soft:#EFF4FF; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--ink); font:14px/1.7 "Segoe UI","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:44px 36px 80px; }
+  h1 { font-size:24px; } h1 span { color:var(--accent); }
+  .sub { color:var(--muted); margin:8px 0 30px; font-size:13.5px; }
+  .card { display:flex; gap:18px; background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:22px 26px; margin-bottom:14px; text-decoration:none; color:var(--ink); box-shadow:0 1px 2px rgba(30,41,59,.04); transition:border-color .15s; }
+  .card:hover { border-color:var(--accent); }
+  .letter { width:52px; height:52px; border-radius:12px; background:var(--accent-soft); color:var(--accent); display:grid; place-items:center; font-size:24px; font-weight:700; flex-shrink:0; }
+  .card h3 { font-size:16px; margin-bottom:4px; }
+  .card p { font-size:12.5px; color:var(--muted); }
+  .card .idea { font-size:12.5px; margin-top:8px; color:var(--ink); }
+  .card .idea b { color:var(--accent); }
+  .idea-flow { display:inline-flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap; }
+  .idea-flow i { font-style:normal; font-size:11px; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:2px 9px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>工作台 · 编辑页 <span>五版原型</span></h1>
+  <p class="sub">同一需求（导入初版投标文件 + 同步废标检测 + 案例推荐 + 人员介绍），五种不同的布局思路。点击卡片打开对应原型。</p>
+
+  <a class="card" href="方案A-右侧监控栏.html"><div class="letter">A</div><div>
+    <h3>右侧监控栏</h3>
+    <div class="idea">编辑器为主 + <b>右栏标签页堆叠</b>三模块，切换查看</div>
+    <div class="idea-flow"><i>编辑器 70%</i><i>右栏 30%</i><i>标签切换</i></div>
+  </div></a>
+
+  <a class="card" href="方案B-大纲联动分屏.html"><div class="letter">B</div><div>
+    <h3>大纲联动分屏</h3>
+    <div class="idea"><b>文档大纲带检测状态点</b>，点章节 → 右栏只显示该章的检测结论/案例/人员，逐章精修</div>
+    <div class="idea-flow"><i>大纲 230px</i><i>编辑器</i><i>联动面板 360px</i></div>
+  </div></a>
+
+  <a class="card" href="方案C-底部检查台.html"><div class="letter">C</div><div>
+    <h3>底部检查台</h3>
+    <div class="idea">文档<b>占满全宽沉浸写作</b>，三模块作底部面板并排（IDE 终端式），条目点击跳正文</div>
+    <div class="idea-flow"><i>全宽文档</i><i>底部 280px 可拉伸</i><i>三列并排</i></div>
+  </div></a>
+
+  <a class="card" href="方案D-沉浸气泡.html"><div class="letter">D</div><div>
+    <h3>沉浸气泡</h3>
+    <div class="idea">问题<b>就地标注在字句上</b>（波浪线），点击气泡展开结论与修复建议；右下角风险分常驻——最像 Word 修订</div>
+    <div class="idea-flow"><i>纯文档</i><i>就地标注</i><i>气泡就地解决</i></div>
+  </div></a>
+
+  <a class="card" href="方案E-三栏工作流.html"><div class="letter">E</div><div>
+    <h3>三栏工作流</h3>
+    <div class="idea"><b>左正文 + 右三常驻同步栏</b>（废标/案例/人员），正文 30 秒自动重检测，复用素材与编辑同权重</div>
+    <div class="idea-flow"><i>正文 55%</i><i>三同步栏 45%</i><i>自动重检测</i></div>
+  </div></a>
+</div>
+</body>
+</html>

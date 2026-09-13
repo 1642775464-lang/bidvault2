@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>方案E · 三栏工作流</title>
+<style>
+  :root { --bg:#F4F7FB; --surface:#fff; --ink:#1E293B; --muted:#64748B; --line:#E2E8F0; --accent:#2563EB; --accent-soft:#EFF4FF; --ok:#16A34A; --warn:#D97706; --danger:#DC2626; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--ink); font:13px/1.6 "Segoe UI","Microsoft YaHei",sans-serif; }
+  .bar { background:var(--surface); border-bottom:1px solid var(--line); padding:9px 20px; display:flex; align-items:center; gap:14px; }
+  .bar b { color:var(--accent); }
+  .bar .fname { font-family:Consolas,monospace; font-size:12px; color:var(--muted); }
+  .bar .steps { margin-left:auto; display:flex; gap:6px; align-items:center; font-size:11.5px; color:var(--muted); }
+  .bar .steps span { padding:3px 12px; border-radius:999px; border:1px solid var(--line); }
+  .bar .steps span.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); font-weight:600; }
+  .layout { display:flex; height:calc(100vh - 42px); gap:10px; padding:10px; }
+  .col { background:var(--surface); border:1px solid var(--line); border-radius:12px; display:flex; flex-direction:column; overflow:hidden; }
+  .col .head { padding:10px 16px; border-bottom:1px solid var(--line); font-weight:600; font-size:13px; display:flex; align-items:center; gap:8px; }
+  .col .head .n { font-size:10.5px; padding:1px 8px; border-radius:4px; background:var(--accent-soft); color:var(--accent); font-weight:600; }
+  .col .head .n.warn { background:#FEF3C7; color:var(--warn); } .col .head .n.bad { background:#FEE2E2; color:var(--danger); }
+  .col .body { flex:1; overflow-y:auto; padding:12px; }
+  .c-doc { flex:1.25; }
+  .c-doc .doc p { margin-bottom:9px; color:#334155; font-size:12.5px; }
+  .c-doc h3 { font-size:13.5px; margin:14px 0 6px; }
+  .c-doc .flag { background:#FEE2E2; outline:1.5px solid var(--danger); outline-offset:2px; border-radius:3px; padding:0 3px; cursor:pointer; }
+  .c-right { flex:1; display:flex; flex-direction:column; gap:10px; }
+  .sec { flex:1; }
+  .sec .head .n { margin-left:auto; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:9px 11px; margin-bottom:8px; font-size:12px; }
+  .card .h { display:flex; gap:6px; align-items:center; margin-bottom:4px; }
+  .tag { font-size:10px; padding:1px 7px; border-radius:4px; font-weight:600; }
+  .tag.bad { background:#FEE2E2; color:var(--danger); } .tag.blue { background:var(--accent-soft); color:var(--accent); } .tag.ok { background:#DCFCE7; color:var(--ok); }
+  .card .a { color:var(--accent); cursor:pointer; font-size:11px; margin-left:auto; }
+  .card .m { font-size:10.5px; color:var(--muted); margin-top:3px; }
+  .sync { font-size:10.5px; color:var(--ok); padding:6px 16px; border-top:1px dashed var(--line); }
+  .foot-note { padding:6px 16px; font-size:11px; color:var(--muted); background:var(--bg); }
+</style>
+</head>
+<body>
+<div class="bar"><b>标库</b><span class="fname">智慧园区项目-投标文件-v0.3.docx</span>
+  <div class="steps"><span class="on">编辑与同步检测</span><span>逐条确认修复</span><span>导出</span></div>
+</div>
+<div class="layout">
+  <div class="col c-doc">
+    <div class="head">投标文件正文 <span class="n bad">2 废标点</span><span class="n warn">2 偏差</span></div>
+    <div class="body doc">
+      <h3>第三章 技术方案</h3>
+      <p>本项目采用模块化机房建设方案，配置<span class="flag">精密空调 2 台</span>，施工工期 180 日历天。</p>
+      <p>质量标准符合国家现行规范，验收按《GB50462》执行。</p>
+      <h3>第四章 类似项目业绩</h3>
+      <p>公司近年完成多个同类项目，其中〔待补充案例〕具有代表性。</p>
+      <h3>第二章 授权委托书</h3>
+      <p>委托代理人：王志强，联系电话 138××××××××。</p>
+    </div>
+    <div class="sync">● 编辑保存 30 秒后自动重检测</div>
+  </div>
+  <div class="c-right">
+    <div class="col sec">
+      <div class="head">同步废标检测 <span class="n bad">4 项</span></div>
+      <div class="body">
+        <div class="card"><div class="h"><span class="tag bad">未响应</span><span class="a">修复建议 ›</span></div>精密空调未注明一级能效<div class="m">对应正文高亮 · 招标 3.2 条</div></div>
+        <div class="card"><div class="h"><span class="tag bad">偏差</span><span class="a">详情 ›</span></div>工期 180 天 vs 要求 150 天<div class="m">对应正文高亮 · 招标 2.1 条</div></div>
+        <div class="card"><div class="h"><span class="tag bad">缺项</span><span class="a">插入模板 ›</span></div>开标一览表未编写<div class="m">格式要求第 4 项</div></div>
+        <div class="card"><div class="h"><span class="tag bad">缺证据</span><span class="a">补挂 ›</span></div>王志强社保证明未挂接<div class="m">资格审查必备</div></div>
+      </div>
+    </div>
+    <div class="col sec">
+      <div class="head">案例推荐 <span class="n">3 条</span></div>
+      <div class="body">
+        <div class="card"><div class="h"><span class="tag blue">机房类</span><span class="a">插入 ›</span></div>××银行机房监控项目<div class="m">486 万 · 2023 · 含合同+验收证据</div></div>
+        <div class="card"><div class="h"><span class="tag blue">园区类</span><span class="a">插入 ›</span></div>××智慧园区一期信息化<div class="m">890 万 · 2024 · 与本项目最相似</div></div>
+      </div>
+    </div>
+    <div class="col sec">
+      <div class="head">人员介绍 <span class="n">2 人</span></div>
+      <div class="body">
+        <div class="card"><div class="h"><span class="tag ok">材料齐</span><span class="a">插入介绍 ›</span></div>张建国 · 法定代表人<div class="m">一级建造师（机电）· 12 个项目</div></div>
+        <div class="card"><div class="h"><span class="tag bad">缺社保证明</span><span class="a">去补挂 ›</span></div>王志强 · 授权代表<div class="m">高工 · 金融行业 ×3</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="foot-note" style="padding:6px 16px;font-size:11px;color:var(--muted);background:var(--bg);">方案E · 三栏工作流 —— 左正文（问题处红框标记）+ 右侧三个常驻同步栏（废标检测/案例推荐/人员介绍），正文 30 秒自动重检测。复用素材与编辑同等地位，适合高频对照修改。</div>
+</body>
+</html>

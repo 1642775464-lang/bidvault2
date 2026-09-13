@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>方案C · 底部检查台</title>
+<style>
+  :root { --bg:#F4F7FB; --surface:#fff; --ink:#1E293B; --muted:#64748B; --line:#E2E8F0; --accent:#2563EB; --accent-soft:#EFF4FF; --ok:#16A34A; --warn:#D97706; --danger:#DC2626; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--ink); font:13.5px/1.65 "Segoe UI","Microsoft YaHei",sans-serif; display:flex; flex-direction:column; height:100vh; }
+  .bar { background:var(--surface); border-bottom:1px solid var(--line); padding:10px 24px; display:flex; align-items:center; gap:16px; flex-shrink:0; }
+  .bar b { color:var(--accent); }
+  .bar .fname { font-family:Consolas,monospace; font-size:12px; color:var(--muted); }
+  .bar .pill { font-size:11px; padding:2px 10px; border-radius:999px; font-weight:600; }
+  .pill.bad { background:#FEE2E2; color:var(--danger); } .pill.warn { background:#FEF3C7; color:var(--warn); } .pill.blue { background:var(--accent-soft); color:var(--accent); }
+  .bar .btn { margin-left:auto; background:var(--accent); color:#fff; border:none; border-radius:8px; padding:7px 18px; font-weight:600; cursor:pointer; }
+  .doc { flex:1; overflow-y:auto; padding:26px 15%; }
+  .doc h1 { font-size:20px; margin-bottom:14px; }
+  .doc h3 { font-size:15px; margin:18px 0 8px; color:#0F172A; }
+  .doc p { margin-bottom:10px; color:#334155; }
+  .doc .hl-bad { background:#FEE2E2; border-bottom:2px solid var(--danger); padding:0 2px; cursor:pointer; }
+  .doc .hl-warn { background:#FEF3C7; border-bottom:2px solid var(--warn); padding:0 2px; cursor:pointer; }
+  .dock { height:280px; background:var(--surface); border-top:2px solid var(--ink); display:flex; flex-direction:column; flex-shrink:0; }
+  .dock-head { display:flex; align-items:center; gap:4px; padding:8px 16px 0; }
+  .dock-head span { padding:7px 16px; cursor:pointer; font-size:12.5px; color:var(--muted); border-radius:8px 8px 0 0; }
+  .dock-head span.on { background:var(--accent-soft); color:var(--accent); font-weight:600; }
+  .dock-head .grip { margin-left:auto; color:var(--muted); font-size:12px; padding:4px 8px; }
+  .dock-body { flex:1; overflow-y:auto; padding:6px 16px 12px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+  .col .cap { font-size:10.5px; color:var(--muted); letter-spacing:.08em; font-family:Consolas,monospace; padding:4px 0; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px; font-size:12px; }
+  .card .h { display:flex; gap:6px; align-items:center; margin-bottom:4px; }
+  .tag { font-size:10px; padding:1px 7px; border-radius:4px; font-weight:600; }
+  .tag.bad { background:#FEE2E2; color:var(--danger); } .tag.warn { background:#FEF3C7; color:var(--warn); } .tag.blue { background:var(--accent-soft); color:var(--accent); } .tag.ok { background:#DCFCE7; color:var(--ok); }
+  .card .a { color:var(--accent); cursor:pointer; font-size:11px; margin-left:auto; }
+  .foot-note { padding:6px 16px; font-size:11px; color:var(--muted); border-top:1px solid var(--line); background:var(--bg); flex-shrink:0; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>标库</b><span class="fname">智慧园区项目-投标文件-v0.3.docx</span>
+  <span class="pill bad">废标 3</span><span class="pill warn">偏差 2</span><span class="pill blue">推荐素材 6</span>
+  <button class="btn">导出</button>
+</div>
+<div class="doc">
+  <h1>智慧园区数据中心项目投标文件</h1>
+  <h3>第一章 法定代表人身份证明</h3>
+  <p>兹证明张建国为本公司法定代表人，单位性质为有限责任公司。</p>
+  <h3>第二章 授权委托书</h3>
+  <p>本人张建国系法定代表人，现委托代理人王志强参加本项目投标活动。</p>
+  <h3>第三章 技术方案</h3>
+  <p>本项目采用模块化机房建设方案，配置<span class="hl-bad">精密空调 2 台</span>，施工工期计划 <span class="hl-warn">180 日历天</span>，质量标准符合国家现行规范。</p>
+  <h3>第四章 售后服务承诺</h3>
+  <p>质保期三年，7×24 小时响应，故障 4 小时内到场处理。</p>
+</div>
+<div class="dock">
+  <div class="dock-head"><span class="on">废标检测</span><span>案例推荐</span><span>人员介绍</span><span style="pointer-events:none;"></span><span class="grip">⇕ 拖拽调高 · 点击分类条目跳转正文</span></div>
+  <div class="dock-body">
+    <div class="col"><div class="cap">废标项（点击定位正文）</div>
+      <div class="card"><div class="h"><span class="tag bad">未响应</span><span class="a">定位 ›</span></div>精密空调未注明一级能效（招标要求 3.2 条）</div>
+      <div class="card"><div class="h"><span class="tag warn">偏差</span><span class="a">定位 ›</span></div>工期 180 天 &gt; 招标要求 150 天</div>
+      <div class="card"><div class="h"><span class="tag warn">缺项</span><span class="a">插入模板 ›</span></div>缺少「开标一览表」章节</div>
+    </div>
+    <div class="col"><div class="cap">推荐案例（按本文行业与章节）</div>
+      <div class="card"><div class="h"><span class="tag blue">案例</span><span class="a">插入该案例 ›</span></div>××银行机房监控项目 · 486 万 · 2023</div>
+      <div class="card"><div class="h"><span class="tag blue">案例</span><span class="a">插入 ›</span></div>××数据中心二期机电 · 1200 万 · 2024</div>
+      <div class="card"><div class="h"><span class="tag blue">信誉</span><span class="a">插入 ›</span></div>市级优秀 contractor 奖 · 无不良记录</div>
+    </div>
+    <div class="col"><div class="cap">人员介绍（检测到 2 人）</div>
+      <div class="card"><div class="h"><span class="tag ok">已配置</span><span class="a">档案 ›</span></div>张建国 · 法定代表人 · 一级建造师（机电）</div>
+      <div class="card"><div class="h"><span class="tag warn">缺证书</span><span class="a">从素材库补 ›</span></div>王志强 · 授权代表 · 社保证明未挂接</div>
+    </div>
+  </div>
+</div>
+<div class="foot-note">方案C · 底部检查台 —— 文档占满全宽（写作沉浸），三个模块作为底部可拉伸面板并排呈现，条目点击跳转正文位置。类似 IDE 终端区的习惯。</div>
+</body>
+</html>
