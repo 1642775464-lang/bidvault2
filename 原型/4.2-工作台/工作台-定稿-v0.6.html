@@ -1,0 +1,978 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>标书工作台 · 优化版原型</title>
+<style>
+:root{
+  --bg:#f4f6f9; --card:#ffffff; --line:#e2e7ee; --line-soft:#edf1f6;
+  --ink:#1d2b3a; --sub:#51637a; --dim:#71828f;
+  --accent:#2b5fc8; --accent-deep:#1f4aa8; --accent-bg:#edf3fd; --accent-line:#c3d6f4;
+  --fatal:#bd3a30; --fatal-bg:#fbeeea; --fatal-line:#e6b3ac;
+  --risk:#a86408; --risk-bg:#fbf3e3; --risk-line:#e3c48e;
+  --hint:#5f7186; --hint-bg:#f0f3f7; --hint-line:#cdd7e1;
+  --ok:#2e7d4f; --ok-bg:#eaf5ee;
+  --hl:#fbf1cd; --hl-line:#e5c765;
+  --mono:Consolas,"Cascadia Code","Courier New",monospace;
+  --sans:"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+button{font-family:inherit;cursor:pointer}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+body{display:flex;height:100vh;overflow:hidden;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.65}
+.hidden{display:none!important}
+
+/* ============ 左侧导航（保持原布局） ============ */
+.nav{width:200px;flex:none;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column}
+.nav-logo{display:flex;align-items:center;gap:8px;padding:16px 18px 14px}
+.logo-mark{width:26px;height:26px;border-radius:6px;background:var(--accent);color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center}
+.logo-word{font-weight:600;font-size:14px;color:var(--ink)}
+.nav nav{padding:6px 10px;display:flex;flex-direction:column;gap:2px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;color:var(--sub);font-size:13.5px;text-decoration:none;border:none;background:none;width:100%;text-align:left}
+.nav-item svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.nav-item:hover{background:#f5f8fc;color:var(--ink)}
+.nav-item.on{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.nav-foot{margin-top:auto;padding:14px 18px;font-size:11.5px;color:var(--dim);border-top:1px solid var(--line-soft)}
+
+/* ============ 主区骨架 ============ */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.crumb-bar{display:flex;align-items:center;justify-content:space-between;padding:8px 20px;background:#fff;border-bottom:1px solid var(--line-soft)}
+.crumb{font-size:12.5px;color:var(--dim)}
+.crumb b{color:var(--sub);font-weight:600}
+.crumb .sep{margin:0 6px;color:var(--line)}
+.top-tools{display:flex;align-items:center;gap:6px}
+.icon-btn{width:28px;height:28px;border:1px solid transparent;background:none;border-radius:6px;color:var(--sub);display:flex;align-items:center;justify-content:center}
+.icon-btn:hover{background:#f2f5f9;color:var(--ink)}
+.icon-btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.avatar{width:24px;height:24px;border-radius:50%;background:#dce6f5;color:var(--accent-deep);font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;margin-left:4px}
+.link-btn{border:none;background:none;color:var(--sub);font-size:12px;padding:4px 8px;border-radius:6px}
+.link-btn:hover{background:#f2f5f9;color:var(--ink)}
+
+/* ============ 项目上下文条 ============ */
+.ctx{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 20px;background:#fff;border-bottom:1px solid var(--line)}
+.ctx-label{font-size:12.5px;color:var(--dim)}
+.dd{position:relative}
+.dd-btn{display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 12px;font-size:13.5px;color:var(--ink);font-weight:600}
+.dd-btn:hover{border-color:var(--accent-line)}
+.dd-btn .caret{width:10px;height:10px;stroke:var(--dim);fill:none;stroke-width:2;stroke-linecap:round}
+.dd-menu{position:absolute;top:calc(100% + 6px);left:0;min-width:280px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(23,43,77,.12);padding:6px;z-index:40}
+.dd-item{display:flex;align-items:center;gap:8px;width:100%;border:none;background:none;text-align:left;padding:8px 10px;border-radius:7px;font-size:13px;color:var(--ink)}
+.dd-item:hover{background:#f4f7fb}
+.dd-item .chk{width:14px;color:var(--accent);font-weight:700}
+.dd-item .dcode{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.dd-new{border-top:1px dashed var(--line);margin-top:6px;padding-top:8px}
+.dd-new .dd-item{color:var(--accent);font-weight:600}
+.ctx-code{font-family:var(--mono);font-size:12px;color:var(--dim)}
+.ctx-owner{font-size:12.5px;color:var(--sub)}
+.badge-due{display:inline-flex;align-items:center;font-size:12px;font-weight:600;padding:2px 9px;border-radius:20px;border:1px solid}
+.badge-due.d3{color:var(--risk);border-color:var(--risk-line);background:var(--risk-bg)}
+.badge-due.d0{color:var(--fatal);border-color:var(--fatal-line);background:var(--fatal-bg)}
+.badge-due.dn{color:var(--sub);border-color:var(--line);background:#f6f8fb}
+.ctx-actions{margin-left:auto;display:flex;align-items:center;gap:10px}
+.btn-primary{position:relative;display:inline-flex;align-items:center;gap:7px;background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:8px;padding:8px 18px;font-size:13.5px;font-weight:600}
+.btn-primary:hover{background:var(--accent-deep)}
+.btn-primary:disabled{opacity:.65;cursor:default}
+.btn-primary svg{width:14px;height:14px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.split{display:inline-flex}
+.split .exp-main{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:8px 0 0 8px;padding:8px 14px;font-size:13.5px;font-weight:600}
+.split .exp-main:hover{border-color:var(--accent-line);color:var(--accent-deep)}
+.split .exp-caret{border:1px solid var(--line);border-left:none;background:#fff;border-radius:0 8px 8px 0;padding:8px 9px;display:flex;align-items:center}
+.split .exp-caret:hover{border-color:var(--accent-line)}
+.split .exp-caret svg{width:10px;height:10px;stroke:var(--sub);fill:none;stroke-width:2;stroke-linecap:round}
+.split .exp-caret{position:relative}
+.n-badge{position:absolute;top:-7px;right:-7px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--fatal);color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #fff}
+.menu{position:absolute;top:calc(100% + 6px);right:0;min-width:170px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(23,43,77,.12);padding:5px;z-index:40}
+.menu button{display:block;width:100%;text-align:left;border:none;background:none;padding:8px 11px;border-radius:7px;font-size:13px;color:var(--ink)}
+.menu button:hover{background:#f4f7fb}
+
+/* ============ 工作区两栏 ============ */
+.workspace{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 460px;gap:16px;padding:16px 20px 0}
+.col{min-height:0;display:flex;flex-direction:column}
+.col-doc{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.doc-toolbar{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line-soft);flex:none}
+.search{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:5px 9px;background:#fbfcfe;flex:1;max-width:300px}
+.search svg{width:13px;height:13px;stroke:var(--dim);fill:none;stroke-width:2;stroke-linecap:round}
+.search input{border:none;background:none;outline:none;font-size:12.5px;width:100%;color:var(--ink)}
+.search input::placeholder{color:#93a1af}
+.hit-info{font-family:var(--mono);font-size:11px;color:var(--dim);white-space:nowrap}
+.mini-btn{border:1px solid var(--line);background:#fff;border-radius:6px;font-size:12px;color:var(--sub);padding:2px 8px;line-height:1.5}
+.mini-btn:hover{border-color:var(--accent-line);color:var(--accent-deep)}
+.mini-btn:disabled{opacity:.45;cursor:default}
+.tool-sep{width:1px;height:16px;background:var(--line)}
+.tool-note{margin-left:auto;font-size:12px;color:var(--dim);white-space:nowrap}
+.doc-scroll{flex:1;overflow-y:auto;position:relative}
+.doc-wrap{display:grid;grid-template-columns:150px minmax(0,1fr);gap:0}
+.doc-outline{border-right:1px solid var(--line-soft);padding:20px 8px;position:sticky;top:0;align-self:start;max-height:calc(100vh - 220px);overflow:auto}
+.doc-outline .ol-title{font-size:11px;letter-spacing:.08em;color:var(--dim);padding:0 10px 8px}
+.ol-item{display:block;width:100%;text-align:left;border:none;background:none;font-size:12.5px;color:var(--sub);padding:6px 10px;border-radius:6px;border-left:2px solid transparent}
+.ol-item:hover{color:var(--ink);background:#f6f9fd}
+.ol-item.on{color:var(--accent);border-left-color:var(--accent);background:var(--accent-bg);font-weight:600}
+.doc-page{padding:26px 34px 60px 30px;font-size:15px;line-height:1.9;color:#2a3846;max-width:640px}
+.doc-page h1{text-align:center;font-size:19px;color:var(--ink);letter-spacing:.02em;margin-bottom:8px;font-weight:700}
+.doc-meta{text-align:center;font-size:11.5px;color:var(--dim);font-family:var(--mono);padding-bottom:14px;border-bottom:1px solid var(--line-soft);margin-bottom:18px}
+.doc-page h2{font-size:14.5px;font-weight:700;color:var(--ink);margin:20px 0 8px;scroll-margin-top:12px}
+.doc-page p{margin-bottom:10px;text-align:justify}
+.doc-page blockquote-note{display:block}
+.rh{background:var(--hl);border-bottom:1.5px solid var(--hl-line);border-radius:2px;padding:1px 2px;cursor:pointer;transition:background .15s}
+.rh:hover{background:#f7e7ac}
+.rh.flash{animation:flash 1s ease}
+@keyframes flash{0%,40%{background:#f3d878}100%{background:var(--hl)}}
+.rhm{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;color:#fff;font-size:10px;font-weight:700;font-family:var(--mono);vertical-align:2px;margin-left:3px}
+.rhm-fatal{background:var(--fatal)} .rhm-risk{background:var(--risk)} .rhm-hint{background:var(--hint)}
+mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
+.doc-progress{height:3px;background:var(--line-soft);flex:none}
+.doc-progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .1s linear}
+
+/* ============ 检测面板 ============ */
+.col-panel{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.tabs{display:flex;border-bottom:1px solid var(--line);flex:none;background:#fff;position:sticky;top:0;z-index:5}
+.tab{flex:1;border:none;background:none;padding:11px 6px;font-size:13px;color:var(--sub);border-bottom:2px solid transparent;font-weight:500}
+.tab:hover{color:var(--ink)}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.panel-body{flex:1;overflow-y:auto;display:flex;flex-direction:column}
+.tabpane{display:flex;flex-direction:column;min-height:0}
+
+/* 总览条 */
+.ov{padding:14px 16px 12px;border-bottom:1px solid var(--line-soft)}
+.ov-top{display:flex;align-items:baseline;gap:10px}
+.ov-idx{font-family:var(--mono);font-size:30px;font-weight:700;line-height:1}
+.ov-idx.lv-red{color:var(--fatal)} .ov-idx.lv-amber{color:var(--risk)} .ov-idx.lv-green{color:var(--ok)} .ov-idx.lv-na{color:var(--dim)}
+.ov-label{font-size:12px;color:var(--dim)}
+.ov-lv{font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:10px;margin-left:auto}
+.ov-lv.lv-red{color:var(--fatal);background:var(--fatal-bg)}
+.ov-lv.lv-amber{color:var(--risk);background:var(--risk-bg)}
+.ov-lv.lv-green{color:var(--ok);background:var(--ok-bg)}
+.ov-lv.lv-na{color:var(--dim);background:var(--hint-bg)}
+.ov-counts{display:flex;gap:14px;margin-top:8px;font-size:12.5px;color:var(--sub)}
+.ov-counts .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:1px}
+.dot-fatal{background:var(--fatal)} .dot-risk{background:var(--risk)} .dot-hint{background:var(--hint)}
+.ov-sub{display:flex;align-items:center;justify-content:space-between;margin-top:10px}
+.ov-time{font-size:11.5px;color:var(--dim)}
+.ov-sub .mini-btn{display:inline-flex;align-items:center;gap:5px}
+.ov-sub .mini-btn svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ov-scanbar{height:3px;border-radius:2px;background:var(--line-soft);margin-top:10px;overflow:hidden}
+.ov-scanbar i{display:block;height:100%;width:0;background:var(--accent);transition:width 1.4s ease}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px;align-items:center}
+.chip{border:1px solid var(--line);background:#fff;border-radius:16px;font-size:12px;color:var(--sub);padding:3px 11px}
+.chip:hover{border-color:var(--accent-line);color:var(--accent-deep)}
+.chip.on{background:var(--accent-bg);border-color:var(--accent-line);color:var(--accent-deep);font-weight:600}
+.chip:disabled{opacity:.5;cursor:default}
+.chip .n{font-family:var(--mono);font-size:11px;margin-left:3px}
+.switch-wrap{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:12px;color:var(--sub)}
+.sw{width:32px;height:18px;border-radius:10px;border:1px solid var(--line);background:#eef1f5;position:relative;transition:background .15s}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff;border:1px solid var(--line);transition:left .15s}
+.sw[aria-checked="true"]{background:var(--accent);border-color:var(--accent)}
+.sw[aria-checked="true"]::after{left:16px;border-color:var(--accent)}
+
+/* 风险卡 */
+.risklist{display:flex;flex-direction:column;gap:10px;padding:12px 16px 4px}
+.rc{border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fff;transition:opacity .2s,border-color .15s}
+.rc:hover{border-color:#c9d6ea}
+.rc.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.rc.is-done{opacity:.48;background:#fafbfc}
+.rc-head{display:flex;align-items:center;gap:7px}
+.sev{flex:none;font-size:11px;font-weight:700;padding:1px 8px;border-radius:4px;letter-spacing:.04em}
+.sev-fatal{background:var(--fatal);color:#fff}
+.sev-risk{background:var(--risk-bg);color:var(--risk);border:1px solid var(--risk-line)}
+.sev-hint{background:var(--hint-bg);color:var(--hint);border:1px solid var(--hint-line)}
+.tchip{flex:none;font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:1px 7px;background:#fafbfd}
+.rc-head h4{font-size:13.5px;font-weight:600;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-done{margin-left:auto;flex:none;width:22px;height:22px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--dim);font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center}
+.rc-done:hover{border-color:var(--ok);color:var(--ok)}
+.rc-done[aria-pressed="true"]{background:var(--ok);border-color:var(--ok);color:#fff}
+.rc-meta{font-size:12.5px;color:var(--sub);margin-top:7px}
+.rc-meta .loc{font-family:var(--mono);font-size:11.5px;color:var(--accent-deep)}
+.rc-actions{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
+.act{border:1px solid var(--line);background:#fff;border-radius:7px;font-size:12px;color:var(--sub);padding:4px 11px}
+.act:hover{border-color:var(--accent-line);color:var(--accent-deep)}
+.act.pri{color:var(--accent-deep);border-color:var(--accent-line);background:var(--accent-bg);font-weight:600}
+.act.pri:hover{background:#e0ecfb}
+.rc-detail{margin-top:10px;border-top:1px dashed var(--line);padding-top:9px;display:grid;gap:8px}
+.rc-detail .lab{font-size:11px;color:var(--dim);letter-spacing:.05em;margin-bottom:2px}
+.rc-detail blockquote{border-left:3px solid var(--hl-line);background:#fdfaf0;padding:6px 10px;font-size:12.5px;color:#4c4433;border-radius:0 6px 6px 0}
+.rc-detail .adv{font-size:12.5px;color:var(--ink)}
+.rc-detail .req{font-size:12px;color:var(--sub)}
+.done-head{display:flex;align-items:center;gap:6px;padding:12px 16px 4px;font-size:12px;color:var(--dim)}
+.done-head button{border:none;background:none;color:var(--dim);font-size:12px;display:flex;align-items:center;gap:4px}
+.done-head button:hover{color:var(--ink)}
+.done-head .caret{width:9px;height:9px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;transition:transform .15s}
+.done-head.open .caret{transform:rotate(90deg)}
+
+/* 空态 */
+.emptystate{margin:14px 16px;border:1px dashed var(--line);border-radius:10px;padding:30px 18px;text-align:center}
+.es-icon{width:38px;height:38px;margin:0 auto 10px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.es-icon svg{width:18px;height:18px;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.es-clean .es-icon{background:var(--ok-bg)} .es-clean .es-icon svg{stroke:var(--ok)}
+.es-undet .es-icon{background:var(--accent-bg)} .es-undet .es-icon svg{stroke:var(--accent)}
+.es-title{font-size:13.5px;font-weight:600;color:var(--ink)}
+.es-text{font-size:12px;color:var(--dim);margin-top:4px}
+.es-act{margin-top:12px}
+
+/* 其他 tab */
+.demo-note{margin:12px 16px 0;font-size:11.5px;color:var(--dim);font-family:var(--mono)}
+.mini-table{margin:10px 16px;border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:12.5px}
+.mini-table table{width:100%;border-collapse:collapse}
+.mini-table th{text-align:left;font-size:11px;font-weight:600;color:var(--dim);background:#fafbfd;padding:8px 12px;border-bottom:1px solid var(--line)}
+.mini-table td{padding:9px 12px;border-bottom:1px solid var(--line-soft);color:var(--sub);vertical-align:top}
+.mini-table tr:last-child td{border-bottom:none}
+.st{display:inline-flex;align-items:center;font-size:11px;font-weight:600;padding:1px 8px;border-radius:10px}
+.st-ok{color:var(--ok);background:var(--ok-bg)}
+.st-warn{color:var(--risk);background:var(--risk-bg)}
+.person{margin:10px 16px;display:flex;flex-direction:column;gap:8px}
+.person .p-row{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.p-ava{width:30px;height:30px;border-radius:50%;background:var(--accent-bg);color:var(--accent-deep);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
+.p-info b{font-size:13px;color:var(--ink);font-weight:600}
+.p-info span{display:block;font-size:11.5px;color:var(--dim)}
+.p-tag{margin-left:auto;font-size:11px;padding:2px 8px;border-radius:10px}
+.p-tag.warn{color:var(--risk);background:var(--risk-bg)}
+.p-tag.ok{color:var(--ok);background:var(--ok-bg)}
+
+/* 案例推荐 */
+.cases-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px 0;flex-wrap:wrap}
+.cases-title{font-size:12px;color:var(--dim)}
+.sort-wrap{display:flex;gap:6px;flex:none}
+.mini-btn.on{border-color:var(--accent-line);color:var(--accent-deep);background:var(--accent-bg);font-weight:600}
+.caselist{display:flex;flex-direction:column;gap:10px;padding:10px 16px 16px}
+.case-card{border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fff}
+.case-card:hover{border-color:#c9d6ea}
+.case-head{display:flex;align-items:center;gap:8px}
+.case-match{flex:none;font-family:var(--mono);font-size:11px;font-weight:700;padding:1px 7px;border-radius:4px}
+.m-hi{background:var(--ok-bg);color:var(--ok)}
+.m-mid{background:var(--accent-bg);color:var(--accent-deep)}
+.m-lo{background:var(--hint-bg);color:var(--hint)}
+.case-head h4{font-size:13.5px;font-weight:600;color:var(--ink);min-width:0}
+.case-meta{font-size:12px;color:var(--sub);margin-top:6px}
+.case-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.case-tags span{font-size:11px;color:var(--sub);background:#f4f7fb;border:1px solid var(--line-soft);border-radius:4px;padding:1px 7px}
+.case-why{font-size:12.5px;color:var(--sub);margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+
+/* toast / modal */
+.toast-wrap{position:fixed;top:16px;right:20px;z-index:90;display:flex;flex-direction:column;gap:8px}
+.toast{background:#22354c;color:#f2f6fb;font-size:12.5px;padding:9px 16px;border-radius:9px;box-shadow:0 6px 20px rgba(15,30,55,.25);animation:tin .2s ease}
+@keyframes tin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.overlay{position:fixed;inset:0;background:rgba(18,30,48,.42);z-index:80;display:flex;align-items:center;justify-content:center}
+.modal{width:min(420px,90vw);background:#fff;border-radius:14px;padding:20px 22px;box-shadow:0 20px 60px rgba(10,25,50,.3)}
+.modal h3{font-size:15px;font-weight:700;color:var(--ink)}
+.modal .m-body{font-size:13px;color:var(--sub);margin-top:8px}
+.modal .m-body ul{padding-left:18px;margin:6px 0;display:grid;gap:4px}
+.modal .m-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.btn-ghost{border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 16px;font-size:13px;color:var(--sub)}
+.btn-ghost:hover{color:var(--ink);border-color:#c4cfda}
+
+/* 响应式 */
+@media (max-width:1240px){.workspace{grid-template-columns:minmax(0,1fr) 400px}.doc-outline{display:none}.doc-wrap{grid-template-columns:1fr}}
+@media (max-width:980px){
+  body{height:auto;overflow:auto;flex-direction:column}
+  .nav{width:100%;flex-direction:row;align-items:center;border-right:none;border-bottom:1px solid var(--line)}
+  .nav nav{flex-direction:row;overflow-x:auto}
+  .nav-foot{display:none}
+  .main{height:auto}
+  .workspace{grid-template-columns:1fr;padding-bottom:16px}
+  .doc-scroll{overflow:visible}
+  .col-doc,.col-panel{max-height:none}
+  .doc-outline{display:none}
+  .panel-body{overflow:visible}
+  .doc-progress{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- 左侧导航：保持原布局不动 -->
+<aside class="nav">
+  <div class="nav-logo"><span class="logo-mark">标</span><span class="logo-word">标 library</span></div>
+  <nav>
+    <button class="nav-item on"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg>工作台</button>
+    <button class="nav-item"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>项目库</button>
+    <button class="nav-item"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6Z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h6"/></svg>文档库</button>
+    <button class="nav-item"><svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5Z"/><path d="m3 13 9 5 9-5"/></svg>素材库</button>
+    <button class="nav-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 4v2.5M12 17.5V20M4 12h2.5M17.5 12H20M6.3 6.3l1.8 1.8M15.9 15.9l1.8 1.8M17.7 6.3l-1.8 1.8M8.1 15.9l-1.8 1.8"/></svg>系统设置</button>
+  </nav>
+  <div class="nav-foot">v0.6 · 原型演示</div>
+</aside>
+
+<div class="main">
+  <!-- 面包屑 + 全局工具 -->
+  <div class="crumb-bar">
+    <div class="crumb"><b>标库</b><span class="sep">/</span>工作台</div>
+    <div class="top-tools">
+      <button class="link-btn" id="helpBtn">原型说明</button>
+      <span class="tool-sep"></span>
+      <button class="icon-btn" title="全局搜索" data-demo="全局搜索"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg></button>
+      <button class="icon-btn" title="通知" data-demo="通知中心"><svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 19a2 2 0 0 0 4 0"/></svg></button>
+      <span class="avatar">朱</span>
+    </div>
+  </div>
+
+  <!-- 项目上下文条 -->
+  <header class="ctx">
+    <span class="ctx-label">项目</span>
+    <div class="dd">
+      <button class="dd-btn" id="ddBtn" aria-haspopup="listbox"><span id="ddName">—</span><svg class="caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div class="dd-menu hidden" id="ddMenu"></div>
+    </div>
+    <span class="ctx-code" id="ctxCode">—</span>
+    <span class="badge-due" id="ctxDue">—</span>
+    <span class="ctx-owner" id="ctxOwner">—</span>
+    <div class="ctx-actions">
+      <button class="btn-primary" id="detectBtn">
+        <svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v5.2L5.6 16A3 3 0 0 0 8.2 20.5h7.6A3 3 0 0 0 18.4 16L14 8.2V3"/></svg>
+        <span id="detectLabel">开始检测</span>
+      </button>
+      <div class="split">
+        <button class="exp-main" id="expMain">导出 Word<span class="n-badge hidden" id="expBadge"></span></button>
+        <button class="exp-caret" id="expCaret" aria-haspopup="menu" title="更多导出格式"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        <div class="menu hidden" id="expMenu">
+          <button data-fmt="Word">导出 Word</button>
+          <button data-fmt="PDF">导出 PDF</button>
+          <button data-fmt="检测报告">导出检测报告</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 工作区：文档预览 | 废标检测 -->
+  <div class="workspace">
+
+    <!-- 文档预览 -->
+    <section class="col col-doc">
+      <div class="doc-toolbar">
+        <div class="search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+          <input id="searchInput" type="text" placeholder="在文档内搜索…" aria-label="文档内搜索">
+        </div>
+        <span class="hit-info" id="hitInfo">—</span>
+        <button class="mini-btn" id="hitPrev" disabled title="上一处">↑</button>
+        <button class="mini-btn" id="hitNext" disabled title="下一处">↓</button>
+        <span class="tool-sep"></span>
+        <button class="mini-btn" id="fsMinus" title="减小字号">A−</button>
+        <button class="mini-btn" id="fsPlus" title="增大字号">A+</button>
+        <span class="tool-note" id="docNote">—</span>
+      </div>
+      <div class="doc-scroll" id="docScroll">
+        <div class="doc-wrap">
+          <aside class="doc-outline" id="docOutline"></aside>
+
+          <article class="doc-page" id="docA">
+            <h1>智慧园区数据中心项目投标文件</h1>
+            <p class="doc-meta">招标编号 HTC-HW-2026-0891 / 共 5 章 / 最近编辑 09-14 11:20</p>
+            <h2 id="ch-a1">第一章 投标函</h2>
+            <p>致：南青云网络技术有限公司（招标人）</p>
+            <p>根据贵方招标文件（编号：HTC-HW-2026-0891）正式授权，我方参加本次投标。我方已全面研究并充分理解招标文件中的各项规定和要求。</p>
+            <p><span class="rh" id="hl-r1" data-risk="r1" data-tip="致命 · 缺项：开标一览表未填写">随本投标函一并提交下列文件：开标一览表、法定代表人身份证明、授权委托书。<sup class="rhm rhm-fatal">1</sup></span></p>
+            <h2 id="ch-a2">第二章 法定代表人身份证明</h2>
+            <p>兹证明张建国为本公司法定代表人，单位性质为有限责任公司，注册资本壹仟万元整。</p>
+            <h2 id="ch-a3">第三章 授权委托书</h2>
+            <p>本人张建国系法定代表人，现授权代理人王志强参加本项目投标活动，并代表我方处理投标过程中的全部事宜。</p>
+            <h2 id="ch-a4">第四章 技术方案</h2>
+            <p>本项目采用模块化机房建设方案，数据中心按国家 B 级机房标准建设，<span class="rh" id="hl-r2" data-risk="r2" data-tip="致命 · 未响应：精密空调未标注一级能效">配置精密空调 2 台<sup class="rhm rhm-fatal">2</sup></span>、UPS 不间断电源系统 1 套，动力监控全覆盖。</p>
+            <p><span class="rh" id="hl-r3" data-risk="r3" data-tip="风险 · 偏离：工期 180 天，招标要求 150 天">施工工期计划 180 日历天<sup class="rhm rhm-risk">3</sup></span>，质量标准符合国家现行规范，验收合格率 100%。</p>
+            <p>项目团队配置项目经理 1 名（一级建造师机电），高级工程师 2 名，专业施工人员 18 名。</p>
+            <h2 id="ch-a5">第五章 类似项目业绩</h2>
+            <p>近三年内，我公司完成的类似项目包括：云启数据中心机房改造项目（2024 年，合同额 1,280 万元）、城安枢纽楼宇智能化项目（2023 年，合同额 960 万元）。</p>
+            <p><span class="rh" id="hl-r4" data-risk="r4" data-tip="提示 · 缺证：主承建人证明未标注对应业绩">主承建人王志强在上述项目中担任项目经理，相关业绩证明见附件。<sup class="rhm rhm-hint">4</sup></span></p>
+          </article>
+
+          <article class="doc-page hidden" id="docB">
+            <h1>绿色物流产业园仓储项目投标文件</h1>
+            <p class="doc-meta">招标编号 HTC-LOG-2026-0342 / 共 3 章 / 最近编辑 09-12 17:45</p>
+            <h2 id="ch-b1">第一章 投标函</h2>
+            <p>致：绿源物流集团有限公司（招标人）</p>
+            <p>根据贵方招标文件（编号：HTC-LOG-2026-0342）正式授权，我方参加本次投标，并承诺完全响应招标文件的全部条款和要求。</p>
+            <h2 id="ch-b2">第二章 技术方案</h2>
+            <p>本项目采用高位立体货架方案，库区按消防丙类标准设计，配置 WMS 仓储管理系统 1 套、AGV 搬运机器人 8 台。</p>
+            <p>施工工期计划 120 日历天，质量标准符合国家现行规范，验收合格率 100%。</p>
+            <h2 id="ch-b3">第三章 类似项目业绩</h2>
+            <p>近三年内完成的类似项目：临港冷链仓储中心项目（2025 年，合同额 2,150 万元）、空港跨境电商仓项目（2024 年，合同额 1,430 万元），主承建人业绩证明材料齐全。</p>
+          </article>
+        </div>
+      </div>
+      <div class="doc-progress"><i id="docProg"></i></div>
+    </section>
+
+    <!-- 废标检测面板 -->
+    <section class="col col-panel">
+      <div class="tabs" role="tablist">
+        <button class="tab on" data-tab="scan" role="tab" aria-selected="true">废标检测</button>
+        <button class="tab" data-tab="score" role="tab" aria-selected="false">评分办法对照</button>
+        <button class="tab" data-tab="cases" role="tab" aria-selected="false">案例推荐</button>
+        <button class="tab" data-tab="people" role="tab" aria-selected="false">人员介绍</button>
+      </div>
+
+      <div class="panel-body">
+        <!-- 废标检测 -->
+        <div class="tabpane" id="pane-scan">
+          <div class="ov">
+            <div class="ov-top">
+              <span class="ov-idx lv-na" id="ovIdx">—</span>
+              <span class="ov-label">废标风险指数<br><span style="font-size:10.5px">0 安全 · 100 极高</span></span>
+              <span class="ov-lv lv-na" id="ovLv">尚未检测</span>
+            </div>
+            <div class="ov-counts" id="ovCounts"></div>
+            <div class="ov-scanbar hidden" id="scanBar"><i></i></div>
+            <div class="ov-sub">
+              <span class="ov-time" id="ovTime">—</span>
+              <button class="mini-btn" id="rescanBtn"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 5v6h-6"/></svg>重新检测</button>
+            </div>
+            <div class="chips" id="chips"></div>
+          </div>
+
+          <div class="emptystate hidden" id="emptyState"></div>
+          <div class="risklist" id="riskList"></div>
+          <div id="doneWrap">
+            <div class="done-head" id="doneHead">
+              <button id="doneToggle" aria-expanded="false"><svg class="caret" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg><span id="doneLabel">已处理（0）</span></button>
+            </div>
+            <div class="risklist hidden" id="doneList" style="padding-top:2px"></div>
+          </div>
+        </div>
+
+        <!-- 评分办法对照 -->
+        <div class="tabpane hidden" id="pane-score">
+          <p class="demo-note">对照招标评分办法逐项核对技术分响应情况 · 下表为示例数据</p>
+          <div class="mini-table">
+            <table>
+              <thead><tr><th>评分项</th><th>招标要求</th><th>投标响应</th><th>状态</th></tr></thead>
+              <tbody id="scoreBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 案例推荐 -->
+        <div class="tabpane hidden" id="pane-cases">
+          <div class="cases-head">
+            <span class="cases-title">同类中标案例 · 基于项目类型与招标要求匹配 · 示例数据</span>
+            <span class="sort-wrap"><button class="mini-btn on" data-sort="match">按匹配度</button><button class="mini-btn" data-sort="time">按中标时间</button></span>
+          </div>
+          <div class="caselist" id="caseList"></div>
+        </div>
+
+        <!-- 人员介绍 -->
+        <div class="tabpane hidden" id="pane-people">
+          <div class="person" id="peopleList"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+<div class="overlay hidden" id="overlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <h3 id="mTitle">—</h3>
+    <div class="m-body" id="mBody"></div>
+    <div class="m-foot">
+      <button class="btn-ghost hidden" id="mCancel">取消</button>
+      <button class="btn-primary" id="mOk">知道了</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+function $(s){return document.querySelector(s)}
+function $$(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))}
+
+/* ================= 数据 ================= */
+var DATA={
+  A:{name:'智慧园区数据中心项目',code:'HTC-HW-2026-0891',owner:'招标人：南青云网络技术有限公司',days:3,detectedAt:'今天 13:32',
+    risks:[
+      {id:'r1',sev:'fatal',type:'缺项',title:'开标一览表未填写',
+       meta:'正文第一章：投标函所附文件清单中，开标一览表尚未编制',
+       req:'招标文件 4.1 条：投标函后须附开标一览表，逐项填写并签章',
+       quote:'随本投标函一并提交下列文件：开标一览表、法定代表人身份证明、授权委托书。',
+       advice:'使用模板库「开标一览表」模板：填写项目名称、招标编号、投标报价、工期与投标有效期，签字盖章后插入第一章之后。',fix:'填入模板'},
+      {id:'r2',sev:'fatal',type:'未响应',title:'精密空调未标注一级能效',
+       meta:'招标 5.2 条要求一级能效，第四章设备清单未标注',
+       req:'招标文件 5.2 条：机房空调须为一级能效，并提供节能认证证书',
+       quote:'配置精密空调 2 台、UPS 不间断电源系统 1 套，动力监控全覆盖。',
+       advice:'在设备清单中补充「精密空调（一级能效）」并附节能认证证书编号，证书扫描件归入资质附件。',fix:'补充能效标注'},
+      {id:'r3',sev:'risk',type:'偏离',title:'工期 180 天 vs 要求 150 天',
+       meta:'招标要求 150 日历天，投标写 180 日历天，偏差 +30 天',
+       req:'招标文件 3.4 条：工期不得超过 150 日历天，持平或负偏离',
+       quote:'施工工期计划 180 日历天，质量标准符合国家现行规范，验收合格率 100%。',
+       advice:'压缩施工组织计划至 150 日历天以内；如确有困难，附工期偏差说明与赶工措施，供评标委员会裁量。',fix:'调整工期'},
+      {id:'r4',sev:'hint',type:'缺证',title:'主承建人证明未标注业绩',
+       meta:'检测要求 4.6 条：需标注对应业绩并附证明页码',
+       req:'招标文件 4.6 条：项目经理业绩须标注对应项目名称与页码',
+       quote:'主承建人王志强在上述项目中担任项目经理，相关业绩证明见附件。',
+       advice:'在业绩证明中标注对应项目名称与合同页码，附件建立索引；上传盖章版扫描件。',fix:'上传证明'}
+    ]},
+  B:{name:'绿色物流产业园仓储项目',code:'HTC-LOG-2026-0342',owner:'招标人：绿源物流集团有限公司',days:12,detectedAt:null,risks:[]}
+};
+var CASES={
+  A:[
+    {match:94,title:'华东智算中心机房工程项目',amount:'2,760 万',time:'2025-11',winner:'华建数科工程集团',tags:['模块化机房','国家 B 级标准','一级能效空调'],why:'技术架构与本项目一致，其设备清单的能效标注写法可直接参考（对应致命项：精密空调未标注一级能效）。'},
+    {match:88,title:'金融同城数据中心建设项目',amount:'3,420 万',time:'2025-06',winner:'中衡机电安装工程公司',tags:['精密空调','UPS 双母线','动力监控'],why:'UPS 与动力监控配置方案表述完整，可补充第四章动力系统描述。'},
+    {match:81,title:'经济开发区智算机房项目',amount:'1,950 万',time:'2024-12',winner:'青云智建科技有限公司',tags:['模块化机房','工期 145 天'],why:'施工组织按 145 天编排，进度计划写法可参考，用于响应 150 天工期要求（对应偏离项）。'}
+  ],
+  B:[
+    {match:92,title:'临港冷链仓储中心项目',amount:'5,800 万',time:'2025-09',winner:'仓汇物流工程集团',tags:['高位货架','冷链','WMS'],why:'库区消防与货架布局章节结构完整，可作第二章技术方案骨架参考。'},
+    {match:87,title:'空港跨境电商智能仓项目',amount:'3,260 万',time:'2025-03',winner:'迅仓智能科技有限公司',tags:['AGV 调度','电商仓'],why:'AGV 调度与 WMS 对接方案描述细致，可强化设备联动部分论述。'}
+  ]
+};
+var SCORE={
+  A:[
+    ['技术方案 · 30 分','模块化机房，国家 B 级标准','第四章已响应','ok','达标'],
+    ['能效指标 · 8 分','精密空调一级能效','设备清单未标注','warn','缺口'],
+    ['类似业绩 · 12 分','近三年同类项目 ≥ 2 个','第五章列示 2 个','ok','达标']
+  ],
+  B:[
+    ['技术方案 · 30 分','高位货架，消防丙类标准','第二章已响应','ok','达标'],
+    ['设备配置 · 10 分','WMS 1 套 + AGV ≥ 8 台','已列示 1 套 / 8 台','ok','达标'],
+    ['售后服务 · 6 分','驻场响应 ≤ 2 小时','未明确承诺时限','warn','缺口']
+  ]
+};
+var PEOPLE={
+  A:[
+    ['王','王志强 · 项目经理','一级建造师（机电工程）','warn','业绩证明待补'],
+    ['李','李慧敏 · 技术负责人','高级工程师 · 暖通方向','ok','材料齐全'],
+    ['周','周立成 · 商务负责人','投标报价与保证金事宜','ok','材料齐全']
+  ],
+  B:[
+    ['陈','陈晓东 · 项目经理','一级建造师（建筑工程）','ok','材料齐全'],
+    ['赵','赵一鸣 · 技术负责人','高级工程师 · 物流工艺','ok','材料齐全'],
+    ['孙','孙婷 · 商务负责人','投标报价与保证金事宜','warn','保证金凭证待补']
+  ]
+};
+var SEV={fatal:{label:'致命',order:0,cls:'sev-fatal',dot:'dot-fatal'},risk:{label:'风险',order:1,cls:'sev-risk',dot:'dot-risk'},hint:{label:'提示',order:2,cls:'sev-hint',dot:'dot-hint'}};
+var TYPES=['未响应','偏离','缺项','缺证'];
+var OUTLINE={
+  A:[['ch-a1','第一章 投标函'],['ch-a2','第二章 法定代表人身份证明'],['ch-a3','第三章 授权委托书'],['ch-a4','第四章 技术方案'],['ch-a5','第五章 类似项目业绩']],
+  B:[['ch-b1','第一章 投标函'],['ch-b2','第二章 技术方案'],['ch-b3','第三章 类似项目业绩']]
+};
+var state={project:'A',filter:'all',onlyOpen:false,done:new Set(),open:new Set(),fs:15,detecting:false,doneOpen:false,casesSort:'match'};
+var hits=[],hitIdx=-1;
+
+function P(){return DATA[state.project]}
+function docEl(){return $('#doc'+state.project)}
+function pendingFatal(){return P().risks.filter(function(r){return r.sev==='fatal'&&!state.done.has(r.id)}).length}
+function riskIndex(){var s=0;P().risks.forEach(function(r){if(!state.done.has(r.id))s+=r.sev==='fatal'?6:3});return Math.max(0,100-s)}
+
+/* ================= toast / modal ================= */
+function toast(msg){
+  var t=document.createElement('div');t.className='toast';t.textContent=msg;
+  $('#toastWrap').appendChild(t);
+  setTimeout(function(){t.style.opacity='0';t.style.transition='opacity .25s'},2200);
+  setTimeout(function(){t.remove()},2500);
+}
+var overlay=$('#overlay');
+function showModal(o){
+  $('#mTitle').textContent=o.title;
+  $('#mBody').innerHTML=o.body;
+  $('#mOk').textContent=o.ok||'知道了';
+  $('#mCancel').classList.toggle('hidden',!o.cancel);
+  overlay.classList.remove('hidden');
+  $('#mOk').onclick=function(){overlay.classList.add('hidden');if(o.onOk)o.onOk()};
+  $('#mCancel').onclick=function(){overlay.classList.add('hidden')};
+}
+
+/* ================= 上下文条 ================= */
+function renderCtx(){
+  var p=P();
+  $('#ddName').textContent=p.name;
+  $('#ctxCode').textContent=p.code;
+  $('#ctxOwner').textContent=p.owner;
+  var due=$('#ctxDue');
+  if(p.days<=1){due.className='badge-due d0';due.textContent='距开标 '+p.days+' 天'}
+  else if(p.days<=3){due.className='badge-due d3';due.textContent='距开标 '+p.days+' 天'}
+  else{due.className='badge-due dn';due.textContent='距开标 '+p.days+' 天'}
+  var nf=pendingFatal(),b=$('#expBadge');
+  if(nf>0){b.textContent=nf;b.classList.remove('hidden')}else{b.classList.add('hidden')}
+  var db=$('#detectBtn');db.disabled=state.detecting;
+  $('#detectLabel').textContent=state.detecting?'检测中…':'开始检测';
+}
+
+/* 项目下拉 */
+function renderMenu(){
+  var m=$('#ddMenu'),html='';
+  ['A','B'].forEach(function(k){
+    var d=DATA[k];
+    html+='<button class="dd-item" data-p="'+k+'"><span class="chk">'+(k===state.project?'✓':'')+'</span>'+d.name+'<span class="dcode">'+d.code+'</span></button>';
+  });
+  html+='<div class="dd-new"><button class="dd-item" data-new="1">＋ 新建项目</button></div>';
+  m.innerHTML=html;
+}
+function selectProject(k){
+  if(k===state.project)return;
+  var go=function(){
+    state.project=k;state.done.clear();state.open.clear();state.filter='all';
+    clearSearch();
+    setDoc();renderCtx();renderPanel();renderExtras();
+    toast('已切换到「'+DATA[k].name+'」');
+  };
+  if(pendingFatal()>0){
+    showModal({title:'切换项目前确认',cancel:true,ok:'继续切换',
+      body:'<p>当前项目仍有 <b>'+pendingFatal()+' 项致命风险</b>未处理。切换后，当前项目的检测进度与处理记录会保留，可随时切回。</p>',
+      onOk:go});
+  }else{go()}
+}
+
+/* ================= 文档预览 ================= */
+function setDoc(){
+  $('#docA').classList.toggle('hidden',state.project!=='A');
+  $('#docB').classList.toggle('hidden',state.project!=='B');
+  docEl().style.fontSize=state.fs+'px';
+  var d=P();
+  $('#docNote').textContent=(state.project==='A'?'共 5 章':'共 3 章')+' · 正文 '+(state.fs+'px');
+  renderOutline();
+  $('#docScroll').scrollTop=0;onDocScroll();
+}
+function renderOutline(){
+  var ol=$('#docOutline');
+  ol.innerHTML='<div class="ol-title">章节大纲</div>'+OUTLINE[state.project].map(function(o){
+    return '<button class="ol-item" data-ch="'+o[0]+'">'+o[1]+'</button>';
+  }).join('');
+}
+function scrollDocTo(el,center){
+  var ds=$('#docScroll');
+  var top=el.getBoundingClientRect().top-ds.getBoundingClientRect().top+ds.scrollTop;
+  if(center)top-=ds.clientHeight/2;else top-=14;
+  ds.scrollTo({top:Math.max(0,top),behavior:'smooth'});
+}
+function onDocScroll(){
+  var ds=$('#docScroll');
+  var max=ds.scrollHeight-ds.clientHeight;
+  $('#docProg').style.width=(max>0?(ds.scrollTop/max*100):0)+'%';
+  var items=OUTLINE[state.project],cur=0;
+  items.forEach(function(o,i){
+    var h=document.getElementById(o[0]);
+    if(h&&h.getBoundingClientRect().top-ds.getBoundingClientRect().top<130)cur=i;
+  });
+  $$('.ol-item').forEach(function(b,i){b.classList.toggle('on',i===cur)});
+}
+function gotoChapter(id){
+  var h=document.getElementById(id);
+  if(h)scrollDocTo(h,false);
+}
+
+/* 文内搜索 */
+function clearSearch(){
+  $('#searchInput').value='';
+  ['docA','docB'].forEach(function(id){
+    $$('#'+id+' mark.hit').forEach(function(m){
+      var p=m.parentNode;p.replaceChild(document.createTextNode(m.textContent),m);p.normalize();
+    });
+  });
+  hits=[];hitIdx=-1;$('#hitInfo').textContent='—';$('#hitPrev').disabled=true;$('#hitNext').disabled=true;
+}
+function doSearch(q){
+  clearSearch();
+  if(!q)return;
+  var doc=docEl();
+  var w=document.createTreeWalker(doc,NodeFilter.SHOW_TEXT,{acceptNode:function(n){
+    if(!n.nodeValue.trim())return NodeFilter.FILTER_REJECT;
+    var p=n.parentNode;
+    if(p.nodeType===1&&p.closest('mark.hit'))return NodeFilter.FILTER_REJECT;
+    return NodeFilter.FILTER_ACCEPT;
+  }});
+  var nodes=[];while(w.nextNode())nodes.push(w.currentNode);
+  var low=q.toLowerCase(),ql=q.length;
+  nodes.forEach(function(n){
+    var text=n.nodeValue,idx=text.toLowerCase().indexOf(low);
+    if(idx<0)return;
+    var frag=document.createDocumentFragment(),pos=0;
+    while(idx>=0){
+      frag.appendChild(document.createTextNode(text.slice(pos,idx)));
+      var mk=document.createElement('mark');mk.className='hit';mk.textContent=text.substr(idx,ql);
+      frag.appendChild(mk);pos=idx+ql;idx=text.toLowerCase().indexOf(low,pos);
+    }
+    frag.appendChild(document.createTextNode(text.slice(pos)));
+    n.parentNode.replaceChild(frag,n);
+  });
+  hits=$$('mark.hit',doc);
+  if(hits.length){hitIdx=0;flashHit()}
+  updateHitInfo();
+}
+function flashHit(){
+  var el=hits[hitIdx];if(!el)return;
+  el.scrollIntoView({block:'center',behavior:'smooth'});
+  updateHitInfo();
+}
+function updateHitInfo(){
+  var n=hits.length,info=$('#hitInfo');
+  if(!n){info.textContent='无命中';}
+  else{info.textContent=(hitIdx+1)+'/'+n;}
+  $('#hitPrev').disabled=!n;$('#hitNext').disabled=!n;
+}
+
+/* ================= 检测面板 ================= */
+function pass(r){return state.filter==='all'||r.type===state.filter}
+function cardHTML(r){
+  var done=state.done.has(r.id),open=state.open.has(r.id);
+  return '<article class="rc '+(done?'is-done':'')+'" data-id="'+r.id+'">'
+    +'<div class="rc-head">'
+    +'<span class="sev '+SEV[r.sev].cls+'">'+SEV[r.sev].label+'</span>'
+    +'<span class="tchip">'+r.type+'</span>'
+    +'<h4>'+r.title+'</h4>'
+    +'<button class="rc-done" data-done="'+r.id+'" aria-pressed="'+done+'" title="'+(done?'撤销已处理':'标记已处理')+'">✓</button>'
+    +'</div>'
+    +'<p class="rc-meta">'+r.meta.replace(/(正文|招标|检测要求)[^：]*：/,'<span class="loc">$&</span>')+'</p>'
+    +'<div class="rc-actions">'
+    +'<button class="act pri" data-act="locate" data-id="'+r.id+'">定位原文</button>'
+    +'<button class="act" data-act="detail" data-id="'+r.id+'">'+(open?'收起建议':'修改建议')+'</button>'
+    +'<button class="act" data-act="fix" data-id="'+r.id+'">'+r.fix+'</button>'
+    +'</div>'
+    +'<div class="rc-detail '+(open?'':'hidden')+'">'
+    +'<div><div class="lab">原文引用</div><blockquote>'+r.quote+'</blockquote></div>'
+    +'<div><div class="lab">修改建议</div><p class="adv">'+r.advice+'</p></div>'
+    +'<div><div class="lab">依据</div><p class="req">'+r.req+'</p></div>'
+    +'</div>'
+    +'</article>';
+}
+function renderChips(){
+  var p=P(),c=$('#chips');
+  if(!p.risks.length){c.innerHTML=TYPES.map(function(t){return '<button class="chip" disabled>'+t+'<span class="n">0</span></button>'}).join('')+'<span class="switch-wrap">只看未处理<button class="sw" id="onlySw" role="switch" aria-checked="'+state.onlyOpen+'"></button></span>';return}
+  var html='<button class="chip'+(state.filter==='all'?' on':'')+'" data-f="all">全部<span class="n">'+p.risks.length+'</span></button>';
+  TYPES.forEach(function(t){
+    var n=p.risks.filter(function(r){return r.type===t}).length;
+    html+='<button class="chip'+(state.filter===t?' on':'')+'" data-f="'+t+'">'+t+'<span class="n">'+n+'</span></button>';
+  });
+  html+='<span class="switch-wrap">只看未处理<button class="sw" id="onlySw" role="switch" aria-checked="'+state.onlyOpen+'"></button></span>';
+  c.innerHTML=html;
+}
+function renderOv(){
+  var p=P(),idx=$('#ovIdx'),lv=$('#ovLv');
+  if(!p.risks.length){
+    idx.textContent='—';idx.className='ov-idx lv-na';
+    lv.textContent=p.detectedAt?'低风险':'尚未检测';lv.className='ov-lv '+(p.detectedAt?'lv-green':'lv-na');
+    $('#ovCounts').innerHTML='<span style="color:var(--dim)">'+(p.detectedAt?'本次检测未发现废标风险':'运行检测后，这里将显示风险分级计数')+'</span>';
+    $('#ovTime').textContent=p.detectedAt?('最近检测：'+p.detectedAt):'尚未运行检测';
+    return;
+  }
+  var v=riskIndex();
+  idx.textContent=v;
+  idx.className='ov-idx '+(v>=80?'lv-red':v>=50?'lv-amber':v>0?'lv-amber':'lv-green');
+  lv.textContent=v>=80?'高风险':v>=50?'中风险':v>0?'低风险':'已清零';
+  lv.className='ov-lv '+(v>=80?'lv-red':v>=50?'lv-amber':'lv-green');
+  var cnt={fatal:0,risk:0,hint:0};
+  p.risks.forEach(function(r){if(!state.done.has(r.id))cnt[r.sev]++});
+  $('#ovCounts').innerHTML=['fatal','risk','hint'].map(function(s){
+    return '<span><span class="dot '+SEV[s].dot+'"></span>'+SEV[s].label+' '+cnt[s]+'</span>';
+  }).join('');
+  $('#ovTime').textContent='最近检测：'+(p.detectedAt||'—');
+}
+function renderList(){
+  var p=P(),list=p.risks.slice().sort(function(a,b){return SEV[a.sev].order-SEV[b.sev].order});
+  var pend=list.filter(function(r){return !state.done.has(r.id)&&pass(r)});
+  var done=list.filter(function(r){return state.done.has(r.id)&&pass(r)});
+  $('#riskList').innerHTML=pend.map(cardHTML).join('');
+  $('#doneList').innerHTML=done.map(cardHTML).join('');
+  $('#doneLabel').textContent='已处理（'+list.filter(function(r){return state.done.has(r.id)}).length+'）';
+  $('#doneList').classList.toggle('hidden',!state.doneOpen);
+  $('#doneHead').classList.toggle('open',state.doneOpen);
+  $('#doneHead').style.display=list.some(function(r){return state.done.has(r.id)})?'':'none';
+  var es=$('#emptyState');
+  if(!p.risks.length){
+    es.classList.remove('hidden');
+    es.className='emptystate '+(p.detectedAt?'es-clean':'es-undet');
+    es.innerHTML=p.detectedAt
+      ?'<div class="es-icon"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div><div class="es-title">未发现废标风险</div><p class="es-text">最近检测 '+p.detectedAt+' · 四类风险检查全部通过</p><div class="es-act"><button class="act" id="esRescan">重新检测</button></div>'
+      :'<div class="es-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg></div><div class="es-title">该项目尚未运行检测</div><p class="es-text">点击「开始检测」后，这里将显示风险分级与处理进度</p>';
+    var er=$('#esRescan');if(er)er.onclick=rescan;
+  }else{es.classList.add('hidden')}
+  renderOv();renderChips();
+  var nf=$('#expBadge');nf.textContent=pendingFatal();
+  nf.classList.toggle('hidden',pendingFatal()===0);
+}
+function renderPanel(){renderList()}
+
+/* 卡片交互（事件委托） */
+$('#riskList').addEventListener('click',function(e){
+  var t=e.target.closest('button');if(!t)return;
+  var card=e.target.closest('.rc'),id=card&&card.dataset.id;
+  if(t.dataset.done){toggleDone(t.dataset.done);return}
+  if(!t.dataset.act)return;
+  if(t.dataset.act==='locate')locate(id);
+  if(t.dataset.act==='detail'){state.open.has(id)?state.open.delete(id):state.open.add(id);renderList();cardActive(id,true)}
+  if(t.dataset.act==='fix')toast('演示原型：「'+P().risks.filter(function(r){return r.id===id})[0].fix+'」在完整版中接入真实流程');
+});
+$('#doneList').addEventListener('click',function(e){
+  var t=e.target.closest('button');if(!t)return;
+  var card=e.target.closest('.rc'),id=card&&card.dataset.id;
+  if(t.dataset.done){toggleDone(t.dataset.done);return}
+  if(t.dataset.act==='locate')locate(id);
+  if(t.dataset.act==='detail'){state.open.has(id)?state.open.delete(id):state.open.add(id);renderList()}
+});
+function toggleDone(id){
+  if(state.done.has(id)){state.done.delete(id);toast('已撤销处理标记')}
+  else{state.done.add(id);toast('已标记处理，卡片移入底部已处理组')}
+  renderList();renderCtx();
+}
+function cardActive(id,noScroll){
+  $$('.rc').forEach(function(c){c.classList.toggle('active',c.dataset.id===id)});
+  if(!noScroll){
+    var card=$('#riskList .rc[data-id="'+id+'"]')||$('#doneList .rc[data-id="'+id+'"]');
+    if(card)card.scrollIntoView({block:'nearest',behavior:'smooth'});
+  }
+}
+function locate(id){
+  var el=document.getElementById('hl-'+id);
+  if(!el)return;
+  scrollDocTo(el,true);
+  el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');
+  cardActive(id,true);
+}
+/* 正文高亮句 → 卡片 */
+$$('.rh').forEach(function(el){
+  el.addEventListener('click',function(){
+    if(el.closest('.hidden'))return;
+    cardActive(el.dataset.risk,false);
+  });
+});
+
+/* 总览：筛选 / 开关 / 重检 */
+$('#chips').addEventListener('click',function(e){
+  var c=e.target.closest('.chip');if(!c||c.disabled)return;
+  if(c.id==='onlySw')return;
+  var sw=e.target.closest('#onlySw');if(sw)return;
+  if(c.dataset.f){state.filter=c.dataset.f;renderList()}
+});
+$('#chips').addEventListener('click',function(e){
+  var sw=e.target.closest('#onlySw');
+  if(sw){state.onlyOpen=!state.onlyOpen;renderList()}
+});
+$('#doneToggle').addEventListener('click',function(){state.doneOpen=!state.doneOpen;renderList()});
+$('#rescanBtn').addEventListener('click',rescan);
+function rescan(){
+  if(state.detecting)return;
+  state.detecting=true;
+  $('#detectBtn').disabled=true;$('#detectLabel').textContent='检测中…';
+  var bar=$('#scanBar');bar.classList.remove('hidden');
+  var i=bar.querySelector('i');i.style.width='0';void i.offsetWidth;i.style.width='100%';
+  $('#ovTime').textContent='正在检测 40 条规则…';
+  setTimeout(function(){
+    state.detecting=false;
+    P().detectedAt='刚刚';
+    bar.classList.add('hidden');
+    renderCtx();renderList();
+    toast('检测完成：'+(P().risks.length?'未发现新增风险':'未发现废标风险'));
+  },1600);
+}
+
+/* ================= 顶部操作 ================= */
+$('#detectBtn').addEventListener('click',rescan);
+$('#ddBtn').addEventListener('click',function(e){
+  e.stopPropagation();renderMenu();$('#ddMenu').classList.toggle('hidden');$('#expMenu').classList.add('hidden');
+});
+$('#ddMenu').addEventListener('click',function(e){
+  var it=e.target.closest('.dd-item');if(!it)return;
+  if(it.dataset.new){toast('演示原型：新建项目流程在完整版中开放');}
+  else selectProject(it.dataset.p);
+  $('#ddMenu').classList.add('hidden');
+});
+$('#expMain').addEventListener('click',doExport);
+$('#expCaret').addEventListener('click',function(e){
+  e.stopPropagation();$('#expMenu').classList.toggle('hidden');$('#ddMenu').classList.add('hidden');
+});
+$('#expMenu').addEventListener('click',function(e){
+  var b=e.target.closest('button');if(!b)return;
+  $('#expMenu').classList.add('hidden');doExport(b.dataset.fmt);
+});
+function doExport(fmt){
+  fmt=fmt||'Word';
+  var nf=pendingFatal();
+  var run=function(){toast('已生成'+fmt+'文件（演示原型）')};
+  if(nf>0){
+    showModal({title:'导出前确认',cancel:true,ok:'继续导出',
+      body:'<p>仍有 <b>'+nf+' 项致命风险</b>未处理，导出的'+fmt+'将包含这些问题内容。</p><p style="margin-top:6px">建议先在「废标检测」面板处理致命项，或确认本次导出用于内部评审。</p>',
+      onOk:run});
+  }else run();
+}
+document.addEventListener('click',function(e){
+  if(!e.target.closest('.dd'))$('#ddMenu').classList.add('hidden');
+  if(!e.target.closest('.split'))$('#expMenu').classList.add('hidden');
+});
+
+/* ================= 工具条 ================= */
+var searchTimer=null;
+$('#searchInput').addEventListener('input',function(e){
+  clearTimeout(searchTimer);
+  var v=e.target.value;
+  searchTimer=setTimeout(function(){doSearch(v.trim())},180);
+});
+$('#hitNext').addEventListener('click',function(){if(hits.length){hitIdx=(hitIdx+1)%hits.length;flashHit()}});
+$('#hitPrev').addEventListener('click',function(){if(hits.length){hitIdx=(hitIdx-1+hits.length)%hits.length;flashHit()}});
+$('#fsMinus').addEventListener('click',function(){setFs(state.fs-1)});
+$('#fsPlus').addEventListener('click',function(){setFs(state.fs+1)});
+function setFs(v){
+  state.fs=Math.max(13,Math.min(19,v));
+  ['docA','docB'].forEach(function(id){document.getElementById(id).style.fontSize=state.fs+'px'});
+  $('#docNote').textContent=(state.project==='A'?'共 5 章':'共 3 章')+' · 正文 '+state.fs+'px';
+}
+
+/* 大纲点击 + 滚动同步 */
+$('#docOutline').addEventListener('click',function(e){
+  var b=e.target.closest('.ol-item');if(!b)return;
+  gotoChapter(b.dataset.ch);
+});
+$('#docScroll').addEventListener('scroll',onDocScroll,{passive:true});
+
+/* ================= Tab ================= */
+$$('.tab').forEach(function(t){
+  t.addEventListener('click',function(){
+    $$('.tab').forEach(function(x){x.classList.remove('on');x.setAttribute('aria-selected','false')});
+    t.classList.add('on');t.setAttribute('aria-selected','true');
+    ['scan','score','cases','people'].forEach(function(k){$('#pane-'+k).classList.toggle('hidden',k!==t.dataset.tab)});
+  });
+});
+
+/* ================= 帮助 / 演示位 ================= */
+$('#helpBtn').addEventListener('click',function(){
+  showModal({title:'原型说明与交互指南',ok:'开始体验',
+    body:'<ul>'
+    +'<li><b>风险分级</b>：致命（红）/ 风险（橙）/ 提示（灰），按严重度排序；右上角 ✓ 标记已处理，卡片沉入底部可撤销。</li>'
+    +'<li><b>双向联动</b>：点卡片「定位原文」滚动到正文高亮句；点正文高亮句反向高亮卡片。</li>'
+    +'<li><b>筛选与总览</b>：类型 chips 过滤，「只看未处理」隐藏已处理；风险指数随处理进度实时下降。</li>'
+    +'<li><b>文内搜索</b>：实时高亮命中，↑↓ 循环跳转；A− / A+ 调整正文字号。</li>'
+    +'<li><b>项目切换</b>：下拉切换到「绿色物流产业园」可查看未检测空态，运行检测后查看无风险空态。</li>'
+    +'<li><b>导出保护</b>：存在未处理致命项时，导出前弹出确认。</li>'
+    +'<li><b>案例推荐</b>：同类中标案例按匹配度 / 中标时间排序，案例说明已关联对应风险项，可「引用到本文档」。</li>'
+    +'</ul>'});
+});
+$$('[data-demo]').forEach(function(b){
+  b.addEventListener('click',function(){toast('演示原型：「'+b.dataset.demo+'」在完整版中开放')});
+});
+
+/* ================= 案例推荐 / 评分对照 / 人员 ================= */
+function renderCases(){
+  var list=CASES[state.project].slice();
+  list.sort(state.casesSort==='match'?function(a,b){return b.match-a.match}:function(a,b){return a.time<b.time?1:-1});
+  $('#caseList').innerHTML=list.map(function(c){
+    var cls=c.match>=90?'m-hi':c.match>=80?'m-mid':'m-lo';
+    return '<article class="case-card">'
+      +'<div class="case-head"><span class="case-match '+cls+'">'+c.match+'%</span><h4>'+c.title+'</h4></div>'
+      +'<p class="case-meta">中标金额 '+c.amount+' · '+c.time+' 中标 · 中标单位：'+c.winner+'</p>'
+      +'<div class="case-tags">'+c.tags.map(function(t){return '<span>'+t+'</span>'}).join('')+'</div>'
+      +'<p class="case-why">'+c.why+'</p>'
+      +'<div class="rc-actions"><button class="act pri" data-cact="view">查看标书</button><button class="act" data-cact="use">引用到本文档</button></div>'
+      +'</article>';
+  }).join('');
+  $$('#pane-cases [data-sort]').forEach(function(b){b.classList.toggle('on',b.dataset.sort===state.casesSort)});
+}
+function renderScore(){
+  $('#scoreBody').innerHTML=SCORE[state.project].map(function(r){
+    return '<tr><td>'+r[0]+'</td><td>'+r[1]+'</td><td>'+r[2]+'</td><td><span class="st st-'+r[3]+'">'+r[4]+'</span></td></tr>';
+  }).join('');
+}
+function renderPeople(){
+  $('#peopleList').innerHTML=PEOPLE[state.project].map(function(p){
+    return '<div class="p-row"><span class="p-ava">'+p[0]+'</span><span class="p-info"><b>'+p[1]+'</b><span>'+p[2]+'</span></span><span class="p-tag '+p[3]+'">'+p[4]+'</span></div>';
+  }).join('');
+}
+function renderExtras(){renderCases();renderScore();renderPeople()}
+$('#pane-cases').addEventListener('click',function(e){
+  var b=e.target.closest('button');if(!b)return;
+  if(b.dataset.sort){state.casesSort=b.dataset.sort;renderCases();return}
+  if(b.dataset.cact==='view')toast('演示原型：案例标书全文在完整版中开放');
+  if(b.dataset.cact==='use')toast('已将该案例加入参考清单（演示原型）');
+});
+
+/* ================= 启动 ================= */
+setDoc();renderCtx();renderPanel();renderExtras();onDocScroll();
+})();
+</script>
+</body>
+</html>
