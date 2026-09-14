@@ -12,11 +12,7 @@
   }
   * { margin:0; padding:0; box-sizing:border-box; }
   body { background:var(--bg); color:var(--ink); font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif; }
-  .proto-banner { background:var(--ink); color:#fff; font-size:12px; padding:8px 24px; display:flex; gap:16px; align-items:center; }
-  .proto-banner b { color:#93C5FD; }
-
-  .layout { display:flex; min-height:calc(100vh - 37px); }
-  /* 侧边导航：点击侧边栏空白区域即收缩/展开 */
+  .layout { display:flex; min-height:100vh; }
   .side { width:var(--side-w); background:var(--surface); border-right:1px solid var(--line); padding:16px 12px; display:flex; flex-direction:column; gap:4px; transition:width .2s ease; overflow:hidden; flex-shrink:0; cursor:pointer; }
   .side .logo { font-weight:700; font-size:16px; color:var(--accent); padding:4px 10px 16px; white-space:nowrap; pointer-events:none; }
   .side .logo span { font-size:10.5px; color:var(--muted); font-weight:400; }
@@ -27,14 +23,10 @@
   .side a.on { background:var(--accent-soft); color:var(--accent); font-weight:600; }
   .side a:hover:not(.on) { background:var(--bg); color:var(--accent); }
   .side .foot { margin-top:auto; font-size:10.5px; color:var(--muted); padding:8px 10px; white-space:nowrap; pointer-events:none; }
-  .collapse-hint { margin:4px 6px 0; font-size:11px; color:var(--muted); text-align:center; white-space:nowrap; pointer-events:none; }
-  /* 收缩态 */
   .layout.min .side { width:var(--side-w-min); }
-  .layout.min .side a .txt, .layout.min .side .logo span, .layout.min .side .foot, .layout.min .collapse-hint { display:none; }
+  .layout.min .side a .txt, .layout.min .side .logo span, .layout.min .side .foot { display:none; }
   .layout.min .side a { justify-content:center; padding:10px 6px; }
   .layout.min .side .logo { padding:4px 0 16px; text-align:center; font-size:14px; }
-  .layout.min .main .wrap { padding:30px 28px 100px; }
-
   .main { flex:1; min-width:0; }
   .topbar { background:var(--surface); border-bottom:1px solid var(--line); padding:12px 28px; display:flex; align-items:center; gap:16px; box-shadow:var(--shadow); }
   .topbar .crumb { font-size:13px; color:var(--muted); }
@@ -46,18 +38,31 @@
   h2.sec { font-size:15px; font-weight:600; margin:26px 0 12px; display:flex; align-items:center; gap:8px; }
   h2.sec::before { content:""; width:4px; height:16px; background:var(--accent); border-radius:2px; }
   h2.sec:first-child { margin-top:0; }
-  .sk { background:linear-gradient(90deg,#EDF2F7 25%,#F5F8FB 50%,#EDF2F7 75%); border-radius:8px; height:44px; margin-bottom:8px; }
-  .panel { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-lg); padding:20px 24px; box-shadow:var(--shadow); margin-bottom:14px; }
-  .panel .t { font-weight:600; font-size:14px; margin-bottom:6px; }
-  .panel .d { font-size:12.5px; color:var(--muted); }
-  .note { background:var(--accent-soft); border-radius:8px; padding:10px 16px; font-size:12.5px; color:var(--ink); margin:14px 0; }
-  .note b { color:var(--accent); }
-  .foot { margin-top:36px; padding-top:14px; border-top:1px solid var(--line); font-size:11px; color:var(--muted); font-family:Consolas,monospace; }
-  /* P1 工作台 · 标书编辑工作区 */
+  h2.sec a { margin-left:auto; font-size:12px; color:var(--accent); font-weight:500; }
+  .hint { color:var(--muted); font-size:12.5px; padding:8px 0; }
+  .hint.err { color:var(--danger); }
+  .btn { display:inline-flex; align-items:center; gap:6px; padding:8px 18px; border-radius:var(--radius-lg); font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--surface); color:var(--ink); }
+  .btn-accent { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn:disabled { opacity:.5; cursor:wait; }
+  .badge { display:inline-block; font-size:11px; padding:2px 9px; border-radius:999px; background:var(--accent-soft); color:var(--accent); font-weight:500; }
+  .badge.ok { background:#DCFCE7; color:var(--ok); }
+  .badge.warn { background:#FEF3C7; color:var(--warn); }
+  .badge.secret { background:#FEF2F2; color:var(--danger); font-weight:600; }
+  .mono { font-family:Consolas,monospace; }
+  .stat-band { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:16px 0; }
+  .stat { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-lg); padding:16px 18px; box-shadow:var(--shadow); }
+  .stat .n { font-size:26px; font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums; }
+  .stat .n small { font-size:13px; color:var(--muted); font-weight:400; }
+  .stat .l { font-size:12px; color:var(--muted); margin-top:2px; }
+  .stat.hot .n { color:var(--warn); }
+  .panel { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-lg); padding:16px 24px; box-shadow:var(--shadow); margin-bottom:14px; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .chip { font-size:12px; padding:4px 13px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:var(--surface); cursor:pointer; }
+  .chip.on { background:var(--accent); border-color:var(--accent); color:#fff; }
   .ws-bar { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
   .proj-pick { position:relative; }
   .pp-label { font-size:11px; color:var(--muted); margin-bottom:3px; }
-  .pp-box { position:relative; width:280px; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:8px 12px; cursor:pointer; display:flex; align-items:center; gap:8px; }
+  .pp-box { width:280px; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:8px 12px; cursor:pointer; display:flex; align-items:center; gap:8px; }
   .pp-box:hover { border-color:var(--accent); }
   .pp-cur { flex:1; font-weight:600; font-size:13px; }
   .pp-caret { color:var(--muted); font-size:11px; }
@@ -72,15 +77,11 @@
   .imp-area { flex:1; border:1.5px dashed var(--accent); background:var(--accent-soft); border-radius:var(--radius-lg); padding:10px 18px; display:flex; align-items:center; gap:12px; cursor:pointer; }
   .imp-area:hover { border-color:var(--accent); }
   .imp-area.done { border-style:solid; background:var(--surface); }
-  .imp-ico { width:30px; height:30px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-size:14px; }
+  .imp-ico { width:30px; height:30px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-size:14px; flex-shrink:0; }
   .imp-txt { font-weight:600; font-size:13px; }
   .imp-sub { font-size:11px; color:var(--muted); }
-  .ws-pill { font-size:11px; padding:2px 10px; border-radius:999px; font-weight:600; }
-  .ws-pill.bad { background:#FEE2E2; color:var(--danger); }
-  .ws-pill.blue { background:var(--accent-soft); color:var(--accent); }
-  .ws-pill.ok { background:#DCFCE7; color:var(--ok); }
   .ws-export { margin-left:auto; padding:7px 20px; }
-  .ws-split { display:flex; gap:12px; height:calc(100vh - 210px); min-height:420px; }
+  .ws-split { display:flex; gap:12px; height:calc(100vh - 260px); min-height:420px; }
   .ws-doc { flex:1.35; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-lg); display:flex; flex-direction:column; overflow:hidden; }
   .doc-page { flex:1; overflow-y:auto; padding:26px 34px; }
   .doc-page h1 { font-size:19px; margin-bottom:14px; }
@@ -103,26 +104,49 @@
   .tg.ok { background:#DCFCE7; color:var(--ok); }
   .it .a { margin-left:auto; color:var(--accent); cursor:pointer; font-size:11.5px; font-weight:500; }
   .it .m { font-size:11px; color:var(--muted); margin-top:4px; }
+  .pj-toolbar { display:flex; gap:14px; align-items:center; margin-bottom:16px; }
+  .pj-search { flex:1; max-width:360px; border:1px solid var(--line); border-radius:var(--radius-lg); padding:10px 16px; font-size:13.5px; }
+  .pj-search:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
+  .pj-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .pj-card { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-lg); padding:18px 20px; cursor:pointer; box-shadow:var(--shadow); transition:border-color .15s; }
+  .pj-card:hover { border-color:var(--accent); }
+  .pj-card .nm { font-weight:700; font-size:14.5px; margin-bottom:6px; }
+  .pj-card .in { display:flex; gap:6px; margin-bottom:10px; }
+  .pj-card .nums { display:flex; gap:16px; font-size:11.5px; color:var(--muted); font-family:Consolas,monospace; }
+  .pj-card .nums b { color:var(--ink); }
+  .pj-back { display:flex; align-items:baseline; gap:14px; margin-bottom:14px; }
+  .pj-back a { color:var(--accent); cursor:pointer; font-size:12.5px; }
+  .pj-back b { font-size:18px; }
+  .pj-meta { font-size:11.5px; color:var(--muted); font-family:Consolas,monospace; }
+  .pj-sum { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:6px; }
+  .doc-row { display:flex; align-items:center; gap:12px; padding:11px 4px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .doc-t { font-weight:600; font-size:13.5px; }
+  .doc-t .badge { margin-left:6px; }
+  .doc-m { font-size:11.5px; color:var(--muted); margin-top:2px; display:flex; gap:12px; flex-wrap:wrap; }
+  .doc-side { margin-left:auto; text-align:right; font-size:12px; color:var(--muted); white-space:nowrap; }
+  .doc-side a { color:var(--accent); margin-left:8px; cursor:pointer; }
+  .mat-card { background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:var(--radius); padding:12px 18px; margin-bottom:10px; box-shadow:var(--shadow); }
+  .mat-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .mat-title { font-size:14px; font-weight:600; }
+  .mat-meta { font-size:11px; color:var(--muted); margin-top:4px; font-family:Consolas,monospace; }
 </style>
 </head>
 <body>
-<div class="proto-banner"><b>标库 BidVault v2</b></div>
-
-<div class="layout" id="layout">
+<div class="layout">
   <aside class="side" id="side" onclick="sideClick(event)">
     <div class="logo">标库<span> BidVault</span></div>
-    <a class="on" data-p="p1" onclick="go('p1',this)"><span class="ico" data-icon="0"></span><span class="txt">工作台</span></a>
-    <a data-p="p2" onclick="go('p2',this)"><span class="ico" data-icon="1"></span><span class="txt">项目库</span></a>
-    <a data-p="p3" onclick="go('p3',this)"><span class="ico" data-icon="2"></span><span class="txt">文档库</span></a>
-    <a data-p="p4" onclick="go('p4',this)"><span class="ico" data-icon="3"></span><span class="txt">素材库</span></a>
-    <a data-p="p5" onclick="go('p5',this)"><span class="ico" data-icon="4"></span><span class="txt">系统设置</span></a>
+    <a class="on" onclick="go('p1', this)"><span class="ico" data-i="0"></span><span class="txt">工作台</span></a>
+    <a onclick="go('p2', this)"><span class="ico" data-i="1"></span><span class="txt">项目库</span></a>
+    <a onclick="go('p3', this)"><span class="ico" data-i="2"></span><span class="txt">文档库</span></a>
+    <a onclick="go('p4', this)"><span class="ico" data-i="3"></span><span class="txt">素材库</span></a>
+    <a onclick="go('p5', this)"><span class="ico" data-i="4"></span><span class="txt">系统设置</span></a>
     <div class="foot">数据不出本机</div>
   </aside>
 
   <main class="main">
-    <div class="topbar"><span class="crumb">标库 / <b id="crumb">工作台</b></span><span class="safe"></span></div>
+    <div class="topbar"><span class="crumb">标库 / <b id="crumb">工作台</b></span><span class="safe">数据不出本机</span></div>
     <div class="wrap">
-      <!-- P1 工作台 · 标书编辑工作区（方案E定稿：左右分栏+右侧单栏切换） -->
+
       <div class="page on" id="p1">
         <div class="ws-bar">
           <div class="proj-pick">
@@ -130,19 +154,15 @@
             <div class="pp-box" onclick="ppToggle(event)">
               <span class="pp-cur" id="ppCur">选择项目</span><span class="pp-caret">▾</span>
               <div class="pp-menu" id="ppMenu">
-                <input class="pp-search" placeholder="搜索项目…" onclick="event.stopPropagation()" oninput="ppFilter(this.value)" />
-                <div class="pp-group" onclick="ppPick('智慧园区数据中心项目', event)">智慧园区数据中心项目 <i>金融 · 12 份</i></div>
-                <div class="pp-group" onclick="ppPick('××银行机房监控系统项目', event)">××银行机房监控系统项目 <i>金融 · 5 份</i></div>
-                <div class="pp-group" onclick="ppPick('××知识产权服务平台运维', event)">××知识产权服务平台运维 <i>知产 · 3 份</i></div>
-                <div class="pp-group" onclick="ppPick('××市政道路改造工程', event)">××市政道路改造工程 <i>市政 · 8 份</i></div>
-                <div class="pp-new">＋ 新建项目</div>
+                <input class="pp-search" placeholder="搜索项目…" onclick="event.stopPropagation()" oninput="ppFilterMenu(this.value)" />
+                <div id="ppItems"></div>
+                <div class="pp-new" onclick="event.stopPropagation()">＋ 新建项目</div>
               </div>
             </div>
           </div>
-          <div class="imp-area" id="impArea">
+          <div class="imp-area" id="impArea" onclick="impGo()">
             <span class="imp-ico">⬆</span>
-            <span class="imp-txt">导入初版投标文件</span>
-            <span class="imp-sub">拖入或点击选择 · docx/pdf</span>
+            <span><span class="imp-txt" id="impTxt">导入初版投标文件</span><br><span class="imp-sub" id="impSub">拖入或点击选择 · docx/pdf</span></span>
           </div>
           <button class="btn btn-accent ws-export">导出</button>
         </div>
@@ -161,133 +181,195 @@
           </div>
           <div class="ws-right">
             <div class="ws-tabs">
-              <span class="on" onclick="wsTab('废标检测', this)">废标检测</span><span onclick="wsTab('案例推荐', this)">案例推荐</span><span onclick="wsTab('人员介绍', this)">人员介绍</span>
+              <span class="on" onclick="wsTab('bad', this)">废标检测</span>
+              <span onclick="wsTab('blue', this)">案例推荐</span>
+              <span onclick="wsTab('ok', this)">人员介绍</span>
             </div>
-            <div class="ws-list" id="wsList"></div></div>
-            </div>
+            <div class="ws-list" id="wsList"></div>
           </div>
         </div>
       </div>
-            <!-- P2 项目库 -->
+
       <div class="page" id="p2">
-        <h2 class="sec">项目库</h2>
-        <div class=panel><div class=t>全部项目</div><div class=d>搜索 · 行业筛选</div></div>
-        <div class="sk"></div><div class="sk" style="width:84%;"></div><div class="sk" style="width:70%;"></div>
+        <div id="pjListView">
+          <div class="pj-toolbar">
+            <input class="pj-search" placeholder="搜索项目名称…" oninput="pjFilter(this.value)" />
+            <div class="chips">
+              <span class="chip on" onclick="pjChip('', this)">全部</span>
+              <span class="chip" onclick="pjChip('金融', this)">金融</span>
+              <span class="chip" onclick="pjChip('知产', this)">知产</span>
+              <span class="chip" onclick="pjChip('市政', this)">市政</span>
+              <span class="chip" onclick="pjChip('通信', this)">通信</span>
+            </div>
+          </div>
+          <div class="pj-grid" id="pjGrid"></div>
+        </div>
+        <div id="pjDetail" style="display:none;">
+          <div class="pj-back"><a onclick="pjBack()">‹ 返回项目列表</a><b id="pjTitle"></b><span class="pj-meta" id="pjMeta"></span></div>
+          <div class="pj-sum">
+            <div class="stat"><div class="n" id="pjNDocs">0<small> 份</small></div><div class="l">项目文档</div></div>
+            <div class="stat"><div class="n" id="pjNMats">0<small> 条</small></div><div class="l">可复用素材</div></div>
+            <div class="stat"><div class="n" id="pjNPpl">0<small> 人</small></div><div class="l">参与人员</div></div>
+            <div class="stat hot"><div class="n" id="pjNRisk">0<small> 项</small></div><div class="l">废标风险</div></div>
+          </div>
+          <h2 class="sec">项目文档</h2>
+          <div class="doc-row"><div style="min-width:0;"><div class="doc-t">投标文件 v0.3<span class="badge secret">涉密</span></div><div class="doc-m mono">编辑中 · 最近修改 2 分钟前</div></div><div class="doc-side"><span class="badge warn">废标 1 项</span></div></div>
+          <div class="doc-row"><div style="min-width:0;"><div class="doc-t">招标文件.pdf</div><div class="doc-m mono">1.2 MB · 前附表已提取</div></div><div class="doc-side"><span class="badge ok">已索引</span></div></div>
+          <div class="doc-row"><div style="min-width:0;"><div class="doc-t">中标通知书.pdf</div><div class="doc-m mono">860 KB</div></div><div class="doc-side"><span class="badge ok">已索引</span></div></div>
+          <h2 class="sec">可复用素材</h2>
+          <div class="mat-card"><div class="mat-head"><span class="badge">类似项目</span><b class="mat-title">××银行机房监控系统项目</b><span class="badge warn">金融</span></div><div class="mat-meta">486 万 · 2023 竣工 · 证据：合同 P.3 · 验收报告 P.14</div></div>
+          <div class="mat-card"><div class="mat-head"><span class="badge">人员</span><b class="mat-title">张建国</b><span class="badge ok">一级建造师（机电）</span></div><div class="mat-meta">法定代表人 · 参与项目 12 个</div></div>
+        </div>
       </div>
 
-      <!-- P3 文档库 -->
       <div class="page" id="p3">
-        <h2 class="sec">收藏路径 · 自动归档</h2>
-        <div class="panel"><div class="t">📁 选择文件夹（弹层选路径）</div><div class="d">监视中 / 立即扫描 / 移除 · 扫描报告</div></div>
         <h2 class="sec">文档列表</h2>
-        <div class="sk"></div><div class="sk" style="width:88%;"></div><div class="sk" style="width:76%;"></div>
-              </div>
+        <div class="doc-row"><div style="min-width:0;"><div class="doc-t">投标文件定稿8月.docx</div></div><div class="doc-side"><span class="badge ok">已索引</span></div></div>
+        <div class="doc-row"><div style="min-width:0;"><div class="doc-t">招标文件.pdf</div></div><div class="doc-side"><span class="badge ok">已索引</span></div></div>
+      </div>
 
-      <!-- P4 素材库 -->
       <div class="page" id="p4">
-        <h2 class="sec">素材库 · 复用清单</h2>
-        <div class="panel"><div class="t">行业 chips + 四类 tab（人员/类似项目/案例/信誉）</div><div class="d">教抽取规则弹层 / 按规则重新抽取 / 人工补录</div></div>
-        <div class="sk" style="height:88px;"></div><div class="sk" style="height:88px; width:82%;"></div>
+        <h2 class="sec">素材库</h2>
+        <div class="mat-card"><div class="mat-head"><span class="badge">类似项目</span><b class="mat-title">××银行机房监控系统项目</b><span class="badge warn">金融</span></div><div class="mat-meta">486 万 · 2023 · 证据：合同 P.3</div></div>
       </div>
 
-      <!-- P5 系统设置 -->
       <div class="page" id="p5">
-        <h2 class="sec">系统设置</h2>
-        <div class=panel><div class=t>通用</div><div class=d>开机自动启动 · 数据目录 · 磁盘水位告警</div></div>
-        <div class=panel><div class=t>AI 服务</div><div class=d>GLM API Key · 调用审计查看</div></div>
-        <div class=panel><div class=t>自动归档</div><div class=d>扫描周期 · 收藏路径管理</div></div>
-        <div class=panel><div class=t>备份</div><div class=d>每日自动备份 · 7 天滚动 · 手动还原</div></div>
-        <div class=panel><div class=t>规则设置</div><div class=d>通用废标清单 · 历次检查标准（版本留痕）</div></div>
+        <h2 class="sec">通用</h2>
+        <div class="panel"><div class="hint">开机自动启动 · 数据目录 · 磁盘水位告警</div></div>
+        <h2 class="sec">AI 服务</h2>
+        <div class="panel"><div class="hint">GLM API Key · 调用审计</div></div>
+        <h2 class="sec">自动归档</h2>
+        <div class="panel"><div class="hint">扫描周期 · 收藏路径管理</div></div>
+        <h2 class="sec">备份</h2>
+        <div class="panel"><div class="hint">每日自动备份 · 7 天滚动 · 手动还原</div></div>
+        <h2 class="sec">规则设置</h2>
+        <div class="panel"><div class="hint">通用废标清单 · 历次检查标准（版本留痕）</div></div>
       </div>
 
-      </div>
+    </div>
   </main>
 </div>
 
 <script>
 const ICONS = {"lucide":[{"inner":"<rect width=\"7\" height=\"9\" x=\"3\" y=\"3\" rx=\"1\" />\n  <rect width=\"7\" height=\"5\" x=\"14\" y=\"3\" rx=\"1\" />\n  <rect width=\"7\" height=\"9\" x=\"14\" y=\"12\" rx=\"1\" />\n  <rect width=\"7\" height=\"5\" x=\"3\" y=\"16\" rx=\"1\" />","stroke":"2"},{"inner":"<path d=\"M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z\" />\n  <path d=\"M8 10v4\" />\n  <path d=\"M12 10v2\" />\n  <path d=\"M16 10v6\" />","stroke":"2"},{"inner":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\" />\n  <path d=\"M14 2v5a1 1 0 0 0 1 1h5\" />\n  <path d=\"M10 9H8\" />\n  <path d=\"M16 13H8\" />\n  <path d=\"M16 17H8\" />","stroke":"2"},{"inner":"<path d=\"M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2\" />\n  <rect x=\"14\" y=\"2\" width=\"8\" height=\"8\" rx=\"1\" />","stroke":"2"},{"inner":"<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\" />\n  <circle cx=\"12\" cy=\"12\" r=\"3\" />","stroke":"2"}],"tabler":[{"inner":"<path stroke=\"none\" d=\"M0 0h24v24H0z\" fill=\"none\" />\n  <path d=\"M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\" />\n  <path d=\"M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\" />\n  <path d=\"M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\" />\n  <path d=\"M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\" />","stroke":"2"},{"inner":"<path stroke=\"none\" d=\"M0 0h24v24H0z\" fill=\"none\"/>\n  <path d=\"M3 7m0 2a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2z\" />\n  <path d=\"M8 7v-2a2 2 0 0 1 2 -2h4a2 2 0 0 1 2 2v2\" />\n  <path d=\"M12 12l0 .01\" />\n  <path d=\"M3 13a20 20 0 0 0 18 0\" />","stroke":"2"},{"inner":"<path stroke=\"none\" d=\"M0 0h24v24H0z\" fill=\"none\" />\n  <path d=\"M14 3v4a1 1 0 0 0 1 1h4\" />\n  <path d=\"M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2\" />\n  <path d=\"M9 9l1 0\" />\n  <path d=\"M9 13l6 0\" />\n  <path d=\"M9 17l6 0\" />","stroke":"2"},{"inner":"<path stroke=\"none\" d=\"M0 0h24v24H0z\" fill=\"none\" />\n  <path d=\"M7 5a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10\" />\n  <path d=\"M17 17v2a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2h2\" />","stroke":"2"},{"inner":"<path stroke=\"none\" d=\"M0 0h24v24H0z\" fill=\"none\" />\n  <path d=\"M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065\" />\n  <path d=\"M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0\" />","stroke":"2"}],"feather":[{"inner":"<path d=\"M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"></path><polyline points=\"9 22 9 12 15 12 15 22\"></polyline>","stroke":"2"},{"inner":"<rect x=\"2\" y=\"7\" width=\"20\" height=\"14\" rx=\"2\" ry=\"2\"></rect><path d=\"M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16\"></path>","stroke":"2"},{"inner":"<path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"></path><polyline points=\"14 2 14 8 20 8\"></polyline><line x1=\"16\" y1=\"13\" x2=\"8\" y2=\"13\"></line><line x1=\"16\" y1=\"17\" x2=\"8\" y2=\"17\"></line><polyline points=\"10 9 9 9 8 9\"></polyline>","stroke":"2"},{"inner":"<polygon points=\"12 2 2 7 12 12 22 7 12 2\"></polygon><polyline points=\"2 17 12 22 22 17\"></polyline><polyline points=\"2 12 12 17 22 12\"></polyline>","stroke":"2"},{"inner":"<circle cx=\"12\" cy=\"12\" r=\"3\"></circle><path d=\"M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z\"></path>","stroke":"2"}],"hero":[{"inner":"<path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25\"/>","stroke":"1.5"},{"inner":"<path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 0 0 .75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 0 0-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0 1 12 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 0 1-.673-.38m0 0A2.18 2.18 0 0 1 3 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 0 1 3.413-.387m7.5 0V5.25A2.25 2.25 0 0 0 13.5 3h-3a2.25 2.25 0 0 0-2.25 2.25v.894m7.5 0a48.667 48.667 0 0 0-7.5 0M12 12.75h.008v.008H12v-.008Z\"/>","stroke":"1.5"},{"inner":"<path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z\"/>","stroke":"1.5"},{"inner":"<path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9\"/>","stroke":"1.5"},{"inner":"<path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z\"/>\n  <path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z\"/>","stroke":"1.5"}],"iconoir":[{"inner":"<path d=\"M2 8L11.7317 3.13416C11.9006 3.04971 12.0994 3.0497 12.2683 3.13416L22 8\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n<path d=\"M20 11V19C20 20.1046 19.1046 21 18 21H6C4.89543 21 4 20.1046 4 19V11\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>","stroke":"1.5"},{"inner":"<path d=\"M8 7H4C2.89543 7 2 7.89543 2 9V19C2 20.1046 2.89543 21 4 21H20C21.1046 21 22 20.1046 22 19V9C22 7.89543 21.1046 7 20 7H16M8 7V3.6C8 3.26863 8.26863 3 8.6 3H15.4C15.7314 3 16 3.26863 16 3.6V7M8 7H16\" stroke=\"currentColor\" stroke-width=\"1.5\"/>","stroke":"1.5"},{"inner":"<path d=\"M20 13V5.74853C20 5.5894 19.9368 5.43679 19.8243 5.32426L16.6757 2.17574C16.5632 2.06321 16.4106 2 16.2515 2H4.6C4.26863 2 4 2.26863 4 2.6V21.4C4 21.7314 4.26863 22 4.6 22H14\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n<path d=\"M16 2V5.4C16 5.73137 16.2686 6 16.6 6H20\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n<path d=\"M16 19H22M22 19L19 16M22 19L19 22\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>","stroke":"1.5"},{"inner":"<path d=\"M4.50828 20H19.4917C19.785 20 20.0353 19.788 20.0836 19.4986L21.8836 8.69864C21.9445 8.33292 21.6625 8 21.2917 8H2.70828C2.33751 8 2.05549 8.33292 2.11644 8.69864L3.91644 19.4986C3.96466 19.788 4.21497 20 4.50828 20Z\" stroke=\"currentColor\" stroke-width=\"1.5\"/>\n<path d=\"M7 8V6C7 4.89543 7.89543 4 9 4H15C16.1046 4 17 4.89543 17 6V8\" stroke=\"currentColor\" stroke-width=\"1.5\"/>","stroke":"1.5"},{"inner":"<path d=\"M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n<path d=\"M19.6224 10.3954L18.5247 7.7448L20 6L18 4L16.2647 5.48295L13.5578 4.36974L12.9353 2H10.981L10.3491 4.40113L7.70441 5.51596L6 4L4 6L5.45337 7.78885L4.3725 10.4463L2 11V13L4.40111 13.6555L5.51575 16.2997L4 18L6 20L7.79116 18.5403L10.397 19.6123L11 22H13L13.6045 19.6132L16.2551 18.5155C16.6969 18.8313 18 20 18 20L20 18L18.5159 16.2494L19.6139 13.598L21.9999 12.9772L22 11L19.6224 10.3954Z\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>","stroke":"1.5"}]};
 
-let currentSet = localStorage.getItem('bv-icon-set') || 'feather';
-
 function renderIcons() {
-  const set = ICONS[currentSet];
   document.querySelectorAll('.side a .ico').forEach(el => {
-    const i = +el.dataset.icon;
-    const it = set[i];
-    el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${it.stroke}" stroke-linecap="round" stroke-linejoin="round">${it.inner}</svg>`;
+    const it = ICONS.feather[+el.dataset.i];
+    el.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + it.inner + '</svg>';
   });
 }
-
-function pickSet(name) {
-  currentSet = name;
-  localStorage.setItem('bv-icon-set', name);
-  renderIcons();
-wsTab('废标检测', document.querySelector('.ws-tabs span.on'));
-impBind();
+function sideClick(e) {
+  if (e.target.closest('a')) return;
+  document.getElementById('layout').classList.toggle('min');
+}
+function go(id, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+  document.querySelectorAll('.side a').forEach(a => a.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('crumb').textContent = el.querySelector('.txt').textContent;
+  window.scrollTo(0, 0);
 }
 
-const WS_DATA = {
-  '废标检测': [
-    ['bad', '未响应', '修复建议 ›', '精密空调未注明一级能效', '对应正文高亮 · 招标 3.2 条'],
-    ['bad', '偏差', '详情 ›', '工期 180 天 vs 要求 150 天', '对应正文高亮 · 招标 2.1 条'],
-    ['bad', '缺项', '插入模板 ›', '开标一览表未编写', '格式要求第 4 项'],
-    ['bad', '缺证据', '去补挂 ›', '王志强社保证明未挂接', '资格审查必备'],
-  ],
-  '案例推荐': [
-    ['blue', '机房类', '插入 ›', '××银行机房监控项目', '486 万 · 2023 · 含合同+验收证据'],
-    ['blue', '园区类', '插入 ›', '××智慧园区一期信息化', '890 万 · 2024 · 与本项目最相似'],
-    ['blue', '信誉', '插入 ›', '市级优秀企业奖 · 无不良记录', '近三年有效'],
-  ],
-  '人员介绍': [
-    ['ok', '材料齐', '插入介绍 ›', '张建国 · 法定代表人', '一级建造师（机电）· 12 个项目'],
-    ['bad', '缺社保证明', '去补挂 ›', '王志强 · 授权代表', '高级工程师 · 金融行业 ×3'],
-  ],
-};
-function wsTab(name, el) {
-  document.querySelectorAll('.ws-tabs span').forEach(x => x.classList.remove('on'));
-  if (el) el.classList.add('on');
-  document.getElementById('wsList').innerHTML = WS_DATA[name].map(([tg, tag, act, title, meta]) =>
-    '<div class="it"><div class="h"><span class="tg ' + tg + '">' + tag + '</span><span class="a">' + act + '</span></div>' + title + '<div class="m">' + meta + '</div></div>'
-  ).join('');
-}
+const PROJECTS = [
+  '智慧园区数据中心项目', '××银行机房监控系统项目',
+  '××知识产权服务平台运维', '××市政道路改造工程',
+];
 function ppToggle(e) {
   e.stopPropagation();
   document.getElementById('ppMenu').classList.toggle('open');
+}
+function ppFilterMenu(q) {
+  q = q.trim();
+  document.getElementById('ppItems').innerHTML = PROJECTS
+    .filter(p => p.includes(q))
+    .map(p => '<div class="pp-group" onclick="ppPick(\'' + p + '\', event)">' + p + '</div>')
+    .join('');
 }
 function ppPick(name, e) {
   e.stopPropagation();
   document.getElementById('ppCur').textContent = name;
   document.getElementById('ppMenu').classList.remove('open');
-  const imp = document.getElementById('impArea');
-  imp.classList.add('done');
-  imp.querySelector('.imp-txt').textContent = '已选项目：' + name + ' —— 导入初版投标文件';
+  impDone(name);
 }
-function impGo() {
-  const imp = document.getElementById('impArea');
-  imp.classList.add('done');
-  imp.querySelector('.imp-txt').textContent = '已导入：智慧园区项目-投标文件-v0.3.docx（正在同步检测…）';
-  imp.querySelector('.imp-sub').textContent = '编辑区已加载正文';
+function impGo() { impDone('智慧园区数据中心项目'); }
+function impDone(name) {
+  const a = document.getElementById('impArea');
+  a.classList.add('done');
+  document.getElementById('impTxt').textContent = '已选项目：' + name + ' —— 导入初版投标文件';
+  document.getElementById('impSub').textContent = '编辑区已加载';
 }
 document.addEventListener('click', () => document.getElementById('ppMenu')?.classList.remove('open'));
-function impBind() { document.getElementById('impArea').onclick = impGo; }
-function sideClick(e) {
-  if (e.target.closest('a')) return; // 导航项点击不触发收缩
-  toggleSide();
-}
-function toggleSide() {
-  document.getElementById('layout').classList.toggle('min');
+
+const WS_DATA = {
+  bad: [
+    ['bad', '未响应', '修复建议 ›', '精密空调未注明一级能效', '对应正文高亮 · 招标 3.2 条'],
+    ['bad', '偏差', '详情 ›', '工期 180 天 vs 要求 150 天', '对应正文高亮 · 招标 2.1 条'],
+    ['bad', '缺项', '插入模板 ›', '开标一览表未编写', '格式要求第 4 项'],
+    ['bad', '缺证据', '去补挂 ›', '王志强社保证明未挂接', '资格审查必备'],
+  ],
+  blue: [
+    ['blue', '机房类', '插入 ›', '××银行机房监控项目', '486 万 · 2023 · 含合同+验收证据'],
+    ['blue', '园区类', '插入 ›', '××智慧园区一期信息化', '890 万 · 2024 · 与本项目最相似'],
+    ['blue', '信誉', '插入 ›', '市级优秀企业奖', '近三年有效'],
+  ],
+  ok: [
+    ['ok', '材料齐', '插入介绍 ›', '张建国 · 法定代表人', '一级建造师（机电）· 12 个项目'],
+    ['bad', '缺社保证明', '去补挂 ›', '王志强 · 授权代表', '高级工程师 · 金融行业 ×3'],
+  ],
+};
+function wsTab(tg, el) {
+  document.querySelectorAll('.ws-tabs span').forEach(x => x.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('wsList').innerHTML = WS_DATA[tg].map(([c, tag, act, title, meta]) =>
+    '<div class="it"><div class="h"><span class="tg ' + c + '">' + tag + '</span><span class="a">' + act + '</span></div>' + title + '<div class="m">' + meta + '</div></div>'
+  ).join('');
 }
 
-function go(id, el) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
-  document.getElementById(id).classList.add('on');
-  document.querySelectorAll('.side a').forEach(a => a.classList.remove('on'));
-  if (el) el.classList.add('on');
-  document.getElementById('crumb').textContent = el.querySelector('.txt').textContent;
-  window.scrollTo(0, 0);
+const PJ_DATA = [
+  ['智慧园区数据中心项目', '金融', 12, 5, 2, 1],
+  ['××银行机房监控系统项目', '金融', 5, 3, 1, 0],
+  ['××知识产权服务平台运维', '知产', 3, 2, 1, 0],
+  ['××市政道路改造工程', '市政', 8, 4, 3, 2],
+  ['××通信枢纽楼智能化', '通信', 6, 2, 2, 0],
+  ['××数据中心二期机电', '通信', 9, 6, 4, 1],
+];
+function pjRender(list) {
+  document.getElementById('pjGrid').innerHTML = list.map(([nm, ind, docs, mats, ppl, risk]) =>
+    '<div class="pj-card" onclick="pjOpen(\'' + nm + '\',' + docs + ',' + mats + ',' + ppl + ',' + risk + ')">' +
+    '<div class="nm">' + nm + '</div>' +
+    '<div class="in"><span class="badge warn">' + ind + '</span>' + (risk ? '<span class="badge secret">废标风险 ' + risk + '</span>' : '') + '</div>' +
+    '<div class="nums"><span>文档 <b>' + docs + '</b></span><span>素材 <b>' + mats + '</b></span><span>人员 <b>' + ppl + '</b></span></div></div>'
+  ).join('');
+}
+function pjFilter(q) {
+  pjRender(PJ_DATA.filter(p => p[0].toLowerCase().includes(q.toLowerCase())));
+}
+function pjChip(ind, el) {
+  document.querySelectorAll('#p2 .chip').forEach(c => c.classList.remove('on'));
+  el.classList.add('on');
+  pjRender(ind ? PJ_DATA.filter(p => p[1] === ind) : PJ_DATA);
+}
+function pjOpen(nm, docs, mats, ppl, risk) {
+  document.getElementById('pjListView').style.display = 'none';
+  const d = document.getElementById('pjDetail');
+  d.style.display = 'block';
+  document.getElementById('pjTitle').textContent = nm;
+  document.getElementById('pjMeta').textContent = '共 ' + docs + ' 份文档 · 最近活动 2 分钟前';
+  document.getElementById('pjNDocs').innerHTML = docs + '<small> 份</small>';
+  document.getElementById('pjNMats').innerHTML = mats + '<small> 条</small>';
+  document.getElementById('pjNPpl').innerHTML = ppl + '<small> 人</small>';
+  document.getElementById('pjNRisk').innerHTML = risk + '<small> 项</small>';
+}
+function pjBack() {
+  document.getElementById('pjDetail').style.display = 'none';
+  document.getElementById('pjListView').style.display = 'block';
 }
 
 renderIcons();
+wsTab('bad', document.querySelector('.ws-tabs span.on'));
+pjRender(PJ_DATA);
 </script>
 </body>
 </html>
