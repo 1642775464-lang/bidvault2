@@ -55,7 +55,26 @@
   .foot { margin-top:36px; padding-top:14px; border-top:1px solid var(--line); font-size:11px; color:var(--muted); font-family:Consolas,monospace; }
   /* P1 工作台 · 标书编辑工作区 */
   .ws-bar { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
-  .ws-fname { font-size:12.5px; color:var(--ink); font-weight:600; }
+  .proj-pick { position:relative; }
+  .pp-label { font-size:11px; color:var(--muted); margin-bottom:3px; }
+  .pp-box { position:relative; width:280px; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:8px 12px; cursor:pointer; display:flex; align-items:center; gap:8px; }
+  .pp-box:hover { border-color:var(--accent); }
+  .pp-cur { flex:1; font-weight:600; font-size:13px; }
+  .pp-caret { color:var(--muted); font-size:11px; }
+  .pp-menu { display:none; position:absolute; top:calc(100% + 6px); left:0; width:320px; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-lg); box-shadow:var(--shadow-pop); z-index:20; padding:8px; }
+  .pp-menu.open { display:block; }
+  .pp-search { width:100%; border:1px solid var(--line); border-radius:var(--radius); padding:7px 10px; font:inherit; font-size:12.5px; margin-bottom:6px; outline:none; }
+  .pp-search:focus { border-color:var(--accent); }
+  .pp-group { padding:8px 10px; border-radius:var(--radius); cursor:pointer; font-size:12.5px; font-weight:600; display:flex; justify-content:space-between; align-items:baseline; }
+  .pp-group:hover { background:var(--accent-soft); color:var(--accent); }
+  .pp-group i { font-style:normal; font-size:10.5px; color:var(--muted); font-weight:400; font-family:Consolas,monospace; }
+  .pp-new { padding:8px 10px; color:var(--accent); font-size:12px; cursor:pointer; border-top:1px dashed var(--line); margin-top:4px; font-weight:600; }
+  .imp-area { flex:1; border:1.5px dashed var(--accent); background:var(--accent-soft); border-radius:var(--radius-lg); padding:10px 18px; display:flex; align-items:center; gap:12px; cursor:pointer; }
+  .imp-area:hover { border-color:var(--accent); }
+  .imp-area.done { border-style:solid; background:var(--surface); }
+  .imp-ico { width:30px; height:30px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-size:14px; }
+  .imp-txt { font-weight:600; font-size:13px; }
+  .imp-sub { font-size:11px; color:var(--muted); }
   .ws-pill { font-size:11px; padding:2px 10px; border-radius:999px; font-weight:600; }
   .ws-pill.bad { background:#FEE2E2; color:var(--danger); }
   .ws-pill.blue { background:var(--accent-soft); color:var(--accent); }
@@ -106,8 +125,25 @@
       <!-- P1 工作台 · 标书编辑工作区（方案E定稿：左右分栏+右侧单栏切换） -->
       <div class="page on" id="p1">
         <div class="ws-bar">
-          <span class="ws-fname mono">智慧园区项目-投标文件-v0.3.docx</span>
-          <span class="ws-pill bad">废标 4</span><span class="ws-pill blue">案例 3</span><span class="ws-pill ok">人员 2</span>
+          <div class="proj-pick">
+            <div class="pp-label">项目</div>
+            <div class="pp-box" onclick="ppToggle(event)">
+              <span class="pp-cur" id="ppCur">选择项目</span><span class="pp-caret">▾</span>
+              <div class="pp-menu" id="ppMenu">
+                <input class="pp-search" placeholder="搜索项目…" onclick="event.stopPropagation()" oninput="ppFilter(this.value)" />
+                <div class="pp-group" onclick="ppPick('智慧园区数据中心项目', event)">智慧园区数据中心项目 <i>金融 · 12 份</i></div>
+                <div class="pp-group" onclick="ppPick('××银行机房监控系统项目', event)">××银行机房监控系统项目 <i>金融 · 5 份</i></div>
+                <div class="pp-group" onclick="ppPick('××知识产权服务平台运维', event)">××知识产权服务平台运维 <i>知产 · 3 份</i></div>
+                <div class="pp-group" onclick="ppPick('××市政道路改造工程', event)">××市政道路改造工程 <i>市政 · 8 份</i></div>
+                <div class="pp-new">＋ 新建项目</div>
+              </div>
+            </div>
+          </div>
+          <div class="imp-area" id="impArea">
+            <span class="imp-ico">⬆</span>
+            <span class="imp-txt">导入初版投标文件</span>
+            <span class="imp-sub">拖入或点击选择 · docx/pdf</span>
+          </div>
           <button class="btn btn-accent ws-export">导出</button>
         </div>
         <div class="ws-split">
@@ -187,6 +223,7 @@ function pickSet(name) {
   localStorage.setItem('bv-icon-set', name);
   renderIcons();
 wsTab('废标检测', document.querySelector('.ws-tabs span.on'));
+impBind();
 }
 
 const WS_DATA = {
@@ -213,6 +250,26 @@ function wsTab(name, el) {
     '<div class="it"><div class="h"><span class="tg ' + tg + '">' + tag + '</span><span class="a">' + act + '</span></div>' + title + '<div class="m">' + meta + '</div></div>'
   ).join('');
 }
+function ppToggle(e) {
+  e.stopPropagation();
+  document.getElementById('ppMenu').classList.toggle('open');
+}
+function ppPick(name, e) {
+  e.stopPropagation();
+  document.getElementById('ppCur').textContent = name;
+  document.getElementById('ppMenu').classList.remove('open');
+  const imp = document.getElementById('impArea');
+  imp.classList.add('done');
+  imp.querySelector('.imp-txt').textContent = '已选项目：' + name + ' —— 导入初版投标文件';
+}
+function impGo() {
+  const imp = document.getElementById('impArea');
+  imp.classList.add('done');
+  imp.querySelector('.imp-txt').textContent = '已导入：智慧园区项目-投标文件-v0.3.docx（正在同步检测…）';
+  imp.querySelector('.imp-sub').textContent = '编辑区已加载正文';
+}
+document.addEventListener('click', () => document.getElementById('ppMenu')?.classList.remove('open'));
+function impBind() { document.getElementById('impArea').onclick = impGo; }
 function sideClick(e) {
   if (e.target.closest('a')) return; // 导航项点击不触发收缩
   toggleSide();
