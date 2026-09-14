@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>标库 BidVault v2 · 系统架构图（功能/技术/数据）</title>
+<style>
+:root{--bg:#F4F7FB;--surface:#fff;--ink:#1E293B;--muted:#64748B;--line:#E2E8F0;--accent:#2563EB;--accent-soft:#EFF4FF;--ok:#16A34A;--warn:#D97706;--danger:#DC2626;--radius:10px;--mono:Consolas,monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:13.5px/1.65 "Segoe UI","Microsoft YaHei",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:40px 32px 100px}
+h1{font-size:24px}h1 span{color:var(--accent)}
+.sub{color:var(--muted);font-size:13px;margin:6px 0 8px}
+.toc{display:flex;gap:10px;margin:18px 0 8px}
+.toc a{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 18px;text-decoration:none;color:var(--ink);font-weight:600}
+.toc a:hover{border-color:var(--accent);color:var(--accent)}
+h2{font-size:18px;margin:52px 0 6px;padding-bottom:8px;border-bottom:2px solid var(--ink)}
+h2 span{color:var(--accent);font-family:Consolas,monospace;font-size:13px;margin-right:8px}
+.desc{color:var(--muted);font-size:12.5px;margin-bottom:16px}
+.board{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;box-shadow:var(--shadow,0 1px 2px rgba(30,41,59,.04))}
+.lane{display:grid;gap:12px;margin-bottom:14px}
+.l5{grid-template-columns:repeat(5,1fr)}.l4{grid-template-columns:repeat(4,1fr)}.l3{grid-template-columns:repeat(3,1fr)}.l2{grid-template-columns:repeat(2,1fr)}
+.box{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.box.mod{background:var(--accent-soft);border-color:#C3D6F4}
+.box b{display:block;font-size:13.5px;margin-bottom:6px}
+.box.mod b{color:var(--accent)}
+.box ul{list-style:none}
+.box li{font-size:12px;color:var(--ink);padding:2.5px 0;border-bottom:1px dashed var(--line)}
+.box li:last-child{border:none}
+.box li::before{content:"·";color:var(--accent);font-weight:700;margin-right:6px}
+.box .tagline{font-size:11px;color:var(--muted);margin-top:6px;font-family:var(--mono)}
+.flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;margin:8px 0 18px}
+.flow .fstep{background:var(--surface);border:1.5px solid var(--accent);border-radius:9px;padding:8px 14px;font-size:12px;font-weight:600;color:var(--ink);display:flex;align-items:center}
+.flow .fstep small{display:block;font-weight:400;color:var(--muted);font-size:10.5px}
+.flow .arr{display:flex;align-items:center;padding:0 8px;color:var(--accent);font-weight:700}
+.flow .arr::after{content:"→";font-size:16px}
+.gate{border-color:var(--danger)!important;color:var(--danger)!important}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}
+th{text-align:left;background:#F8FAFC;color:var(--muted);font-size:11px;letter-spacing:.05em;text-transform:uppercase;padding:8px 12px;border-bottom:1.5px solid var(--ink)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+td:first-child{font-family:var(--mono);font-size:12px;color:var(--accent);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+.pill{display:inline-block;font-size:10.5px;padding:1px 8px;border-radius:999px;margin-left:6px;font-weight:600}
+.pill.rec{background:#FEF3C7;color:var(--warn)}
+.pill.fixed{background:#DCFCE7;color:var(--ok)}
+.layer{display:grid;grid-template-columns:170px 1fr;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:10px}
+.layer .ln{background:var(--accent);color:#fff;padding:14px;font-weight:700;font-size:13px;display:flex;align-items:center}
+.layer .lc{background:var(--surface);padding:12px 16px}
+.layer .lc b{font-size:12.5px}
+.layer .lc .d{font-size:12px;color:var(--muted);margin:2px 0 6px}
+.chips2{display:flex;gap:6px;flex-wrap:wrap}
+.chips2 i{font-style:normal;font-size:11.5px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 9px;font-family:Consolas,monospace}
+.er{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}
+.ent{background:var(--surface);border:1.5px solid var(--accent);border-radius:10px;overflow:hidden}
+.ent .en{background:var(--accent);color:#fff;font-weight:700;font-size:12.5px;padding:6px 12px;font-family:Consolas,monospace}
+.ent ul{list-style:none;padding:8px 12px}
+.ent li{font-size:11.5px;padding:2px 0;border-bottom:1px dashed var(--line);font-family:Consolas,monospace;color:var(--ink)}
+.ent li.pk{color:var(--accent);font-weight:700}
+.ent li.fn{color:var(--muted)}
+.rel{background:var(--accent-soft);border-radius:10px;padding:14px 18px;font-size:12.5px;margin-top:6px}
+.rel div{padding:3px 0}
+.rel b{color:var(--accent)}
+.stm{display:flex;gap:0;align-items:center;flex-wrap:wrap;margin:8px 0}
+.stm .s{background:var(--surface);border:1.5px solid var(--accent);border-radius:9px;padding:6px 14px;font-size:12px;font-weight:600}
+.stm .a{padding:0 10px;color:var(--accent);font-weight:700}
+.stm .a small{display:block;font-size:10px;color:var(--muted);font-weight:400}
+.note{background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:12px 18px;font-size:12.5px;margin-top:18px}
+.note b{color:var(--warn)}
+ul.q{list-style:none;margin-top:8px}
+ul.q li{padding:4px 0;font-size:12.5px}
+ul.q li::before{content:"Q";background:var(--accent);color:#fff;border-radius:4px;font-size:10px;padding:1px 6px;margin-right:8px;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>标库 BidVault v2 <span>· 系统架构图</span></h1>
+<p class="sub">依据：《标书工作台-优化版原型.html》v1.2 五页完整版（中转区 09-14）逐行识别 · 需求基线：需求文档 v2.2 + Q1-Q8 收口 · 2026-09-14</p>
+<div class="toc"><a href="#f">① 功能架构图</a><a href="#t">② 技术架构图</a><a href="#d">③ 数据架构图</a><a href="#q">④ 待确认项（已按推荐默认执行，可调）</a></div>
+
+<!-- ================= 功能架构 ================= -->
+<h2 id="f"><span>①</span>功能架构图</h2>
+<p class="desc">五大模块 + 全局机制。每个模块下列出原型中识别到的全部功能点；加粗为跨模块数据流枢纽。</p>
+<div class="board">
+  <div class="lane l5">
+    <div class="box mod"><b>P1 工作台（标书编辑主战场）</b><ul>
+      <li>项目上下文条：切换/编码/开标倒计时/招标人/详情入口</li>
+      <li>文档预览：章节大纲滚动同步 / 文内搜索↑↓ / 字号 A± / 阅读进度</li>
+      <li>废标检测：风险指数 0-100 / 三极分级 / 四型筛选 / 只看未处理 / 定位原文 / 修改建议+依据 / 标记已处理闭环 / 重新检测</li>
+      <li>评分办法对照表（源自招标文件拆解）</li>
+      <li>案例推荐：匹配度/时间排序 / 引用到本文档</li>
+      <li>人员介绍：材料齐缺状态</li>
+      <li>导出：Word / PDF / 检测报告（致命项拦截确认）</li>
+      <li>缺件保护：无投标文件空态引导 / 无招标文件禁止检测</li>
+    </ul></div>
+    <div class="box mod"><b>P2 项目库（投标台账）</b><ul>
+      <li>跟进中 / 已归档 双模式</li>
+      <li>台账表格：项目/主陪/行业/开标时间/五阶段 stepper（落后提示）/客户含合作历史徽章/销售/平台</li>
+      <li>搜索 + 主陪筛选 + 阶段筛选</li>
+      <li>详情抽屉：信息 meta / 阶段推进与回退 / 招标资料 / 客户历史合作 / 跨页跳转（去检测/文档库/素材库）</li>
+      <li>新建 / 编辑项目：表单校验 + 招标文件与公告上传</li>
+    </ul></div>
+    <div class="box mod"><b>P3 文档库（拆解工作台）</b><ul>
+      <li>文档列表：招标/投标分类、绑定项目徽章、拆解状态</li>
+      <li>拆解结构面板：招标抽 4 组（须知前附表/评标办法前附表/格式清单/章节目录）；投标抽 7 项（法代证明/授权委托/基本情况/财务/类似业绩/在履约/团队简历）</li>
+      <li>拆解状态流转：未拆解 → 拆解中（进度） → 已拆解</li>
+      <li>上传文档：类型选择 + 多文件 + 绑定三选（暂不/现有/新建并绑定）</li>
+      <li>绑定 / 换绑 / 解绑</li>
+    </ul></div>
+    <div class="box mod"><b>P4 素材库（编辑工作台）</b><ul>
+      <li>7 分类分组列表（资质/财务/业绩/人员/技术方案/商务模板/投标格式）</li>
+      <li>素材四类型：表格（字段值行）/ 文本 / 图片 / 附件</li>
+      <li>来源双轨：文档库拆解自动入库（去重）/ 手动上传新建</li>
+      <li>编辑面板：改标题/分类/类型/标签/内容/换文件</li>
+      <li>引用到项目（引用计数） / 删除（引用警告）</li>
+      <li>搜索 + 分类筛选 + 来源统计</li>
+    </ul></div>
+    <div class="box mod"><b>P5 系统设置</b><ul>
+      <li>通用：开机自启 / 数据目录 / 磁盘水位告警</li>
+      <li>AI 服务：GLM Key / 模型连接（原型弹窗已画）</li>
+      <li>自动归档：扫描周期 / 收藏路径</li>
+      <li>备份：每日 7 天滚动 / 手动还原</li>
+      <li>规则设置：废标清单 / 抽取字段规则（编辑器二期）</li>
+    </ul></div>
+  </div>
+  <div class="lane l2">
+    <div class="box"><b>全局机制（贯穿五页）</b><ul>
+      <li>单页五视图切换 + 面包屑；toast 轻提示；确认/拦截弹窗；详情抽屉</li>
+      <li>项目上下文贯穿：切换项目带致命项确认；五页共用同一数据层</li>
+      <li>跨页跳转：抽屉 → 工作台检测 / 文档库管理 / 素材库引用</li>
+      <li>空态规范：未检测 / 无风险 / 无文档 / 无匹配</li>
+    </ul></div>
+    <div class="box"><b>保护机制（红线）</b><ul>
+      <li>涉密零出域：默认涉密，非涉密才走 GLM，全调用审计</li>
+      <li>缺件保护：无招标+投标文件禁止检测（弹窗引导上传）</li>
+      <li>导出保护：存在致命项时导出前确认</li>
+      <li>删除保护：素材删除提示引用次数、不可撤销警示</li>
+    </ul></div>
+  </div>
+
+  <h2 class="sec" style="font-size:14px;margin:20px 0 8px;">核心数据流（五条主链路）</h2>
+  <div class="flow"><div class="fstep">收藏路径<small>扫描/watchdog/手动</small></div><div class="arr"></div><div class="fstep">文档库入库<small>去重+拆解</small></div><div class="arr"></div><div class="fstep">结构化抽取<small>前附表/八项/素材</small></div><div class="arr"></div><div class="fstep">素材库<small>自动入库去重</small></div><div class="arr"></div><div class="fstep">工作台引用<small>写作复用</small></div></div>
+  <div class="flow"><div class="fstep">上传招标文件<small>项目库/文档库</small></div><div class="arr"></div><div class="fstep">拆解<small>前附表/评分办法</small></div><div class="arr"></div><div class="fstep">检查标准生成</div><div class="arr"></div><div class="fstep">投标文件比对<small>四态结论</small></div><div class="arr"></div><div class="fstep">检测报告导出</div></div>
+  <div class="flow"><div class="fstep">导入初版投标文件<small>工作台</small></div><div class="arr"></div><div class="fstep">编辑修订</div><div class="arr"></div><div class="fstep">同步重检测<small>30s</small></div><div class="arr"></div><div class="fstep">风险指数下降</div><div class="arr"></div><div class="fstep">导出 Word/PDF<small>致命拦截</small></div></div>
+</div>
+
+<!-- ================= 技术架构 ================= -->
+<h2 id="t"><span>②</span>技术架构图</h2>
+<p class="desc">单机 localhost · Windows 办公电脑 · CPU 串行纪律 · 数据不出本机。原型交互已验证 → 按此分层实现。</p>
+<div class="board">
+  <div class="layer"><div class="ln">前端层</div><div class="lc">
+    <b>Vue 3 + Vite + TypeScript（单页应用，仅绑 127.0.0.1）</b>
+    <div class="d">原型即规范：五视图路由 + 组件按 03-设计规范 v1.2 组件清单实现</div>
+    <div class="chips2"><i>views/ 工作台·项目库·文档库·素材库·设置</i><i>components/ 风险卡·抽屉·弹窗×7·chips·stepper</i><i>tokens.css 方案C</i><i>Feather 图标</i></div>
+  </div></div>
+  <div class="layer"><div class="ln">API 层</div><div class="lc">
+    <b>FastAPI（uvicorn 单 worker，127.0.0.1:8000）</b>
+    <div class="d">routers 与 PRD 功能点一一对应</div>
+    <div class="chips2"><i>/api/projects 台账+抽屉+阶段</i><i>/api/documents 上传/列表/拆解/绑定</i><i>/api/extract 拆解结构</i><i>/api/materials 素材CRUD/引用</i><i>/api/search 检索</i><i>/api/checks 检测</i><i>/api/rules 规则</i><i>/api/paths 扫描</i><i>/api/settings</i><i>/api/export</i><i>/api/audit</i></div>
+  </div></div>
+  <div class="layer"><div class="ln">服务层</div><div class="lc">
+    <div class="chips2"><i>archive/ 扫描+watchdog 实时监听</i><i>ingest/ 解析(OCR分流)+切片+索引</i><i>extract/ 拆解抽取+素材harvest去重</i><i>search/ FTS5 trigram+3gram兜底</i><i>check/ 四态比对管线</i><i>export/ openpyxl+Word</i><i>preview/ 按页渲染</i><i>llm/ GLM-4-Flash+涉密断言</i><i>audit/ 审计</i><i>workers/ 串行队列+定时扫描</i></div>
+    <div class="d" style="margin-top:6px">拆解 = 解析(PaddleOCR 分流) → 结构化抽取(GLM 非涉密 / PP-Structure+正则 涉密) → 状态机 未拆解→拆解中→已拆解</div>
+  </div></div>
+  <div class="layer"><div class="ln">数据层</div><div class="lc">
+    <b>SQLite（WAL）+ FTS5 trigram 虚拟表 + sqlite-vec 向量（[ai] 可选）</b>
+    <div class="d">单文件库 data/db；原件 data/files；页图缓存 data/cache；备份 data/backup（7 天滚动）</div>
+  </div></div>
+  <div class="layer"><div class="ln">AI 层</div><div class="lc">
+    <div class="chips2"><i>GLM-4-Flash 文本结构化/打标（非涉密）</i><i>GLM-4V-Flash 图片理解（M3）</i><i>PaddleOCR mobile 扫描件</i><i>PP-Structure 表格+涉密兜底</i><i>bge-small-zh 语义向量</i></div>
+    <div class="d" style="margin-top:6px">涉密闸门：is_secret=1 一律本地管线，云调用入口断言 + 审计</div>
+  </div></div>
+  <div class="layer"><div class="ln">交付形态</div><div class="lc">
+    <b>内嵌 Python 免安装 + 启动器（双击起服务+开浏览器）+ 每日备份定时</b>
+    <div class="d">对应原型 US-12 一键启动；五阶段（技术标→商务标→合标→盖章→上传）为项目台账流程字段，不驱动系统行为</div>
+  </div></div>
+</div>
+<div class="note"><b>关键实现映射</b>（原型机制 → 实现机制）：拆解模拟 1.6s → 真实解析管线（OCR 分流+结构化）；文内搜索 → DOM TreeWalker（预览模式保留）+ 后端 FTS5（跨文档）；风险指数 → 按未处理致命×6+风险×3 递减；缺件保护 → canDetect 校验；导出拦截 → pendingFatal 前置确认。</div>
+</div>
+
+<!-- ================= 数据架构 ================= -->
+<h2 id="d"><span>③</span>数据架构图</h2>
+<p class="desc">十张核心表 + 两组状态机。字段与原型演示数据结构一一对应；pk=主键，fk=外键。</p>
+<div class="board">
+  <div class="er">
+    <div class="ent"><div class="en">projects 项目</div><ul>
+      <li class="pk">id (uuid)</li><li class="pk">code UNIQUE</li>
+      <li>name / role(主标|陪标) / industry</li><li>open(开标时间) / platform</li><li>cust / contact / sales</li>
+      <li>stage 0-4 <span class="fn">五阶段</span></li><li>is_archived / result / note / amount</li>
+      <li>detected_at <span class="fn">最近检测</span></li>
+    </ul></div>
+    <div class="ent"><div class="en">documents 文档</div><ul>
+      <li class="pk">id</li><li class="pk">origin_path UNIQUE / stored_name</li>
+      <li>kind(tender|bid) / file_type</li><li>size / mtime <span class="fn">去重键</span></li>
+      <li>project_id fk→projects <span class="fn">可空=未绑定</span></li>
+      <li>status 0未拆解/1拆解中/2已拆解</li><li>content_text / doc_date</li>
+    </ul></div>
+    <div class="ent"><div class="en">extract_items 拆解结构项</div><ul>
+      <li class="pk">id</li><li>doc_id fk / group(招标4组|投标7项)</li>
+      <li>name / sum / seq</li><li class="fn">表：字段值行（结构化）</li>
+    </ul></div>
+    <div class="ent"><div class="en">materials 素材</div><ul>
+      <li class="pk">id</li><li>type(表格|文本|图片|附件)</li><li>cat 七类 / tags[]</li>
+      <li>title / rows|text|file</li><li>src(文档库拆解|手动上传)</li><li>used 引用计数 / updated</li>
+    </ul></div>
+    <div class="ent"><div class="en">material_refs 引用</div><ul>
+      <li>material_id fk / project_id fk</li><li class="fn">素材↔项目 多对多</li>
+    </ul></div>
+    <div class="ent"><div class="en">risks 废标风险项</div><ul>
+      <li class="pk">id / project_id fk</li><li>sev(致命|风险|提示) / type(四型)</li>
+      <li>title / req / quote / advice / fix</li><li>page_no / done / done_at</li>
+    </ul></div>
+    <div class="ent"><div class="en">score_rows 评分对照</div><ul>
+      <li>id / project_id fk</li><li>item / req / response</li><li>status(达标|缺口)</li>
+    </ul></div>
+    <div class="ent"><div class="en">persons 人员</div><ul>
+      <li class="pk">id / name UNIQUE</li><li>title / certs / industries</li>
+      <li class="fn">档案卡 + 材料齐缺状态</li>
+    </ul></div>
+    <div class="ent"><div class="en">watch_paths / customers</div><ul>
+      <li>watch_paths: path UNIQUE / enabled / last_scan</li>
+      <li>customers: name / history[]（合作次数与结果）</li>
+    </ul></div>
+    <div class="ent"><div class="en">audit_log 审计</div><ul>
+      <li>ts / action / pipeline(local|glm)</li><li>doc_id / detail</li>
+      <li class="fn">涉密红线证据链</li>
+    </ul></div>
+  </div>
+  <div class="rel">
+    <div><b>projects 1—N</b> documents（一个项目多份招标/投标/资料文件）</div>
+    <div><b>documents 1—N</b> extract_items（拆解产出结构项）</div>
+    <div><b>extract_items →</b> materials（拆解完成自动聚合入库，doc+title 去重）</div>
+    <div><b>materials N—N</b> projects（经 material_refs 引用，引用计数 used）</div>
+    <div><b>projects 1—N</b> risks / score_rows（检测产出，已处理闭环）</div>
+    <div><b>customers 1—N</b> projects（客户合作历史聚合为徽章）</div>
+  </div>
+
+  <h2 class="sec" style="font-size:14px;margin:20px 0 8px;">两组状态机</h2>
+  <div class="stm"><span class="s">未拆解 0</span><span class="a">开始拆解抽取<small>1.6s 模拟→真实解析管线</small></span><span class="s">拆解中 1</span><span class="a">结构项落库</span><span class="s">已拆解 2</span></div>
+  <div class="stm"><span class="s">技术标制作 0</span><span class="a">→</span><span class="s">商务标制作 1</span><span class="a">→</span><span class="s">合标 2</span><span class="a">→</span><span class="s">打印盖章 3</span><span class="a">→</span><span class="s">上传 4</span><span class="a" style="color:var(--danger)">← 回退</span><small style="color:var(--muted)">日程落后自动提示（isBehind）</small></div>
+</div>
+
+<!-- ================= 待确认 ================= -->
+<h2 id="q"><span>④</span>按推荐默认执行的决策（可推翻）</h2>
+<div class="board">
+<ul class="q">
+  <li>成员与账号：原型有「邀请成员」弹窗与负责销售字段。按需求文档 v2.2 单机自用定位，<b>一期按单机单用户实现</b>——销售/角色仅作数据字段记录，邀请成员与账号体系二期（技术架构已预留）。</li>
+  <li>系统设置：原型为空壳，按六组实现——通用 / AI 服务（接 GLM Key 弹窗）/ 自动归档 / 备份还原 / 规则设置 / 关于。</li>
+  <li>抽取字段规则编辑器（四种抽取方式弹窗）：一期<b>固定拆解结构先行</b>，该编辑器二期开放（架构已预留 extract_rules 扩展位）。</li>
+  <li>导出：一期做 Word（编辑区文档）+ 检测报告 Excel + 打印 PDF 三种；导出前致命项拦截确认生效。</li>
+  <li>系统设置页的「原型说明」按钮属操作指导类（你定的 UI 规则），实现版移除。</li>
+</ul>
+如以上任一条与你的意图不符，直接指出，我更新架构图与文档。
+</div>
+
+<div class="foot" style="margin-top:30px;font-size:11px;color:var(--muted);font-family:Consolas,monospace">标库 BidVault v2 · 架构图三份合辑 · 依据中转区原型 v1.2 逐行识别 · 2026-09-14</div>
+</div>
+</body>
+</html>
