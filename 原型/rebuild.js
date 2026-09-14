@@ -89,12 +89,12 @@ const html = `<!DOCTYPE html>
   .ws-split { display:flex; gap:12px; height:calc(100vh - 260px); min-height:420px; }
   .ws-doc { flex:1.35; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-lg); display:flex; flex-direction:column; overflow:hidden; }
   .doc-page { flex:1; overflow-y:auto; padding:26px 34px; }
-  .doc-page h1 { font-size:19px; margin-bottom:14px; }
+  .doc-page h1 { font-size:20px; margin-bottom:20px; text-align:center; }
+  .doc-page { line-height:2; color:#334155; }
   .doc-page h3 { font-size:14.5px; margin:16px 0 8px; color:#0F172A; }
   .doc-page p { margin-bottom:10px; color:#334155; }
   .mk-bad { background:#FEE2E2; border-bottom:2px solid var(--danger); padding:0 2px; border-radius:3px 3px 0 0; cursor:pointer; }
   .mk-warn { background:#FEF3C7; border-bottom:2px solid var(--warn); padding:0 2px; border-radius:3px 3px 0 0; cursor:pointer; }
-  .ws-sync { font-size:10.5px; color:var(--ok); padding:7px 16px; border-top:1px solid var(--line); background:var(--bg); }
   .ws-right { flex:1; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-lg); display:flex; flex-direction:column; overflow:hidden; }
   .ws-tabs { display:flex; border-bottom:1px solid var(--line); }
   .ws-tabs span { flex:1; text-align:center; padding:11px 4px; cursor:pointer; color:var(--muted); font-size:13px; border-bottom:2.5px solid transparent; }
@@ -145,11 +145,10 @@ const html = `<!DOCTYPE html>
     <a onclick="go('p3', this)"><span class="ico" data-i="2"></span><span class="txt">文档库</span></a>
     <a onclick="go('p4', this)"><span class="ico" data-i="3"></span><span class="txt">素材库</span></a>
     <a onclick="go('p5', this)"><span class="ico" data-i="4"></span><span class="txt">系统设置</span></a>
-    <div class="foot">数据不出本机</div>
   </aside>
 
   <main class="main">
-    <div class="topbar"><span class="crumb">标库 / <b id="crumb">工作台</b></span><span class="safe">数据不出本机</span></div>
+    <div class="topbar"><span class="crumb">标库 / <b id="crumb">工作台</b></span></div>
     <div class="wrap">
 
       <div class="page on" id="p1">
@@ -165,24 +164,29 @@ const html = `<!DOCTYPE html>
               </div>
             </div>
           </div>
-          <div class="imp-area" id="impArea" onclick="impGo()">
-            <span class="imp-ico">⬆</span>
-            <span><span class="imp-txt" id="impTxt">导入初版投标文件</span><br><span class="imp-sub" id="impSub">拖入或点击选择 · docx/pdf</span></span>
-          </div>
-          <button class="btn btn-accent ws-export">导出</button>
+          <button class="btn" onclick="impGo()">导入初版投标文件</button>
+          <button class="btn">导出</button>
         </div>
         <div class="ws-split">
           <div class="ws-doc">
             <div class="doc-page">
               <h1>智慧园区数据中心项目投标文件</h1>
-              <h3>第三章 技术方案</h3>
-              <p>本项目采用模块化机房建设方案，配置<span class="mk-bad">精密空调 2 台</span>，施工工期 <span class="mk-warn">180 日历天</span>，质量标准符合国家现行规范。</p>
-              <h3>第四章 类似项目业绩</h3>
-              <p>公司近年完成多个同类项目，其中<span class="mk-bad">〔待补充案例〕</span>具有代表性。</p>
-              <h3>第二章 授权委托书</h3>
-              <p>委托代理人：王志强，联系电话 138××××××××。</p>
+              <h3>第一章 投标函</h3>
+              <p>致：南京云问网络技术有限公司（招标人）</p>
+              <p>根据贵方招标文件（编号 HTC-HW-2026-0891）正式授权，我方参加本次投标，并完全接受并遵守招标文件中的各项规定和要求。</p>
+              <h3>第二章 法定代表人身份证明</h3>
+              <p>兹证明张建国为本公司法定代表人，单位性质为有限责任公司，注册资本伍仟万元整。</p>
+              <h3>第三章 授权委托书</h3>
+              <p>本人张建国系法定代表人，现委托代理人王志强参加本项目投标活动，并代表我方处理投标过程中的全部事宜。</p>
+              <h3>第四章 技术方案</h3>
+              <p>本项目采用模块化机房建设方案，数据中心按国家 B 级机房标准建设，配置精密空调 2 台、UPS 不间断电源系统 1 套，动环监控全覆盖。</p>
+              <p>施工工期计划 180 日历天，质量标准符合国家现行规范，验收合格率 100%。</p>
+              <p>项目团队配置项目经理 1 名（一级建造师·机电），高级工程师 2 名，专业施工人员 18 名。</p>
+              <h3>第五章 类似项目业绩</h3>
+              <p>公司近年完成多个同类项目，其中××银行机房监控系统项目（合同金额 486 万元）已于 2023 年 8 月通过验收，运行稳定。</p>
+              <h3>第六章 售后服务承诺</h3>
+              <p>质保期三年，提供 7×24 小时响应服务，故障 4 小时内到场处理，重大故障 2 小时内给出应急方案。</p>
             </div>
-            <div class="ws-sync">● 自动保存 2 分钟前 · 编辑后 30 秒自动重检测</div>
           </div>
           <div class="ws-right">
             <div class="ws-tabs">
