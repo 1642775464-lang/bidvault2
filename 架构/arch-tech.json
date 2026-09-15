@@ -1,0 +1,358 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "标库 BidVault v2 · 技术架构图",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1280,
+      1120
+    ]
+  },
+  "components": [
+    {
+      "id": "fe",
+      "type": "frontend",
+      "label": "前端 Vue3+Vite+TS",
+      "sublabel": "五视图+tokens+Feather",
+      "pos": [
+        50,
+        70
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "API 层 FastAPI",
+      "sublabel": "单worker 127.0.0.1",
+      "pos": [
+        340,
+        70
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "svc",
+      "type": "backend",
+      "label": "服务层",
+      "sublabel": "archive/ingest/extract/check/export",
+      "pos": [
+        650,
+        70
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "SQLite WAL",
+      "sublabel": "FTS5 trigram + vec0",
+      "pos": [
+        990,
+        70
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "glm",
+      "type": "cloud",
+      "label": "GLM-4-Flash",
+      "sublabel": "GLM-4/4V-Flash+bge（非涉密）",
+      "pos": [
+        760,
+        330
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "paddle",
+      "type": "backend",
+      "label": "PaddleOCR+PP-Structure",
+      "sublabel": "OCR+表格+审计（涉密本地）",
+      "pos": [
+        400,
+        330
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "messagebus",
+      "label": "串行队列 Worker",
+      "sublabel": "拆解/索引任务消化",
+      "pos": [
+        940,
+        610
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "watch",
+      "type": "messagebus",
+      "label": "Watchdog 监听",
+      "sublabel": "收藏路径实时归档",
+      "pos": [
+        650,
+        610
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "gate",
+      "type": "security",
+      "label": "涉密闸门",
+      "sublabel": "is_secret=1 断言拦截",
+      "pos": [
+        520,
+        480
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "fs",
+      "type": "database",
+      "label": "文件存储 data/",
+      "sublabel": "files/ cache/ backup/",
+      "pos": [
+        990,
+        890
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "pkg",
+      "type": "external",
+      "label": "内嵌Python+启动器",
+      "sublabel": "免安装双击启动",
+      "pos": [
+        50,
+        610
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "bak",
+      "type": "backend",
+      "label": "每日备份",
+      "sublabel": "7天滚动+还原",
+      "pos": [
+        650,
+        890
+      ],
+      "size": [
+        220,
+        90
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "本机运行时（数据不出域）",
+      "wraps": [
+        "fe",
+        "api",
+        "svc",
+        "db",
+        "paddle",
+        "glm",
+        "watch",
+        "worker",
+        "fs",
+        "bak",
+        "pkg"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "fe-api",
+      "from": "fe",
+      "to": "api",
+      "label": "REST /api"
+    },
+    {
+      "id": "api-svc",
+      "from": "api",
+      "to": "svc",
+      "label": "调用"
+    },
+    {
+      "id": "svc-db",
+      "from": "svc",
+      "to": "db",
+      "label": "读写",
+      "labelDy": -16
+    },
+    {
+      "id": "svc-gate",
+      "from": "svc",
+      "to": "gate",
+      "label": "涉密断言",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDx": -46,
+      "labelDy": 12
+    },
+    {
+      "id": "svc-paddle",
+      "from": "svc",
+      "to": "paddle",
+      "label": "涉密本地",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        600,
+        235
+      ]
+    },
+    {
+      "id": "svc-glm",
+      "from": "svc",
+      "to": "glm",
+      "label": "非涉密调用",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        830,
+        235
+      ]
+    },
+    {
+      "id": "watch-worker",
+      "from": "watch",
+      "to": "worker",
+      "label": "入队",
+      "variant": "dashed",
+      "labelDy": -16
+    },
+    {
+      "id": "worker-svc",
+      "from": "worker",
+      "to": "svc",
+      "label": "消化",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelDx": -30,
+      "labelDy": 12
+    },
+    {
+      "id": "db-fs",
+      "from": "db",
+      "to": "fs",
+      "label": "原件/缓存",
+      "fromSide": "right",
+      "toSide": "right",
+      "via": [
+        [
+          1250,
+          115
+        ],
+        [
+          1250,
+          935
+        ]
+      ],
+      "labelAt": [
+        1150,
+        520
+      ]
+    },
+    {
+      "id": "bak-fs",
+      "from": "bak",
+      "to": "fs",
+      "label": "备份",
+      "labelDy": -16
+    },
+    {
+      "id": "pkg-fe",
+      "from": "pkg",
+      "to": "fe",
+      "label": "拉起",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelDx": -28,
+      "labelDy": 12,
+      "via": [
+        [
+          160,
+          340
+        ]
+      ],
+      "labelAt": [
+        230,
+        500
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "分层读图（新手项目经理版）",
+      "items": [
+        "第一行是主干四层：页面 → 接口 → 服务 → 数据库，请求从左到右流",
+        "第二行是 AI 与本地模型双轨：涉密走左侧本地组件，非涉密才出云",
+        "第三行是后台机制：队列消化、文件监听、审计与涉密闸门",
+        "第四行是存储与交付形态：文件、备份、免安装启动器"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "涉密双轨（实施必须验收）",
+      "items": [
+        "is_secret=1 的文档：OCR/表格/向量全走本地组件，任何云端函数入口有断言直接拒绝",
+        "非涉密文档：可调用 GLM-4-Flash 做结构化抽取与打标，全程写审计日志",
+        "验收口径：涉密文档云调用次数 = 0，审计可查"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "单机纪律",
+      "items": [
+        "仅绑定 127.0.0.1，不暴露网络端口",
+        "后台队列单 worker 串行：一次只处理一份文件的拆解/索引（内存纪律）",
+        "SQLite 单文件 + WAL：零运维，备份即拷库"
+      ]
+    }
+  ]
+}

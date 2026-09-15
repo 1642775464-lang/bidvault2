@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "标库 BidVault v2 · 数据架构图（数据流与存储）",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1240,
+      880
+    ]
+  },
+  "stages": [
+    {
+      "label": "来源"
+    },
+    {
+      "label": "入库"
+    },
+    {
+      "label": "拆解"
+    },
+    {
+      "label": "沉淀"
+    },
+    {
+      "label": "复用"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "paths",
+      "type": "frontend",
+      "label": "收藏路径",
+      "tag": "监视+扫描",
+      "stage": 0,
+      "row": 4
+    },
+    {
+      "id": "manual",
+      "type": "frontend",
+      "label": "手动上传",
+      "tag": "备用",
+      "stage": 0,
+      "row": 0
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "入库管线",
+      "stage": 1,
+      "row": 1
+    },
+    {
+      "id": "docs",
+      "type": "database",
+      "label": "文档库",
+      "stage": 2,
+      "row": 2
+    },
+    {
+      "id": "extract",
+      "type": "backend",
+      "label": "拆解抽取",
+      "tag": "AI",
+      "stage": 3,
+      "row": 0
+    },
+    {
+      "id": "mats",
+      "type": "database",
+      "label": "素材库",
+      "stage": 4,
+      "row": 0
+    },
+    {
+      "id": "idx",
+      "type": "database",
+      "label": "检索索引",
+      "stage": 2,
+      "row": 4
+    },
+    {
+      "id": "work",
+      "type": "backend",
+      "label": "工作台",
+      "stage": 4,
+      "row": 2
+    },
+    {
+      "id": "chk",
+      "type": "backend",
+      "label": "废标检测产出",
+      "stage": 4,
+      "row": 4
+    }
+  ],
+  "flows": [
+    {
+      "id": "f-manual",
+      "from": "manual",
+      "to": "ingest",
+      "label": "批量上传"
+    },
+    {
+      "id": "f-watch",
+      "from": "paths",
+      "to": "ingest",
+      "label": "监视变更"
+    },
+    {
+      "id": "f-ingest",
+      "from": "ingest",
+      "to": "docs",
+      "label": "去重落库",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-docs-idx",
+      "from": "docs",
+      "to": "idx",
+      "label": "切片索引",
+      "labelDy": -16,
+      "labelAt": [
+        1080,
+        330
+      ]
+    },
+    {
+      "id": "f-docs-extract",
+      "from": "docs",
+      "to": "extract",
+      "label": "待拆解",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-extract-mats",
+      "from": "extract",
+      "to": "mats",
+      "label": "结构项入库",
+      "variant": "emphasis",
+      "labelDy": -16,
+      "labelAt": [
+        1150,
+        780
+      ]
+    },
+    {
+      "id": "f-mats-work",
+      "from": "mats",
+      "to": "work",
+      "label": "引用素材",
+      "variant": "emphasis",
+      "labelAt": [
+        1210,
+        750
+      ]
+    },
+    {
+      "id": "f-idx-work",
+      "from": "idx",
+      "to": "work",
+      "label": "检索命中",
+      "labelAt": [
+        820,
+        610
+      ]
+    },
+    {
+      "id": "f-work-chk",
+      "from": "work",
+      "to": "chk",
+      "label": "检测产出",
+      "labelAt": [
+        1240,
+        700
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "主数据路径",
+      "items": [
+        "来源→入库→拆解→沉淀→复用：五个阶段从左到右，粗线是主链",
+        "文档库是中央枢纽：一切文件先落库，再拆解出结构化数据",
+        "素材库与检索索引是两条并行沉淀线，最终都汇入工作台"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "关键去重与闭环",
+      "items": [
+        "入库去重：路径+mtime+size，文件变化才重新入库",
+        "素材去重：来源文档+标题相同不重复入库",
+        "拆解状态回写：未拆解→拆解中→已拆解，驱动前端展示"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "数据安全",
+      "items": [
+        "全部数据在本机 data/ 目录，不出域",
+        "涉密判断发生在拆解抽取前：涉密走本地、非涉密才可调云端 AI",
+        "导出是唯一出口：Word/Excel/PDF，导出前有致命项拦截确认"
+      ]
+    }
+  ]
+}

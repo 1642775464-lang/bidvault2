@@ -1,0 +1,176 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "标库 BidVault v2 · 业务流程图",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "intake",
+      "label": "项目与资料准备"
+    },
+    {
+      "id": "extract",
+      "label": "解析与抽取"
+    },
+    {
+      "id": "write",
+      "label": "标书编写与复用"
+    },
+    {
+      "id": "check",
+      "label": "废标自查与导出"
+    }
+  ],
+  "phases": [
+    {
+      "id": "p1",
+      "label": "建档上传",
+      "fromCol": 0,
+      "toCol": 2
+    },
+    {
+      "id": "p2",
+      "label": "拆解入库",
+      "fromCol": 3,
+      "toCol": 3
+    },
+    {
+      "id": "p3",
+      "label": "写作与检测",
+      "fromCol": 4,
+      "toCol": 4
+    },
+    {
+      "id": "p4",
+      "label": "导出交付",
+      "fromCol": 5,
+      "toCol": 5
+    }
+  ],
+  "mainPath": [
+    "user",
+    "newproj",
+    "upload",
+    "docslib",
+    "matslib",
+    "workws",
+    "export"
+  ],
+  "nodes": [
+    {
+      "id": "user",
+      "lane": "intake",
+      "col": 0,
+      "type": "external",
+      "label": "投标业务人员"
+    },
+    {
+      "id": "newproj",
+      "lane": "intake",
+      "col": 1,
+      "type": "frontend",
+      "label": "项目库建档",
+      "sublabel": "信息+招标文件上传"
+    },
+    {
+      "id": "upload",
+      "lane": "intake",
+      "col": 2,
+      "type": "frontend",
+      "label": "上传投标文件",
+      "sublabel": "初版·可绑定项目"
+    },
+    {
+      "id": "docslib",
+      "lane": "extract",
+      "col": 3,
+      "type": "backend",
+      "label": "文档库入库",
+      "sublabel": "自动拆解入素材",
+      "tag": "自动"
+    },
+    {
+      "id": "matslib",
+      "lane": "write",
+      "col": 4,
+      "type": "database",
+      "label": "素材库沉淀"
+    },
+    {
+      "id": "workws",
+      "lane": "write",
+      "col": 5,
+      "type": "frontend",
+      "label": "工作台写作",
+      "sublabel": "同步废标检测"
+    },
+    {
+      "id": "export",
+      "lane": "check",
+      "col": 5,
+      "type": "frontend",
+      "label": "导出交付",
+      "sublabel": "致命拦截确认"
+    }
+  ],
+  "edges": [
+    {
+      "id": "user-newproj",
+      "from": "user",
+      "to": "newproj"
+    },
+    {
+      "id": "newproj-upload",
+      "from": "newproj",
+      "to": "upload",
+      "label": "导入初版投标文件"
+    },
+    {
+      "id": "upload-docs",
+      "from": "upload",
+      "to": "docslib",
+      "label": "入库"
+    },
+    {
+      "id": "docs-mats",
+      "from": "docslib",
+      "to": "matslib",
+      "label": "素材沉淀"
+    },
+    {
+      "id": "mats-work",
+      "from": "matslib",
+      "to": "workws",
+      "label": "引用素材"
+    },
+    {
+      "id": "work-export",
+      "from": "workws",
+      "to": "export",
+      "label": "检测通过后导出"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "新手项目经理·实施指引",
+      "items": [
+        "主链从左到右：建档→上传→入库拆解→素材沉淀→编辑引用→同步检测→导出",
+        "每个节点都是一个可独立验收的功能模块，按列分期：准备列=M1 前半，拆解列=M1 后半+M2，写作列=M2，自查导出列=M3/M4",
+        "虚线回到编辑的边表示循环修订：检测→修改→再检测，直到致命项清零"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "保护机制的位置",
+      "items": [
+        "涉密闸门在「拆解抽取」节点：涉密走本地，非涉密才调 GLM",
+        "缺件保护在「同步废标检测」节点：无招标/投标文件则禁止检测并引导上传",
+        "导出保护在「导出交付」节点：存在未处理致命项时弹出确认"
+      ]
+    }
+  ]
+}

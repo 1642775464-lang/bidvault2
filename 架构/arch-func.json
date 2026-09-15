@@ -1,0 +1,317 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "标库 BidVault v2 · 功能架构图",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1340,
+      880
+    ]
+  },
+  "components": [
+    {
+      "id": "nav",
+      "type": "frontend",
+      "label": "全局框架",
+      "sublabel": "导航/弹窗/toast",
+      "pos": [
+        550,
+        60
+      ],
+      "size": [
+        210,
+        88
+      ]
+    },
+    {
+      "id": "work",
+      "type": "frontend",
+      "label": "P1 工作台",
+      "sublabel": "编辑+检测+辅助",
+      "tag": "核心",
+      "pos": [
+        60,
+        250
+      ],
+      "size": [
+        210,
+        88
+      ]
+    },
+    {
+      "id": "lib",
+      "type": "frontend",
+      "label": "P2 项目库",
+      "sublabel": "台账+阶段+详情",
+      "pos": [
+        310,
+        250
+      ],
+      "size": [
+        210,
+        88
+      ]
+    },
+    {
+      "id": "docs",
+      "type": "frontend",
+      "label": "P3 文档库",
+      "sublabel": "上传+拆解+绑定",
+      "tag": "AI",
+      "pos": [
+        560,
+        250
+      ],
+      "size": [
+        210,
+        88
+      ]
+    },
+    {
+      "id": "mats",
+      "type": "frontend",
+      "label": "P4 素材库",
+      "sublabel": "分类+编辑+引用",
+      "pos": [
+        810,
+        250
+      ],
+      "size": [
+        210,
+        88
+      ]
+    },
+    {
+      "id": "set",
+      "type": "frontend",
+      "label": "P5 系统设置",
+      "sublabel": "AI/归档/备份/规则",
+      "pos": [
+        1060,
+        250
+      ],
+      "size": [
+        210,
+        88
+      ]
+    },
+    {
+      "id": "detect",
+      "type": "backend",
+      "label": "废标检测",
+      "sublabel": "指数/三极/闭环",
+      "pos": [
+        60,
+        500
+      ],
+      "size": [
+        210,
+        88
+      ]
+    },
+    {
+      "id": "assist",
+      "type": "backend",
+      "label": "辅助三页签",
+      "sublabel": "评分/案例/人员",
+      "pos": [
+        310,
+        500
+      ],
+      "size": [
+        210,
+        88
+      ]
+    },
+    {
+      "id": "harvest",
+      "type": "backend",
+      "label": "拆解入库",
+      "sublabel": "自动聚合去重",
+      "tag": "自动",
+      "pos": [
+        560,
+        500
+      ],
+      "size": [
+        210,
+        88
+      ]
+    },
+    {
+      "id": "ref",
+      "type": "backend",
+      "label": "素材引用",
+      "sublabel": "多对多+计数",
+      "pos": [
+        810,
+        690
+      ],
+      "size": [
+        210,
+        88
+      ]
+    },
+    {
+      "id": "guard",
+      "type": "security",
+      "label": "保护机制",
+      "sublabel": "涉密/缺件/导出",
+      "tag": "红线",
+      "pos": [
+        310,
+        690
+      ],
+      "size": [
+        210,
+        88
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "五大功能模块 · 单机单用户",
+      "wraps": [
+        "work",
+        "lib",
+        "docs",
+        "mats",
+        "set"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "nav-work",
+      "from": "nav",
+      "to": "work",
+      "variant": "dashed"
+    },
+    {
+      "id": "nav-docs",
+      "from": "nav",
+      "to": "docs",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "nav-mats",
+      "from": "nav",
+      "to": "mats",
+      "variant": "dashed"
+    },
+    {
+      "id": "nav-set",
+      "from": "nav",
+      "to": "set",
+      "variant": "dashed"
+    },
+    {
+      "id": "work-detect",
+      "from": "work",
+      "to": "detect"
+    },
+    {
+      "id": "work-assist",
+      "from": "work",
+      "to": "assist",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "id": "lib-docs",
+      "from": "lib",
+      "to": "docs",
+      "label": "上传资料",
+      "labelDy": -14,
+      "labelAt": [
+        435,
+        226
+      ]
+    },
+    {
+      "id": "docs-harvest",
+      "from": "docs",
+      "to": "harvest",
+      "label": "拆解完成",
+      "labelDy": -16,
+      "labelAt": [
+        665,
+        476
+      ]
+    },
+    {
+      "id": "harvest-mats",
+      "from": "harvest",
+      "to": "mats",
+      "label": "素材入库",
+      "variant": "emphasis"
+    },
+    {
+      "id": "mats-ref",
+      "from": "mats",
+      "to": "ref"
+    },
+    {
+      "id": "ref-assist",
+      "from": "ref",
+      "to": "assist",
+      "label": "写作复用",
+      "variant": "emphasis",
+      "labelDy": -14,
+      "labelAt": [
+        560,
+        764
+      ]
+    },
+    {
+      "id": "guard-harvest",
+      "from": "guard",
+      "to": "harvest",
+      "label": "涉密零出域",
+      "variant": "security",
+      "labelDx": 54
+    },
+    {
+      "id": "guard-detect",
+      "from": "guard",
+      "to": "detect",
+      "label": "缺件禁检",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "读图指引（新手项目经理版）",
+      "items": [
+        "第一行是全局框架，第二行是五大页面，下方是跨页核心机制",
+        "蓝色粗箭头是主数据流：文档拆解 → 素材自动入库 → 工作台写作复用",
+        "红色安全箭头是保护红线：涉密不出域、缺件禁检"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "一条标书的完整旅程",
+      "items": [
+        "项目库建档并上传招标文件 → 文档库拆解出前附表/评分办法/七项结构",
+        "拆解结果自动聚合成素材 → 工作台写作时按项目引用素材成文",
+        "投标文件回到工作台废标检测 → 处理致命项 → 导出 Word/报告"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "四条实施红线",
+      "items": [
+        "涉密文档永不外发：本地管线处理，云模型调用有断言与审计",
+        "缺招标文件或投标文件时禁止检测，引导补齐",
+        "存在未处理致命项时导出前强制确认",
+        "素材删除前提示引用次数与不可撤销警示"
+      ]
+    }
+  ]
+}
