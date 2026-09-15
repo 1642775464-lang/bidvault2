@@ -146,3 +146,25 @@ export async function refreshCore(): Promise<void> {
   store.docsByProject = byId;
   store.projects = [...active.items, ...archived.items.map((p) => ({ ...p }))];
 }
+
+/* ---------- 确认弹窗（导出拦截等） ---------- */
+import { ref } from "vue";
+
+export const confirmState = ref<{
+  open: boolean;
+  title: string;
+  body: string;
+  okText: string;
+  resolve: ((v: boolean) => void) | null;
+}>({ open: false, title: "", body: "", okText: "确认", resolve: null });
+
+export function askConfirm(title: string, body: string, okText = "确认"): Promise<boolean> {
+  return new Promise((resolve) => {
+    confirmState.value = { open: true, title, body, okText, resolve };
+  });
+}
+
+export function settleConfirm(v: boolean): void {
+  confirmState.value.resolve?.(v);
+  confirmState.value = { ...confirmState.value, open: false, resolve: null };
+}

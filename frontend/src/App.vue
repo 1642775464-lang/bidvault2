@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from "vue";
-import { navTo, refreshCore, store, toast } from "./store";
+import { navTo, refreshCore, settleConfirm, store, confirmState, toast } from "./store";
 import GlobalSearch from "./components/GlobalSearch.vue";
 import ProjectDrawer from "./components/ProjectDrawer.vue";
 import ProjectModal from "./components/ProjectModal.vue";
@@ -99,6 +99,18 @@ onMounted(refreshCore);
 
     <div class="toast-wrap">
       <div v-for="t in store.toasts" :key="t.id" class="toast">{{ t.text }}</div>
+    </div>
+
+    <!-- 确认弹窗（导出拦截等） -->
+    <div v-if="confirmState.open" class="modal-wrap" style="z-index: 96" @click.self="settleConfirm(false)">
+      <div class="modal" style="width: min(460px, 94vw)">
+        <h3>{{ confirmState.title }}</h3>
+        <div class="m-body" v-html="confirmState.body" />
+        <div class="m-foot">
+          <button class="btn-ghost" @click="settleConfirm(false)">取消</button>
+          <button class="btn-primary" @click="settleConfirm(true)">{{ confirmState.okText }}</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

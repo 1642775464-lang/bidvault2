@@ -125,6 +125,30 @@ export interface SearchHit {
   chunk_id: string;
 }
 
+export interface RiskItemT {
+  id: string;
+  sev: "fatal" | "risk" | "hint";
+  type: string;
+  title: string;
+  meta: string | null;
+  req: string | null;
+  quote: string | null;
+  advice: string | null;
+  fix: string | null;
+  page_no: number | null;
+  done: boolean;
+  doc_id: string | null;
+  doc_name: string | null;
+  created_at: string | null;
+}
+
+export interface DetectResp {
+  risk_index: number;
+  detected_at: string | null;
+  score_rows?: string[][];
+  items: RiskItemT[];
+}
+
 export interface Health {
   status: string;
   glm_configured: boolean;

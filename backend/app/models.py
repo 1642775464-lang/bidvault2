@@ -188,6 +188,8 @@ class RiskItem(Base):
     sev: Mapped[str] = mapped_column(String(10))  # fatal | risk | hint
     type: Mapped[str] = mapped_column(String(10))  # 未响应 | 偏离 | 缺项 | 缺证
     title: Mapped[str] = mapped_column(String(300))
+    meta: Mapped[str | None] = mapped_column(Text, default=None)  # 风险出处描述
+    doc_id: Mapped[str | None] = mapped_column(String(32), default=None)  # 定位到的投标文档
     req: Mapped[str | None] = mapped_column(Text, default=None)
     quote: Mapped[str | None] = mapped_column(Text, default=None)
     advice: Mapped[str | None] = mapped_column(Text, default=None)

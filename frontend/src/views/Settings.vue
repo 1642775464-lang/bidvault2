@@ -7,11 +7,13 @@ import { toast } from "../store";
 const health = ref<Health | null>(null);
 const section = ref("系统信息");
 
-const sections = ["系统信息", "模型服务", "数据安全", "拆解规则", "关于"] as const;
+const sections = ["系统信息", "模型服务", "数据安全", "拆解规则", "检测规则", "关于"] as const;
+const detectRules = ref<{ id: string; name: string; sev: string; type: string; desc: string }[]>([]);
 
 onMounted(async () => {
   try {
     health.value = await api.health();
+    detectRules.value = (await api.detectRules()).rules;
   } catch (e) {
     toast(e instanceof Error ? e.message : "加载失败");
   }
@@ -121,6 +123,19 @@ onMounted(async () => {
               <div class="rf"><span class="fchip">近年财务状况</span><span class="fchip">类似项目业绩</span><span class="fchip">在履约项目</span><span class="fchip">团队简历</span></div>
             </div>
             <p class="sub-note">固定结构为 M1 版本；自定义抽取字段（锚点 / 关键词 / 正则 / LLM）在后续里程碑开放。</p>
+          </template>
+
+          <!-- 检测规则 -->
+          <template v-else-if="section === '检测规则'">
+            <div v-for="r in detectRules" :key="r.id" class="rulecard">
+              <div class="rh2">
+                <b>{{ r.name }}</b>
+                <span class="chip-role" :class="r.sev === '致命' ? 'r-admin' : r.sev === '风险' ? 'r-agent' : 'r-viewer'">{{ r.sev }} · {{ r.type }}</span>
+                <span class="n">{{ r.id }}</span>
+              </div>
+              <div class="rf"><span class="fchip">{{ r.desc }}</span></div>
+            </div>
+            <p class="sub-note">内置规则 M4 版随引擎更新；自定义废标清单与版本留痕在后续版本开放维护。</p>
           </template>
 
           <!-- 关于 -->

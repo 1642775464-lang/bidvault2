@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import make_engine
-from .routers import documents, materials, paths, people, preview, projects, search
+from .routers import detect, documents, materials, paths, people, preview, projects, search
 from .services.archive.watcher import WatchService
 from .workers.queue import start_workers, stop_workers
 
@@ -61,6 +61,7 @@ app.include_router(materials.router)
 app.include_router(search.router)
 app.include_router(people.router)
 app.include_router(preview.router)
+app.include_router(detect.router)
 
 
 @app.get("/api/health")

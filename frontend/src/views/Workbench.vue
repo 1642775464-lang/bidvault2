@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
-import type { ExtractGroup, Material, PersonCard, Project } from "../api/types";
+import type { Material, PersonCard, Project, RiskItemT } from "../api/types";
 import {
   RISK_TYPES,
+  askConfirm,
   dueInfo,
   navTo,
   openDrawer,
@@ -17,7 +18,7 @@ import {
 const cur = computed<Project | null>(() => store.projects.find((x) => x.id === store.activeProjectId) ?? null);
 const ddOpen = ref(false);
 const expOpen = ref(false);
-const detecting = ref(false);
+
 
 function pickProject(p: Project): void {
   if (p.id === store.activeProjectId) {
@@ -223,63 +224,114 @@ const doneOpen = ref(false);
 const openDetail = ref(new Set<string>());
 const casesSort = ref<"match" | "time">("match");
 
-interface RiskLike {
-  id: string;
-  sev: "fatal" | "risk" | "hint";
-  type: string;
-  title: string;
-  meta: string;
-  req: string;
-  quote: string;
-  advice: string;
-  fix: string;
-}
-const risks = ref<RiskLike[]>([]);
+const risks = ref<RiskItemT[]>([]);
+const riskIndex = ref(0);
 const detectedAt = ref<string | null>(null);
-const doneIds = ref(new Set<string>());
+const hasResult = ref(false);
+const detecting = ref(false);
+const scoreRows = ref<string[][]>([]);
 
 const pending = computed(() =>
-  risks.value.filter((r) => !doneIds.value.has(r.id) && (filter.value === "all" || r.type === filter.value)),
+  risks.value.filter((r) => !r.done && (filter.value === "all" || r.type === filter.value)),
 );
-const pendingFatal = computed(() => risks.value.filter((r) => r.sev === "fatal" && !doneIds.value.has(r.id)).length);
-const doneList = computed(() => risks.value.filter((r) => doneIds.value.has(r.id) && (filter.value === "all" || r.type === filter.value)));
-const riskIndex = computed(() => {
-  let s = 0;
-  risks.value.forEach((r) => {
-    if (!doneIds.value.has(r.id)) s += r.sev === "fatal" ? 6 : 3;
-  });
-  return Math.max(0, 100 - s);
-});
+const pendingFatal = computed(() => risks.value.filter((r) => r.sev === "fatal" && !r.done).length);
+const doneList = computed(() => risks.value.filter((r) => r.done && (filter.value === "all" || r.type === filter.value)));
+const countByType = (t: string): number => risks.value.filter((r) => t === "all" || r.type === t).length;
 
-function rescan(): void {
-  if (detecting.value) return;
+async function loadRisks(): Promise<void> {
+  risks.value = [];
+  hasResult.value = false;
+  riskIndex.value = 0;
+  detectedAt.value = null;
+  scoreRows.value = [];
+  if (!cur.value) return;
+  try {
+    const r = await api.risks(cur.value.id);
+    risks.value = r.items;
+    riskIndex.value = r.risk_index;
+    detectedAt.value = r.detected_at;
+    hasResult.value = r.has_result;
+  } catch {
+    /* 空态 */
+  }
+}
+
+async function rescan(): Promise<void> {
+  if (detecting.value || !cur.value) return;
   if (!hasDoc.value || !tenderDoc.value) {
-    toast("无法开始检测");
+    await askConfirm(
+      "无法开始检测",
+      `<p>「${cur.value.name}」还没有可检测的<b>投标文件</b>${tenderDoc.value ? "" : "或<b>招标文件</b>"}。废标检测需要以招标文件条款为基准，对投标文件逐条比对。</p><p style="margin-top:6px">在文档库上传并拆解文件后，即可运行检测。</p>`,
+      "去文档库上传",
+    ).then((yes) => {
+      if (yes) {
+        navTo("docs");
+        openUpload(cur.value?.id ?? null, "bid");
+      }
+    });
     return;
   }
-  toast("废标检测引擎在 M4 里程碑接入，当前版本暂以拆解结果供评分对照");
+  detecting.value = true;
+  try {
+    const r = await api.runDetect(cur.value.id);
+    risks.value = r.items;
+    riskIndex.value = r.risk_index;
+    detectedAt.value = r.detected_at;
+    hasResult.value = true;
+    scoreRows.value = r.score_rows ?? [];
+    toast(`检测完成：${r.items.length} 项风险 · 指数 ${r.risk_index}`);
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "检测失败");
+  } finally {
+    detecting.value = false;
+  }
+}
+
+async function toggleDone(r: RiskItemT): Promise<void> {
+  try {
+    const resp = await api.markRiskDone(r.id, !r.done);
+    r.done = !r.done;
+    riskIndex.value = resp.risk_index;
+    toast(r.done ? "已标记处理" : "已撤销处理标记");
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "操作失败");
+  }
+}
+
+function locate(r: RiskItemT): void {
+  const kw = (r.quote || r.meta || r.title).slice(0, 10);
+  if (searchInput.value) {
+    doSearch(kw);
+    tab.value = "scan";
+  }
+  toast(r.quote ? "已定位原文引用" : "无原文引用，已按标题搜索");
+}
+
+function downloadReport(): void {
+  if (!cur.value) return;
+  window.open(api.detectReportUrl(cur.value.id));
+}
+
+watch(() => store.activeProjectId, loadRisks);
+
+function idxClass(): string {
+  if (!hasResult.value || !risks.value.length) return "lv-na";
+  return riskIndex.value >= 80 ? "lv-red" : riskIndex.value >= 50 ? "lv-amber" : "lv-green";
+}
+function idxLabel(): string {
+  if (!hasResult.value || !risks.value.length) return hasResult.value ? "低风险" : "尚未检测";
+  return riskIndex.value >= 80 ? "高风险" : riskIndex.value >= 50 ? "中风险" : riskIndex.value > 0 ? "低风险" : "已清零";
 }
 
 /* ---------------- 评分对照 / 案例 / 人员 ---------------- */
-const tenderExtract = ref<ExtractGroup[]>([]);
-const scoreRows = computed<string[][]>(() => {
-  const g = tenderExtract.value.find((x) => x.name.includes("评标办法"));
-  if (!g) return [];
-  return g.items.flatMap((it) => it.rows.map((r) => [it.name + " · " + r[0], r[1], "—"] as string[]));
-});
 const caseMats = ref<Material[]>([]);
 const peopleCards = ref<PersonCard[]>([]);
 
 async function loadPanels(): Promise<void> {
-  tenderExtract.value = [];
   caseMats.value = [];
   peopleCards.value = [];
   if (!cur.value) return;
   try {
-    if (tenderDoc.value && tenderDoc.value.status === 2) {
-      const r = await api.extract(tenderDoc.value.id);
-      tenderExtract.value = r.groups;
-    }
     const mats = await api.materials();
     const mine = mats.items.filter((m) => m.project_id === cur.value?.id);
     caseMats.value = mine.filter((m) => m.cat === "业绩案例");
@@ -309,19 +361,23 @@ function goDocsUpload(): void {
   navTo("docs");
   openUpload(cur.value?.id ?? null, "bid");
 }
-function doExport(fmt?: string): void {
+async function doExport(fmt?: string): Promise<void> {
   const f = fmt ?? "Word";
-  if (pendingFatal.value > 0) {
-    toast(`仍有 ${pendingFatal.value} 项致命风险未处理，导出前请先处理`);
+  if (fmt === "检测报告") {
+    if (hasResult.value) downloadReport();
+    else toast("请先运行废标检测");
     return;
   }
-  toast(`导出${f}在 M4 / M5 里程碑开放`);
-}
-
-function onOvIdxClass(): string {
-  if (!risks.value.length) return "lv-na";
-  const v = riskIndex.value;
-  return v >= 80 ? "lv-red" : v >= 50 ? "lv-amber" : "lv-green";
+  // F3.3 导出拦截：存在未处理致命项时确认
+  if (pendingFatal.value > 0) {
+    const yes = await askConfirm(
+      "导出前确认",
+      `<p>仍有 <b>${pendingFatal.value} 项致命风险</b>未处理，导出的${f}将包含这些问题内容。</p><p style="margin-top:6px">建议先在「废标检测」面板处理致命项，或确认本次导出用于内部评审。</p>`,
+      "继续导出",
+    );
+    if (!yes) return;
+  }
+  toast(`导出${f}在 M5 里程碑开放`);
 }
 
 watch(
@@ -436,53 +492,130 @@ onMounted(async () => {
           <div v-show="tab === 'scan'" class="tabpane">
             <div class="ov">
               <div class="ov-top">
-                <span class="ov-idx" :class="onOvIdxClass()">{{ risks.length ? riskIndex : "—" }}</span>
+                <span class="ov-idx" :class="idxClass()">{{ hasResult && risks.length ? riskIndex : "—" }}</span>
                 <span class="ov-label">废标风险指数<br><span style="font-size:10.5px">0 安全 · 100 极高</span></span>
-                <span class="ov-lv" :class="onOvIdxClass()">{{ risks.length ? (riskIndex >= 80 ? "高风险" : riskIndex >= 50 ? "中风险" : "低风险") : "尚未检测" }}</span>
+                <span class="ov-lv" :class="idxClass()">{{ idxLabel() }}</span>
               </div>
               <div class="ov-counts">
-                <span v-if="!risks.length" style="color:var(--dim)">运行检测后，这里将显示风险分级计数</span>
+                <template v-if="hasResult && risks.length">
+                  <span><span class="dot dot-fatal" />致命 {{ risks.filter((r) => r.sev === "fatal" && !r.done).length }}</span>
+                  <span><span class="dot dot-risk" />风险 {{ risks.filter((r) => r.sev === "risk" && !r.done).length }}</span>
+                  <span><span class="dot dot-hint" />提示 {{ risks.filter((r) => r.sev === "hint" && !r.done).length }}</span>
+                </template>
+                <span v-else style="color:var(--dim)">{{ hasResult ? "本次检测未发现废标风险" : "运行检测后，这里将显示风险分级计数" }}</span>
               </div>
               <div class="ov-sub">
-                <span class="ov-time">{{ detectedAt ? "最近检测：" + detectedAt : "尚未运行检测" }}</span>
-                <button class="mini-btn" @click="rescan">
-                  <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3" /><path d="M20 5v6h-6" /></svg>重新检测
-                </button>
+                <span class="ov-time">{{ detectedAt ? "最近检测：" + detectedAt.slice(5, 16).replace("T", " ") : "尚未运行检测" }}</span>
+                <span style="display:flex;gap:6px">
+                  <button v-if="hasResult" class="mini-btn" @click="downloadReport">导出报告</button>
+                  <button class="mini-btn" :disabled="detecting" @click="rescan">
+                    <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3" /><path d="M20 5v6h-6" /></svg>{{ detecting ? "检测中…" : "重新检测" }}
+                  </button>
+                </span>
               </div>
               <div class="chips">
                 <button v-for="t in ['all', ...RISK_TYPES]" :key="t" class="chip" :class="{ on: filter === t }" :disabled="!risks.length" @click="filter = t">
-                  {{ t === "all" ? "全部" : t }}<span class="n">0</span>
+                  {{ t === "all" ? "全部" : t }}<span class="n">{{ countByType(t) }}</span>
                 </button>
                 <span class="switch-wrap">只看未处理<button class="sw" role="switch" :aria-checked="onlyOpen" @click="onlyOpen = !onlyOpen" /></span>
               </div>
             </div>
-            <div class="emptystate es-undet">
+
+            <div v-if="!hasResult" class="emptystate es-undet">
               <div class="es-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></svg></div>
               <div class="es-title">该项目尚未运行检测</div>
               <p class="es-text">点击「开始检测」后，这里将显示风险分级与处理进度</p>
             </div>
-            <div class="risklist" />
-            <div class="done-head" style="display:none" />
+            <div v-else-if="!risks.length" class="emptystate es-clean">
+              <div class="es-icon"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></div>
+              <div class="es-title">未发现废标风险</div>
+              <p class="es-text">最近检测 {{ detectedAt }} · 七类规则检查全部通过</p>
+              <div class="es-act"><button class="act" @click="rescan">重新检测</button></div>
+            </div>
+
+            <div class="risklist">
+              <article
+                v-for="r in pending"
+                :key="r.id"
+                class="rc"
+                :class="{ active: openDetail.has(r.id) }"
+              >
+                <div class="rc-head">
+                  <span class="sev" :class="r.sev === 'fatal' ? 'sev-fatal' : r.sev === 'risk' ? 'sev-risk' : 'sev-hint'">
+                    {{ r.sev === "fatal" ? "致命" : r.sev === "risk" ? "风险" : "提示" }}
+                  </span>
+                  <span class="tchip">{{ r.type }}</span>
+                  <h4>{{ r.title }}</h4>
+                  <button class="rc-done" :aria-pressed="r.done" :title="r.done ? '撤销已处理' : '标记已处理'" @click="toggleDone(r)">✓</button>
+                </div>
+                <p class="rc-meta">{{ r.meta }} <span v-if="r.page_no" class="loc">P{{ r.page_no }}</span></p>
+                <div class="rc-actions">
+                  <button class="act pri" @click="locate(r)">定位原文</button>
+                  <button class="act" @click="openDetail.has(r.id) ? openDetail.delete(r.id) : openDetail.add(r.id)">
+                    {{ openDetail.has(r.id) ? "收起建议" : "修改建议" }}
+                  </button>
+                  <button v-if="r.fix" class="act" @click="toast('「' + r.fix + '」在后续版本接入真实流程')">{{ r.fix }}</button>
+                </div>
+                <div v-if="openDetail.has(r.id)" class="rc-detail">
+                  <div>
+                    <div class="lab">依据</div>
+                    <p class="req">{{ r.req }}</p>
+                  </div>
+                  <template v-if="r.quote">
+                    <div>
+                      <div class="lab">原文引用</div>
+                      <blockquote>{{ r.quote }}</blockquote>
+                    </div>
+                  </template>
+                  <div>
+                    <div class="lab">修改建议</div>
+                    <p class="adv">{{ r.advice }}</p>
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <template v-if="doneList.length && !onlyOpen">
+              <div class="done-head" :class="{ open: doneOpen }">
+                <button @click="doneOpen = !doneOpen">
+                  <svg class="caret" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
+                  已处理（{{ doneList.length }}）
+                </button>
+              </div>
+              <div v-show="doneOpen" class="risklist">
+                <article v-for="r in doneList" :key="r.id" class="rc is-done">
+                  <div class="rc-head">
+                    <span class="sev" :class="r.sev === 'fatal' ? 'sev-fatal' : r.sev === 'risk' ? 'sev-risk' : 'sev-hint'">
+                      {{ r.sev === "fatal" ? "致命" : r.sev === "risk" ? "风险" : "提示" }}
+                    </span>
+                    <span class="tchip">{{ r.type }}</span>
+                    <h4>{{ r.title }}</h4>
+                    <button class="rc-done" :aria-pressed="true" @click="toggleDone(r)">✓</button>
+                  </div>
+                </article>
+              </div>
+            </template>
           </div>
 
           <!-- 评分办法对照 -->
           <div v-show="tab === 'score'" class="tabpane">
             <p class="demo-note">
-              {{ tenderDoc && tenderDoc.status === 2 ? "解析自文档库拆解结果：《" + tenderDoc.filename + "》" : "对照招标评分办法逐项核对技术分响应情况" }}
+              {{ tenderDoc && tenderDoc.status === 2 ? "解析自文档库拆解结果：《" + tenderDoc.filename + "》" : "对照招标评分办法逐项核对响应情况" }}
             </p>
             <div class="mini-table">
               <table>
-                <thead><tr><th>评分项</th><th>招标要求</th><th>投标响应</th><th>状态</th></tr></thead>
+                <thead><tr><th>评分项</th><th>投标响应</th><th>状态</th></tr></thead>
                 <tbody>
                   <template v-if="scoreRows.length">
                     <tr v-for="(r, i) in scoreRows" :key="i">
-                      <td>{{ r[0] }}</td><td>{{ r[1] }}</td><td>—</td>
-                      <td><span class="chip-unbind">待 M4 检测</span></td>
+                      <td>{{ r[0] }}</td>
+                      <td>{{ r[2] }}</td>
+                      <td><span class="st" :class="r[3] === 'ok' ? 'st-ok' : 'st-warn'">{{ r[4] }}</span></td>
                     </tr>
                   </template>
                   <tr v-else>
-                    <td colspan="4" style="text-align:center;color:var(--dim);padding:18px 12px">
-                      在文档库上传并拆解招标文件后，自动解析评分办法 · <span class="chip-unbind" style="margin-left:4px">招标文件缺件或未拆解</span>
+                    <td colspan="3" style="text-align:center;color:var(--dim);padding:18px 12px">
+                      运行「开始检测」后，自动对照评分办法核对响应情况 · <span class="chip-unbind" style="margin-left:4px">招标文件缺件或未拆解</span>
                     </td>
                   </tr>
                 </tbody>

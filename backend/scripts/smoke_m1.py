@@ -200,5 +200,29 @@ step("证据图片直读", r.status_code == 200 and r.headers["content-type"].st
 r = c.post(f"{base}/documents/{img_doc_id}/analyze_images")
 step("涉密 GLM-4V 拦截", r.status_code == 403)
 
+
+# 17 M4 废标检测：投标样例缺授权委托 → 规则触发
+r = c.post(f"{base}/detect/{pid}")
+body = r.json()
+titles = " ".join(x["title"] for x in body["items"])
+step("废标检测触发", r.status_code == 200 and "授权委托书缺失" in titles and body["risk_index"] < 90,
+     f"index={body['risk_index']} items={[x['title'] for x in body['items']][:3]}")
+
+# 18 已处理闭环
+rid = body["items"][0]["id"]
+r = c.patch(f"{base}/detect/risks/{rid}/done", json={"done": True})
+step("风险处理闭环", r.json()["ok"] and r.json()["risk_index"] > body["risk_index"])
+
+# 19 检测报告 Excel
+r = c.get(f"{base}/detect/{pid}/report.xlsx")
+step("检测报告 Excel", r.status_code == 200 and "spreadsheetml" in r.headers["content-type"] and len(r.content) > 4000)
+
+# 20 评分对照联动
+step("评分对照联动", len(body["score_rows"]) > 0, str(body["score_rows"][:1]))
+
+# 21 内置规则清单
+r = c.get(f"{base}/detect/rules")
+step("内置规则清单", r.status_code == 200 and len(r.json()["rules"]) >= 7)
+
 print(f"\n冒烟结果：{ok} 过 / {fail} 败")
 raise SystemExit(1 if fail else 0)

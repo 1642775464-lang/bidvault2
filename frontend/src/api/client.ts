@@ -1,4 +1,5 @@
 import type {
+  DetectResp,
   DocItem,
   ExtractResp,
   Health,
@@ -108,6 +109,29 @@ export const api = {
   },
   async analyzeImages(docId: string): Promise<{ analyzed: number; failed: number; total: number }> {
     return handle(fetch(`/api/documents/${docId}/analyze_images`, { method: "POST" }));
+  },
+
+  /* ---- F3 废标检测 ---- */
+  async runDetect(projectId: string): Promise<DetectResp> {
+    return handle(fetch(`/api/detect/${projectId}`, { method: "POST" }));
+  },
+  async risks(projectId: string): Promise<DetectResp & { has_result: boolean }> {
+    return handle(fetch(`/api/detect/${projectId}/risks`));
+  },
+  async markRiskDone(riskId: string, done: boolean): Promise<{ ok: boolean; risk_index: number }> {
+    return handle(
+      fetch(`/api/detect/risks/${riskId}/done`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ done }),
+      }),
+    );
+  },
+  detectReportUrl(projectId: string): string {
+    return `/api/detect/${projectId}/report.xlsx`;
+  },
+  async detectRules(): Promise<{ rules: { id: string; name: string; sev: string; type: string; desc: string }[] }> {
+    return handle(fetch("/api/detect/rules"));
   },
   async runExtract(docId: string): Promise<{ status: number; extracted: number; materials: number }> {
     return handle(fetch(`/api/documents/${docId}/extract`, { method: "POST" }));
