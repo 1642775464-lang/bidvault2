@@ -7,6 +7,10 @@ import os
 os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "0")
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+os.environ.setdefault(
+    "MODELS_CACHE_DIR",
+    str(__import__("pathlib").Path(__file__).resolve().parent.parent / ".cache" / "models"),
+)
 
 
 import pytest

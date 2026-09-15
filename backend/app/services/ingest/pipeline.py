@@ -84,6 +84,13 @@ def extract_and_harvest(session: Session, doc: Document) -> tuple[int, int]:
     text = doc.content_text or ""
     groups = extract_structured(text, doc.kind)
 
+    # 重新拆解：先清空旧结构项与行（素材由标题去重自行保护）
+    old_items = session.query(ExtractItem).filter(ExtractItem.doc_id == doc.id).all()
+    for it in old_items:
+        session.query(ExtractRow).filter(ExtractRow.item_id == it.id).delete()
+    session.query(ExtractItem).filter(ExtractItem.doc_id == doc.id).delete()
+    session.commit()
+
     # LLM 增强：模型抽取与规则结果合并（同组同名以 LLM 为准，其余追加）
     llm_made = 0
     if llm_available() and len(text.strip()) >= 200:

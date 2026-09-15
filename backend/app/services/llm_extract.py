@@ -16,7 +16,7 @@ from .audit import audit
 
 logger = logging.getLogger(__name__)
 
-_MAX_CHARS = 24000  # glm-4-flash 128K 上下文，控制时延与费用
+_MAX_CHARS = 12000  # 每段字数（glm-4-flash 免费模型，分段调用覆盖全文）
 
 _SCHEMA: dict[str, str] = {
     "tender": (
@@ -25,7 +25,7 @@ _SCHEMA: dict[str, str] = {
         "①组「前附表与格式抽取」：投标人须知前附表（字段：递交截止时间/投标有效期/投标保证金/正副本份数/资质要求，以文中实际值为准，没有的字段不要编造）、"
         "评标办法前附表（字段：评标办法/技术分/商务分/价格分等评分项及分值）；"
         "②组「章节内容抽取」：章节目录（字段=章节号，值=章节标题，尽量全）。"
-        "值必须来自原文，缺失就跳过该字段。只输出 JSON，不要解释。"
+        "正文中表格行以「 | 」分隔单元格，两列表格第一列为字段、第二列为值，请把它们还原为 rows 的键值对。值必须来自原文，缺失就跳过该字段。只输出 JSON，不要解释。"
     ),
     "bid": (
         "从投标文件正文抽取以下结构，输出 JSON 数组，每项 {\"group\":\"组名\",\"name\":\"结构项名\",\"rows\":[[\"字段\",\"值\"],...]}。"
@@ -34,7 +34,7 @@ _SCHEMA: dict[str, str] = {
         "②「单位与财务状况」：基本情况表、近年财务状况；"
         "③「业绩与履约情况」：近年完成的类似项目情况表、正在供货和新承接的项目情况表；"
         "④「项目团队」：项目团队成员及相关人员简历（每人一行：姓名+职务）。"
-        "字段与值必须来自原文，某结构项在文中不存在就整体跳过，不要编造。只输出 JSON，不要解释。"
+        "正文中表格行以「 | 」分隔单元格，两列表格第一列为字段、第二列为值，请把它们还原为 rows 的键值对。字段与值必须来自原文，某结构项在文中不存在就整体跳过，不要编造。只输出 JSON，不要解释。"
     ),
 }
 
@@ -46,12 +46,29 @@ def llm_available() -> bool:
 
 
 def llm_extract(text: str, kind: str) -> list[dict[str, Any]]:
-    """调 GLM-4-Flash 抽取；返回 [{group,name,rows}]，失败返回空列表。"""
+    """调 GLM-4-Flash 分段抽取（每段 1.2 万字、重叠 500，覆盖全文），合并去重。"""
     from ..config import get_settings
 
     if not get_settings().zhipu_api_key or len(text.strip()) < 200:
         return []
-    return _call(text[:_MAX_CHARS], kind)
+    segs: list[str] = []
+    step, overlap = _MAX_CHARS // 2, 500
+    i = 0
+    while i < len(text) and len(segs) < 6:
+        segs.append(text[i: i + step])
+        if i + step >= len(text):
+            break
+        i += step - overlap
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    for seg in segs:
+        for it in _call(seg, kind):
+            key = (it["group"], it["name"])
+            if key in merged:
+                seen = {r[0] for r in merged[key]["rows"]}
+                merged[key]["rows"] += [r for r in it["rows"] if r[0] not in seen]
+            else:
+                merged[key] = it
+    return list(merged.values())
 
 
 def _call(text: str, kind: str) -> list[dict[str, Any]]:

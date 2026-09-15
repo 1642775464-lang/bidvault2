@@ -22,11 +22,15 @@ def get_embedder() -> Any:
         # CN 网络：走 hf-mirror；huggingface_hub 1.x 的 Xet 通道镜像不支持，禁用后走普通 HTTP
         os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
         os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+        import os as _os
+        from pathlib import Path as _Path
+
         from fastembed import TextEmbedding
 
         from ...config import get_settings
 
-        cache = get_settings().models_dir
+        # 测试环境可用 MODELS_CACHE_DIR 指向共享缓存，避免 tmp 目录反复下载模型
+        cache = _Path(_os.environ["MODELS_CACHE_DIR"]) if _os.environ.get("MODELS_CACHE_DIR") else get_settings().models_dir
         cache.mkdir(parents=True, exist_ok=True)
         _EMBEDDER = TextEmbedding(model_name=_MODEL, cache_dir=str(cache))
     return _EMBEDDER

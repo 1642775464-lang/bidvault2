@@ -84,6 +84,14 @@ def extract_structured(text: str, kind: str) -> list[ExtractedGroup]:
             except StopIteration:
                 start = 0
             for ln in lines[start: start + 40]:
+                # 表格行（解析器输出「字段 | 值」）：两列即键值对
+                parts = [c.strip() for c in ln.split("|")]
+                if len(parts) == 2 and parts[0] and parts[1]:
+                    fname, fval = parts[0], parts[1]
+                    chapter = ("第一章", "第二章", "第三章", "第四章", "第五章", "第六章")
+                    if (not item["fields"] or fname in item["fields"]) and fname not in chapter:
+                        rows.append((fname, fval[:120]))
+                        continue
                 for m in _FIELD_LINE.finditer(ln):
                     fname = m.group(1).strip()
                     if item["fields"] and fname not in item["fields"]:

@@ -22,11 +22,26 @@ class ParsedDoc:
 
 
 def parse_docx(data: bytes) -> ParsedDoc:
+    """按文档顺序抽取段落与表格（前附表多为表格，python-docx 的 .paragraphs 会丢表格内容）。"""
     from docx import Document as DocxDocument
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
 
     doc = DocxDocument(io.BytesIO(data))
-    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-    whole = "\n".join(paragraphs)
+    lines: list[str] = []
+    for child in doc.element.body.iterchildren():
+        if child.tag.endswith("}p"):
+            p = Paragraph(child, doc)
+            if p.text.strip():
+                lines.append(p.text.strip())
+        elif child.tag.endswith("}tbl"):
+            t = Table(child, doc)
+            for row in t.rows:
+                cells = [c.text.strip().replace("\n", " ") for c in row.cells]
+                cells = [c for c in cells if c]
+                if cells:
+                    lines.append(" | ".join(cells))
+    whole = "\n".join(lines)
     return ParsedDoc(text=whole, pages=[whole])
 
 
