@@ -68,20 +68,20 @@ onMounted(async () => {
                 <div class="pd">文本结构化抽取（拆解增强）· 免费模型</div>
                 <div class="pm">zhipu api · server-side</div>
               </div>
-              <div class="pcard">
-                <div class="ph"><b>GLM-4V-Flash</b><span class="chip-role r-viewer">M3 接入</span></div>
-                <div class="pd">图片证据识别 · 营业执照 / 证书扫描件</div>
+              <div class="pcard" :class="{ on: health?.glm_configured }">
+                <div class="ph"><b>GLM-4V-Flash</b><span class="chip-role" :class="health?.glm_configured ? 'r-admin' : 'r-viewer'">{{ health?.glm_configured ? "已接入" : "未配置" }}</span></div>
+                <div class="pd">图片证据字段识别 · 素材库「AI 识别字段」按钮触发</div>
                 <div class="pm">zhipu api · server-side</div>
               </div>
-              <div class="pcard">
-                <div class="ph"><b>PaddleOCR</b><span class="chip-role r-viewer">M2 接入</span></div>
-                <div class="pd">扫描件本地解析 · 全程本机运行</div>
+              <div class="pcard on">
+                <div class="ph"><b>PaddleOCR</b><span class="chip-role r-admin">已接入</span></div>
+                <div class="pd">扫描件自动 OCR · 约 4 秒/页 · 全程本机运行</div>
                 <div class="pm">local · cpu</div>
               </div>
-              <div class="pcard">
-                <div class="ph"><b>向量检索</b><span class="chip-role r-viewer">M2 接入</span></div>
-                <div class="pd">语义检索增强 · 当前 FTS5 + 3-gram</div>
-                <div class="pm">local</div>
+              <div class="pcard on">
+                <div class="ph"><b>向量检索</b><span class="chip-role r-admin">已接入</span></div>
+                <div class="pd">bge-small-zh 本地语义向量 + FTS5 关键词混合检索</div>
+                <div class="pm">local · 全局检索「自然语言」模式</div>
               </div>
             </div>
           </template>
@@ -139,8 +139,8 @@ onMounted(async () => {
               <table>
                 <tbody>
                   <tr><td>产品</td><td>标库 BidVault v2（单机版招投标文件智能库）</td></tr>
-                  <tr><td>版本</td><td style="font-family:var(--mono);font-size:12px">v2.0.0-m1</td></tr>
-                  <tr><td>当前里程碑</td><td>M1 数据底座</td></tr>
+                  <tr><td>版本</td><td style="font-family:var(--mono);font-size:12px">v2.0.0</td></tr>
+                  <tr><td>当前里程碑</td><td>M1-M5 全部交付</td></tr>
                   <tr><td>技术栈</td><td>Vue 3 + FastAPI + SQLite（WAL / FTS5 trigram）</td></tr>
                 </tbody>
               </table>
