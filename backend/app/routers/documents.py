@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -169,6 +170,24 @@ def doc_content(doc_id: str, session: Session = Depends(get_session)) -> dict[st
         .all()
     )
     return {"filename": doc.filename, "text": "\n".join(r.content for r in rows)[:60000]}
+
+
+@router.get("/{doc_id}/download")
+def download_doc(doc_id: str, session: Session = Depends(get_session)) -> FileResponse:
+    """成品导出：下载文档原件（Word/PDF 原样，F3.3）。"""
+    doc = session.get(Document, doc_id)
+    if doc is None:
+        raise HTTPException(404, "文档不存在")
+    settings = get_settings()
+    if doc.stored_name:
+        path = settings.files_dir / doc.stored_name
+        if path.is_file():
+            audit("doc_exported", doc_id=doc.id, detail=doc.filename)
+            return FileResponse(path, filename=doc.filename)
+    if doc.origin_path and Path(doc.origin_path).is_file():
+        audit("doc_exported", doc_id=doc.id, detail=doc.filename)
+        return FileResponse(Path(doc.origin_path), filename=doc.filename)
+    raise HTTPException(404, "原件文件不存在")
 
 
 @router.post("/upload")

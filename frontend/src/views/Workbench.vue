@@ -377,7 +377,41 @@ async function doExport(fmt?: string): Promise<void> {
     );
     if (!yes) return;
   }
-  toast(`导出${f}在 M5 里程碑开放`);
+  if (f === "Word") {
+    const d = bidDocs.value[0];
+    if (!d) {
+      toast("没有可导出的投标文件");
+      return;
+    }
+    window.open(`/api/documents//download`);
+    toast("已导出 Word（投标文件原件）");
+    return;
+  }
+  if (f === "PDF") {
+    printDoc();
+  }
+}
+
+function printDoc(): void {
+  if (!docHtml.value) {
+    toast("没有可打印的文档");
+    return;
+  }
+  const w = window.open("", "_blank");
+  if (!w) {
+    toast("浏览器拦截了打印窗口");
+    return;
+  }
+  w.document.write(
+    `<html><head><title></title><style>` +
+      "body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;padding:48px;color:#1d2b3a;line-height:1.9}" +
+      "h1{text-align:center;font-size:20px}h2{font-size:15px;margin:22px 0 8px}" +
+      "p{font-size:14px;text-align:justify}mark{background:#b9d7ff}" +
+      "</style></head><body><h1>" + docTitle.value + "</h1>" + docHtml.value + "</body></html>",
+  );
+  w.document.close();
+  w.focus();
+  w.print();
 }
 
 watch(

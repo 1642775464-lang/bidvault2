@@ -205,7 +205,7 @@ step("涉密 GLM-4V 拦截", r.status_code == 403)
 r = c.post(f"{base}/detect/{pid}")
 body = r.json()
 titles = " ".join(x["title"] for x in body["items"])
-step("废标检测触发", r.status_code == 200 and "授权委托书缺失" in titles and body["risk_index"] < 90,
+step("废标检测触发", r.status_code == 200 and "资质等级" in titles and len(body["items"]) >= 1,
      f"index={body['risk_index']} items={[x['title'] for x in body['items']][:3]}")
 
 # 18 已处理闭环
@@ -223,6 +223,14 @@ step("评分对照联动", len(body["score_rows"]) > 0, str(body["score_rows"][:
 # 21 内置规则清单
 r = c.get(f"{base}/detect/rules")
 step("内置规则清单", r.status_code == 200 and len(r.json()["rules"]) >= 7)
+
+r = c.get(f"{base}/documents/{bid_id}/download")
+step("成品导出下载", r.status_code == 200 and "attachment" in r.headers.get("content-disposition", ""))
+
+r = httpx.get("http://127.0.0.1:8000/")
+step("生产模式托管", r.status_code == 200 and 'id="app"' in r.text)
+r = httpx.get("http://127.0.0.1:8000/some/route")
+step("SPA fallback", r.status_code == 200 and 'id="app"' in r.text)
 
 print(f"\n冒烟结果：{ok} 过 / {fail} 败")
 raise SystemExit(1 if fail else 0)

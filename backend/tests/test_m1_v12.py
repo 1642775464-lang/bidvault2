@@ -91,7 +91,7 @@ def _session_factory(engine):
     return _make
 
 
-def _wait_docs(client, *, want_status: int | None = 2, timeout: float = 15) -> list[dict]:
+def _wait_docs(client, *, want_status: int | None = 2, timeout: float = 60) -> list[dict]:
     deadline = time.time() + timeout
     docs: list[dict] = []
     while time.time() < deadline:

@@ -86,3 +86,26 @@ def health() -> dict[str, Any]:
         "data_dir": str(s.data_dir),
         "counts": counts,
     }
+
+
+# ---- M5 一键启动：生产模式托管前端 dist（单进程，无需 node）----
+# 注意：必须在所有 API 路由之后注册，path 转换器会吞掉一切未匹配路径
+from fastapi import HTTPException as _HTTPException  # noqa: E402
+from fastapi.responses import FileResponse as _FileResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles as _StaticFiles  # noqa: E402
+
+_DIST = get_settings().data_dir.parent / "frontend" / "dist"
+if (_DIST / "index.html").is_file():
+    app.mount("/assets", _StaticFiles(directory=str(_DIST / "assets")), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str) -> _FileResponse:
+        """SPA fallback：非 /api 路径一律回前端入口。"""
+        if full_path.startswith(("api/", "docs", "openapi")):
+            raise _HTTPException(404, "Not Found")
+        candidate = _DIST / full_path
+        if full_path and candidate.is_file():
+            return _FileResponse(candidate)
+        return _FileResponse(_DIST / "index.html")
+else:
+    logging.getLogger(__name__).warning("frontend/dist 未构建——生产静态托管未启用（开发模式请用 vite 5173）")
