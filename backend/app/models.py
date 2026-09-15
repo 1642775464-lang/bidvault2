@@ -63,7 +63,7 @@ class Document(Base):
     status: Mapped[int] = mapped_column(Integer, default=0)
     error_msg: Mapped[str | None] = mapped_column(Text, default=None)
     project_id: Mapped[str | None] = mapped_column(String(32), index=True, default=None)
-    is_secret: Mapped[int] = mapped_column(Integer, default=1)
+    is_secret: Mapped[int] = mapped_column(Integer, default=0)  # 遗留列：已取消涉密概念，恒 0
     bid_type: Mapped[str] = mapped_column(String(10), default="自主")
     doc_date: Mapped[str | None] = mapped_column(String(20), default=None)
     content_text: Mapped[str | None] = mapped_column(Text, default=None)

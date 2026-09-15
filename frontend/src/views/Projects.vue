@@ -45,6 +45,14 @@ async function afterChange(): Promise<void> {
   await refreshCore();
 }
 
+const page = ref(1);
+const LIB_PAGE_SIZE = 10;
+const totalPages = computed(() => Math.max(1, Math.ceil(rows.value.length / LIB_PAGE_SIZE)));
+const pagedRows = computed(() => rows.value.slice((page.value - 1) * LIB_PAGE_SIZE, page.value * LIB_PAGE_SIZE));
+watch([mode, search, roleF, stageF], () => {
+  page.value = 1;
+});
+
 function stageDots(p: Project): boolean[] {
   return STAGES.map((_, i) => i <= p.stage);
 }
@@ -102,7 +110,6 @@ onMounted(afterChange);
         <option value="all">全部阶段</option>
         <option v-for="s in STAGES" :key="s">{{ s }}</option>
       </select>
-      <span class="sub-note">{{ mode === "archived" ? "按开标时间倒序 · 含投标结果" : "按开标时间升序 · 点击行查看详情" }}</span>
     </div>
 
     <div class="tbl-wrap">
@@ -117,7 +124,7 @@ onMounted(afterChange);
             </tr>
           </thead>
           <tbody>
-            <tr v-for="p in rows" :key="p.id" class="rrow" @click="view(p)">
+            <tr v-for="p in pagedRows" :key="p.id" class="rrow" @click="view(p)">
               <td class="cell-name"><b>{{ p.name }}</b><span>{{ p.code }}</span></td>
               <td><span class="rolecell"><span class="chip-role" :class="p.role === '主标' ? 'chip-lead' : 'chip-sup'">{{ p.role }}</span></span></td>
               <td><span class="chip-ind">{{ p.industry }}</span></td>
@@ -161,6 +168,11 @@ onMounted(afterChange);
       </div>
       <div v-if="!rows.length" class="empty-state">
         <b>无匹配项目</b>{{ mode === "archived" ? "暂无归档项目" : "调整筛选条件，或新建一个项目" }}
+      </div>
+      <div v-if="totalPages > 1" class="pager" style="justify-content: center; display: flex; gap: 10px; align-items: center; padding: 10px 0 4px">
+        <button class="mini-btn" :disabled="page <= 1" @click="page -= 1">‹ 上一页</button>
+        <span class="sub-note">{{ page }} / {{ totalPages }}</span>
+        <button class="mini-btn" :disabled="page >= totalPages" @click="page += 1">下一页 ›</button>
       </div>
     </div>
   </div>

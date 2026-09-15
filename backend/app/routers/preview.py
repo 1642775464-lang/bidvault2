@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_session
 from ..models import Document, Material
-from ..services.audit import audit
 from ..services.images import img_file_path, safe_img_rel
 
 logger = logging.getLogger(__name__)
@@ -88,12 +87,8 @@ def image_file(doc_id: str, name: str) -> FileResponse:
 
 @router.post("/documents/{doc_id}/analyze_images")
 def analyze_images(doc_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """对非涉密文档的图片素材批量调 GLM-4V-Flash 识别字段并回写。涉密 403。"""
+    """对文档的图片素材批量调 GLM-4V-Flash 识别字段并回写。"""
     doc = _get_doc(session, doc_id)
-    if doc.is_secret:
-        audit("glm_vision_blocked", doc_id=doc_id, detail="涉密文档禁止在线图片识别")
-        raise HTTPException(403, "涉密文档禁止在线图片识别")
-
     from ..services.glm_vision import analyze_image
 
     mats = (

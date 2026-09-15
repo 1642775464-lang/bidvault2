@@ -1,4 +1,4 @@
-"""M1 v1.2 核心链路测试：项目库/文档库/拆解/素材自动入库/检索/涉密闸门。"""
+"""M1 v1.2 核心链路测试：项目库/文档库/拆解/素材自动入库/检索。"""
 
 from __future__ import annotations
 
@@ -279,24 +279,3 @@ class TestSearchAndBind:
         detail = client.get(f"/api/projects/{target['id']}").json()
         assert any(d["id"] == doc_id for d in detail["documents"])
 
-    def test_secret_gate(self, client):
-        client.post(
-            "/api/documents/upload",
-            files=[("files", ("涉密.docx", _docx_bytes("涉密内容测试"), "application/vnd..."))],
-            data={"is_secret": "true"},
-        )
-        _wait_docs(client)
-        docs = client.get("/api/documents", params={"is_secret": 1}).json()
-        assert docs["total"] >= 1
-        import sqlite3
-
-        from app.config import get_settings
-
-        conn = sqlite3.connect(get_settings().db_path)
-        try:
-            n = conn.execute(
-                "SELECT count(*) FROM audit_log WHERE pipeline LIKE 'glm%'"
-            ).fetchone()[0]
-        finally:
-            conn.close()
-        assert n == 0, "涉密文档 GLM 调用次数必须为 0"

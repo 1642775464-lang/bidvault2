@@ -77,11 +77,29 @@ def process_document(session: Session, doc: Document) -> IngestResult:
 
 
 def extract_and_harvest(session: Session, doc: Document) -> tuple[int, int]:
-    """拆解抽取：结构项+行落库 → 自动生成素材（doc+title 去重）。"""
-    from .extractor import extract_structured
+    """拆解抽取：规则锚点 + GLM-4-Flash 大模型合并 → 结构项+行落库 → 素材入库（去重）。"""
+    from ..llm_extract import llm_available, llm_extract
+    from .extractor import ExtractedGroup, extract_structured
 
     text = doc.content_text or ""
     groups = extract_structured(text, doc.kind)
+
+    # LLM 增强：模型抽取与规则结果合并（同组同名以 LLM 为准，其余追加）
+    llm_made = 0
+    if llm_available() and len(text.strip()) >= 200:
+        llm_items = llm_extract(text, doc.kind)
+        if llm_items:
+            by_key = {(g.group_name, g.name): g for g in groups}
+            for it in llm_items:
+                key = (str(it.get("group")), str(it.get("name")))
+                rows = [tuple(r) for r in it.get("rows") or []]
+                if key in by_key:
+                    merged = dict.fromkeys(r[0] for r in by_key[key].rows)
+                    by_key[key].rows = by_key[key].rows + [r for r in rows if r[0] not in merged]
+                else:
+                    groups.append(ExtractedGroup(group_name=key[0], name=key[1], sum="大模型抽取", rows=rows))
+                    llm_made += 1
+            audit("llm_extract_merged", doc_id=doc.id, detail=f"LLM 结构项 {llm_made} · 合并后 {len(groups)}")
 
     existing = {m.title for m in session.query(Material).filter(
         Material.doc_name == doc.filename).all()}

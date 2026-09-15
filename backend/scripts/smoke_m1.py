@@ -1,9 +1,10 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""M1 冒烟：起服务全链路（项目→上传→拆解→素材→检索→涉密→绑定→阶段）。"""
+"""M1 冒烟：起服务全链路（项目→上传→拆解→素材→检索→检测→导出）。"""
 
 import io
+import os
 import time
 
 import httpx
@@ -116,11 +117,11 @@ r = c.get(f"{base}/search", params={"q": "数据中心"})
 hits = r.json()["hits"]
 step("全文检索", r.status_code == 200 and len(hits) > 0, f"hits={len(hits)} top={hits[0]['filename'] if hits else '-'}")
 
-# 6 涉密打标
-r = c.patch(f"{base}/documents/{bid_id}/secret", json={"is_secret": False})
-step("涉密解除", r.json().get("is_secret") is False)
-r = c.patch(f"{base}/documents/{bid_id}/secret", json={"is_secret": True})
-step("涉密恢复", r.json().get("is_secret") is True)
+# 6 大模型抽取合并（重新拆解，走 LLM + 规则）
+r = c.post(f"{base}/documents/{bid_id}/extract")
+ex = c.get(f"{base}/documents/{bid_id}/extract").json()
+n_items = sum(len(g["items"]) for g in ex["groups"])
+step("LLM 增强拆解", r.status_code == 200 and n_items >= 1, f"items={n_items}")
 
 # 7 正文预览
 r = c.get(f"{base}/documents/{bid_id}/content")
@@ -152,25 +153,25 @@ step("人员档案卡", r.status_code == 200 and any("王志强" in p["name"] or
 r = httpx.get("http://127.0.0.1:5173/", timeout=10)
 step("前端页面", r.status_code == 200 and "标库" in r.text)
 
-
-import os
-
 # 13 M3 图片证据链：构造含内嵌图的 PDF 上传
 def _random_png(w=400, h=300):
-    import struct as _s, zlib as _z
+
+    import struct as _s
+    import zlib as _z
     rows = b"".join(b"\x00" + os.urandom(w * 3) for _ in range(h))
     def chunk(tag, data):
         return _s.pack(">I", len(data)) + tag + data + _s.pack(">I", _z.crc32(tag + data) & 0xFFFFFFFF)
     ihdr = _s.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", _z.compress(rows)) + chunk(b"IEND", b"")
 
-import io as _io
-import fitz
-pdf = fitz.open()
+
+
+pdf = __import__("fitz").open()
 page = pdf.new_page(width=595, height=842)
 page.insert_text((72, 90), "营业执照复印件", fontsize=15, fontname="china-s")
-page.insert_image(fitz.Rect(72, 120, 400, 350), stream=_random_png())
-buf = _io.BytesIO(); pdf.save(buf)
+page.insert_image(__import__("fitz").Rect(72, 120, 400, 350), stream=_random_png())
+buf = io.BytesIO()
+pdf.save(buf)
 r = c.post(f"{base}/documents/upload", files=[("files", ("资质文件_图片版.pdf", buf.getvalue(), "application/pdf"))], data={"kind": "bid", "project_id": pid, "is_secret": "true"})
 img_doc_id = r.json()["created"][0]["id"]
 
@@ -195,10 +196,6 @@ step("页面预览 PNG", pc["pages"] == 1 and r.status_code == 200 and r.headers
 # 15 证据图片文件直读
 r = c.get(f"{base}/files/{imgmats[0]['file_name']}")
 step("证据图片直读", r.status_code == 200 and r.headers["content-type"].startswith("image/"))
-
-# 16 涉密闸门：默认涉密 → GLM-4V 拒绝
-r = c.post(f"{base}/documents/{img_doc_id}/analyze_images")
-step("涉密 GLM-4V 拦截", r.status_code == 403)
 
 
 # 17 M4 废标检测：投标样例缺授权委托 → 规则触发

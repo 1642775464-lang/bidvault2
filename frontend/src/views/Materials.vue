@@ -68,6 +68,18 @@ const groups = computed(() => {
   }
   return out;
 });
+const pagedGroups = computed(() => {
+  const out: { cat: string; items: Material[] }[] = [];
+  for (const m of pagedMats.value) {
+    const last = out[out.length - 1];
+    if (last && last.cat === m.cat) {
+      last.items.push(m);
+    } else {
+      out.push({ cat: m.cat, items: [m] });
+    }
+  }
+  return out;
+});
 
 const sel = computed(() => mats.value.find((m) => m.id === selId.value) ?? null);
 const imgDocId = computed(() => (sel.value?.file_name ?? "").startsWith("img/") ? sel.value!.file_name!.split("/")[1] : "");
@@ -83,11 +95,13 @@ async function analyze(): Promise<void> {
     toast(e instanceof Error ? e.message : "识别失败");
   }
 }
-const counts = computed(() => ({
-  total: filtered.value.length,
-  auto: mats.value.filter((m) => m.src === "文档库拆解").length,
-  manual: mats.value.filter((m) => m.src === "手动上传").length,
-}));
+const page = ref(1);
+const MAT_PAGE_SIZE = 10;
+const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / MAT_PAGE_SIZE)));
+const pagedMats = computed(() => filtered.value.slice((page.value - 1) * MAT_PAGE_SIZE, page.value * MAT_PAGE_SIZE));
+watch([cat, search], () => {
+  page.value = 1;
+});
 
 function pick(m: Material): void {
   selId.value = m.id;
@@ -239,14 +253,12 @@ onMounted(async () => {
         <option v-for="c in CATS" :key="c">{{ c }}</option>
       </select>
       <button class="mini-btn" @click="openEdit(null)">上传 / 新建素材</button>
-      <span class="sub-note">左列选素材 · 右侧编辑面板；文档库拆解的素材自动入库</span>
     </div>
 
     <div class="v2wrap">
       <div class="mlist">
-        <div class="mlist-h">{{ counts.total }} 份素材 · 拆解 {{ counts.auto }} / 手动 {{ counts.manual }}</div>
         <div class="mlist-body">
-          <template v-for="g in groups" :key="g.cat">
+          <template v-for="g in pagedGroups" :key="g.cat">
             <div class="mgroup"><div class="gl">{{ g.cat }} · {{ mats.filter((x) => x.cat === g.cat).length }}</div></div>
             <button v-for="m in g.items" :key="m.id" class="mitem" :class="{ on: m.id === selId }" @click="pick(m)">
               <span class="m-ico" :class="'c-' + m.cat">
@@ -262,6 +274,11 @@ onMounted(async () => {
             </button>
           </template>
           <div v-if="!filtered.length" class="empty-state"><b>无匹配素材</b>调整筛选，或上传 / 新建素材</div>
+        </div>
+        <div v-if="totalPages > 1" class="pager">
+          <button class="mini-btn" :disabled="page <= 1" @click="page -= 1">‹ 上一页</button>
+          <span class="sub-note">{{ page }} / {{ totalPages }}</span>
+          <button class="mini-btn" :disabled="page >= totalPages" @click="page += 1">下一页 ›</button>
         </div>
       </div>
 
@@ -332,9 +349,6 @@ onMounted(async () => {
             </template>
           </div>
           <div class="ed-foot">
-            <span style="font-size:11.5px;color:var(--dim);margin-right:auto">
-              {{ sel.src === "文档库拆解" ? "由文档库拆解自动生成 · 编辑后保留与源文档的关联" : "手动上传素材 · 可直接编辑全部字段" }}
-            </span>
             <button class="act" @click="goSource(sel)">{{ sel.doc_name ? "查看来源文档" : "查看上传记录" }}</button>
           </div>
         </template>
@@ -346,7 +360,6 @@ onMounted(async () => {
     <div v-if="editOpen" class="modal-wrap" @click.self="editOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="素材编辑">
         <h3>{{ editId ? "编辑素材" : "上传 / 新建素材" }}</h3>
-        <p class="m-sub">{{ editId ? (sel?.src === "文档库拆解" ? "该素材由文档库拆解生成，编辑后保留与源文档的关联" : "手动素材，可直接编辑全部字段") : "文档库拆解的素材自动进入素材库；这里创建手动素材" }}</p>
         <div class="frm">
           <div class="frow">
             <div class="f">
@@ -377,9 +390,7 @@ onMounted(async () => {
           <div v-if="eType === '表格' || eType === '文本'" class="f">
             <label class="fl">{{ syncContentLabel() }}</label>
             <textarea v-model="eContent" rows="6" placeholder="法定代表人：张建国&#10;单位性质：有限责任公司" />
-            <p class="fhint">表格类型每行一条「字段：值」；文本类型直接输入段落内容</p>
           </div>
-          <p v-else class="fhint">图片 / 附件上传在 M3 图片证据链里程碑接入文件存储，当前版本先以文本素材为主。</p>
         </div>
         <div class="m-foot">
           <button class="btn-ghost" @click="editOpen = false">取消</button>
@@ -392,7 +403,7 @@ onMounted(async () => {
     <div v-if="useOpen" class="modal-wrap" @click.self="useOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="引用到项目">
         <h3>引用到项目写作</h3>
-        <p class="m-sub">「{{ mats.find((x) => x.id === useId)?.title }}」→ 插入到目标项目的写作素材清单</p>
+        <p class="m-sub">{{ mats.find((x) => x.id === useId)?.title }}</p>
         <div class="frm">
           <div class="f">
             <label class="fl">目标项目</label>
@@ -400,7 +411,6 @@ onMounted(async () => {
               <option value="" disabled>选择项目…</option>
               <option v-for="p in store.projects.filter((x) => !x.is_archived)" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
-            <p class="fhint">引用后素材进入项目的写作素材清单，可在技术标 / 商务标制作时直接插入</p>
           </div>
         </div>
         <div class="m-foot">

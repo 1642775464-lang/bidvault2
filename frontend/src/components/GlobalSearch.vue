@@ -38,7 +38,6 @@ function openPreview(h: SearchHit): void {
   <div class="modal-wrap" @click.self="emit('close')">
     <div class="modal" role="dialog" aria-modal="true" aria-label="全局搜索">
       <h3>全局检索</h3>
-      <p class="m-sub">跨文档库全文检索（FTS5 trigram + 3-gram 兜底）</p>
       <div class="frm">
         <div style="display: flex; gap: 8px">
           <input
@@ -61,7 +60,6 @@ function openPreview(h: SearchHit): void {
             <div class="hb-head">
               <b>{{ h.filename }}</b>
               <span class="kchip" :class="h.kind === 'tender' ? 'k-tender' : 'k-bid'">{{ h.kind === "tender" ? "招标" : "投标" }}</span>
-              <span v-if="h.is_secret" class="chip-unbind">涉密</span>
               <button v-if="h.page_no" class="chip-src" style="cursor: pointer" @click="openPreview(h)">P{{ h.page_no }} 原文</button>
             </div>
             <!-- eslint-disable-next-line vue/no-v-html -->

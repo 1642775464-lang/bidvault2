@@ -145,15 +145,6 @@ export const api = {
       }),
     );
   },
-  async setSecret(docId: string, isSecret: boolean): Promise<{ ok: boolean; is_secret: boolean }> {
-    return handle(
-      fetch(`/api/documents/${docId}/secret`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_secret: isSecret }),
-      }),
-    );
-  },
 
   /* ---- 素材库 ---- */
   async materials(cat = "", q = ""): Promise<{ total: number; items: Material[] }> {

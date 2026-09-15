@@ -195,3 +195,39 @@ class TestDetect:
         # 未检测的项目 → 404
         pid2 = client.post("/api/projects", json={"name": "无报告项目"}).json()["id"]
         assert client.get(f"/api/detect/{pid2}/report.xlsx").status_code == 404
+
+
+class TestLlmExtract:
+    def test_llm_merged_into_extract(self, client, monkeypatch):
+        import app.services.llm_extract as le
+
+        monkeypatch.setattr(le, "llm_available", lambda: True)
+
+        def fake_llm(_text: str, kind: str) -> list[dict]:
+            assert kind == "bid"
+            return [
+                {"group": "资格与身份文件", "name": "法定代表人身份证明", "rows": [["大模型补充字段", "LLM 识别值"]]},
+                {"group": "资格与身份文件", "name": "大模型新发现结构项", "rows": [["字段甲", "值乙"]]},
+            ]
+
+        monkeypatch.setattr(le, "llm_extract", fake_llm)
+        _setup_project(client, BID_GOOD)
+        docs = client.get("/api/documents").json()["items"]
+        bid_doc = next(d for d in docs if d["kind"] == "bid")
+        r = client.post(f"/api/documents/{bid_doc['id']}/extract")
+        assert r.status_code == 200
+
+        ex = client.get(f"/api/documents/{bid_doc['id']}/extract").json()
+        all_rows = [row for g in ex["groups"] for it in g["items"] for row in it["rows"]]
+        names = [it["name"] for g in ex["groups"] for it in g["items"]]
+        assert ["大模型补充字段", "LLM 识别值"] in all_rows, "LLM 字段未合并"
+        assert "大模型新发现结构项" in names, "LLM 新结构项未追加"
+
+    def test_llm_failure_falls_back(self, client, monkeypatch):
+        import app.services.llm_extract as le
+
+        monkeypatch.setattr(le, "llm_available", lambda: True)
+        monkeypatch.setattr(le, "llm_extract", lambda _t, _k: [])  # 真实失败路径：静默回空列表
+        pid = _setup_project(client, BID_GOOD)
+        r = client.post(f"/api/detect/{pid}")
+        assert r.status_code == 200 and r.json()["items"] is not None

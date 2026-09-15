@@ -139,22 +139,6 @@ def bind_project(doc_id: str, body: BindIn, session: Session = Depends(get_sessi
     return {"ok": True, "project_id": doc.project_id}
 
 
-class SecretIn(BaseModel):
-    is_secret: bool
-
-
-@router.patch("/{doc_id}/secret")
-def set_secret(doc_id: str, body: SecretIn, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """涉密打标：默认全涉密，确认后才允许在线模型（闸门依据）。"""
-    doc = session.get(Document, doc_id)
-    if doc is None:
-        raise HTTPException(404, "文档不存在")
-    doc.is_secret = 1 if body.is_secret else 0
-    session.commit()
-    audit("doc_secret_marked" if body.is_secret else "doc_secret_cleared", doc_id=doc.id)
-    return {"ok": True, "is_secret": bool(doc.is_secret)}
-
-
 @router.get("/{doc_id}/content")
 def doc_content(doc_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
     """正文预览（按切片序拼接，工作台编辑区用）。"""
@@ -195,7 +179,6 @@ async def upload(
     files: list[UploadFile] = File(...),
     kind: str = Form("tender"),
     project_id: str | None = Form(None),
-    is_secret: bool = Form(True),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     if kind not in ("tender", "bid"):
@@ -218,7 +201,6 @@ async def upload(
             file_type=detect_file_type(f.filename or ""),
             size=len(data),
             project_id=project_id or None,
-            is_secret=1 if is_secret else 0,
             status=0,
         )
         session.add(doc)

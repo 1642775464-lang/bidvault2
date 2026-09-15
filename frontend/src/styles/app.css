@@ -565,3 +565,6 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .nav.mini .nav-item span{display:none}
 .nav.mini .logo-word{display:none}
 .nav.mini .nav-foot{visibility:hidden}
+
+/* ===== 翻页 ===== */
+.pager{display:flex;align-items:center;justify-content:center;gap:10px;padding:8px 10px;border-top:1px solid var(--line-soft);flex:none}

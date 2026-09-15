@@ -1,4 +1,4 @@
-"""M3 测试：图片证据自动入库 / 页面预览 / 路径穿越防护 / GLM-4V 涉密闸门。"""
+"""M3 测试：图片证据自动入库 / 页面预览 / 路径穿越防护 / GLM-4V 识别回写。"""
 
 from __future__ import annotations
 
@@ -168,31 +168,10 @@ class TestPagePreview:
         assert client.get(f"/api/documents/{doc_id}/pages").status_code == 400
 
 
-class TestGlmVisionGate:
-    def test_secret_blocked_403(self, client):
-        doc_id, _ = _upload_image_pdf(client, is_secret="true")
-        _wait_docs(client)
-        r = client.post(f"/api/documents/{doc_id}/analyze_images")
-        assert r.status_code == 403
-
-        from sqlalchemy.orm import sessionmaker
-
-        import app.db as appdb
-
-        engine = appdb._Engine
-        assert engine is not None
-        with sessionmaker(bind=engine, expire_on_commit=False)() as s:
-            from app.models import AuditLog
-
-            audits = s.query(AuditLog).filter(AuditLog.action == "glm_vision_blocked").all()
-            assert audits, "涉密拦截未写审计"
-            assert not s.query(AuditLog).filter(AuditLog.action == "glm_vision_call").all()
-
+class TestGlmVision:
     def test_analyze_updates_material(self, client, monkeypatch):
-        doc_id, _ = _upload_image_pdf(client, is_secret="true")
+        doc_id, _ = _upload_image_pdf(client)
         _wait_docs(client)
-        # 确认为非涉密（模拟闸门放行）
-        assert client.patch(f"/api/documents/{doc_id}/secret", json={"is_secret": False}).json()["ok"]
 
         import app.services.glm_vision as gv
 

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { DocItem, ExtractGroup } from "../api/types";
-import { INDUSTRIES, fmtSize, openUpload, refreshCore, store, toast } from "../store";
+import { CATS, INDUSTRIES, fmtSize, openUpload, refreshCore, store, toast } from "../store";
 
 const kindF = ref<"all" | "tender" | "bid">("all");
 const search = ref("");
@@ -11,6 +11,9 @@ const docs = ref<DocItem[]>([]);
 const extract = ref<ExtractGroup[]>([]);
 const running = ref(false);
 const extractingId = ref("");
+const page = ref(1);
+const PAGE_SIZE = 10;
+const catFilter = ref("all");
 
 /* 绑定弹窗 */
 const bindOpen = ref(false);
@@ -42,6 +45,23 @@ const filtered = computed(() =>
   }),
 );
 
+const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / PAGE_SIZE)));
+const pagedDocs = computed(() => filtered.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE));
+watch([kindF, search], () => {
+  page.value = 1;
+});
+
+/** 拆解结构项 → 素材分类（与后端 guess_cat 同规则） */
+function catOf(name: string): string {
+  if (/身份证明|授权|基本情况/.test(name)) return "资质文件";
+  if (/财务/.test(name)) return "财务状况";
+  if (/业绩|供货|承接/.test(name)) return "业绩案例";
+  if (/团队|简历/.test(name)) return "人员团队";
+  if (/技术/.test(name)) return "技术方案";
+  if (/商务/.test(name)) return "商务模板";
+  return "投标格式";
+}
+
 const sel = computed(() => docs.value.find((d) => d.id === selId.value) ?? null);
 const projName = computed(() => {
   const d = sel.value;
@@ -62,8 +82,16 @@ async function pick(d: DocItem): Promise<void> {
   }
 }
 
-/** 后端组名即原型分组标签，直接按组渲染 */
-const grouped = computed(() => extract.value.map((g) => ({ label: g.name, groups: [g] })));
+/** 后端组名即原型分组标签，直接按组渲染；右栏按素材分类筛选 */
+const grouped = computed(() => {
+  const out: { label: string; groups: ExtractGroup[] }[] = [];
+  for (const g of extract.value) {
+    const items = catFilter.value === "all" ? g.items : g.items.filter((it) => catOf(it.name) === catFilter.value);
+    if (!items.length) continue;
+    out.push({ label: g.name, groups: [{ ...g, items }] });
+  }
+  return out;
+});
 
 async function doExtract(): Promise<void> {
   const d = sel.value;
@@ -136,18 +164,6 @@ async function saveBind(): Promise<void> {
   }
 }
 
-async function toggleSecret(): Promise<void> {
-  const d = sel.value;
-  if (!d) return;
-  try {
-    await api.setSecret(d.id, !d.is_secret);
-    toast(!d.is_secret ? "已标记涉密" : "已确认非涉密");
-    await load();
-  } catch (e) {
-    toast(e instanceof Error ? e.message : "操作失败");
-  }
-}
-
 function srcLabel(d: DocItem): string {
   return d.project_id ? "项目库上传" : "文档库上传";
 }
@@ -181,16 +197,12 @@ onMounted(async () => {
         {{ k === "all" ? "全部" : k === "tender" ? "招标文件" : "投标文件" }}
       </button>
       <button class="mini-btn" @click="openUpload(null, 'tender')">上传文档</button>
-      <span class="sub-note">左列选文件，右栏看拆解结构 · 招标抽前附表 / 格式 / 章节，投标抽资格 / 财务 / 业绩 / 团队</span>
     </div>
 
     <div class="xwork">
       <div class="xlist">
-        <div class="xlist-h">
-          <span>{{ filtered.length }} 份文档 · {{ filtered.filter((d) => d.status === 2).length }} 份已拆解</span>
-        </div>
         <div class="xlist-body">
-          <button v-for="d in filtered" :key="d.id" class="xitem" :class="{ on: d.id === selId }" @click="pick(d)">
+          <button v-for="d in pagedDocs" :key="d.id" class="xitem" :class="{ on: d.id === selId }" @click="pick(d)">
             <span class="doc-ico" :class="d.kind">
               <svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6Z" /><path d="M14 3v4h4" /></svg>
             </span>
@@ -204,6 +216,11 @@ onMounted(async () => {
           </button>
           <div v-if="!filtered.length" class="empty-state"><b>无匹配文档</b>调整筛选，或上传新文档</div>
         </div>
+        <div v-if="totalPages > 1" class="pager">
+          <button class="mini-btn" :disabled="page <= 1" @click="page -= 1">‹ 上一页</button>
+          <span class="sub-note">{{ page }} / {{ totalPages }}</span>
+          <button class="mini-btn" :disabled="page >= totalPages" @click="page += 1">下一页 ›</button>
+        </div>
       </div>
 
       <div class="xpanel">
@@ -215,19 +232,23 @@ onMounted(async () => {
             </span>
             <span class="sp">
               <span class="kchip" :class="sel.kind === 'tender' ? 'k-tender' : 'k-bid'">{{ sel.kind === "tender" ? "招标文件" : "投标文件" }}</span>
-              <span v-if="sel.is_secret" class="chip-unbind">涉密</span>
               <span v-if="sel.needs_review" class="chip-miss">OCR 待复核 · 置信度 {{ ((sel.ocr_conf ?? 0) * 100).toFixed(0) }}%</span>
               <span v-else-if="sel.ocr_conf != null" class="chip-src">OCR 置信度 {{ ((sel.ocr_conf ?? 0) * 100).toFixed(0) }}%</span>
               <span v-if="sel.project_id" class="chip-proj">{{ projChipName(sel) }}</span>
               <span v-else class="chip-unbind">未绑定</span>
               <button class="act" @click="openBind()">绑定 / 换绑</button>
-              <button class="act" @click="toggleSecret()">{{ sel.is_secret ? "标记非涉密" : "标记涉密" }}</button>
               <button v-if="sel.status !== 1" class="act pri" :disabled="!!extractingId" @click="doExtract()">
                 {{ sel.status === 2 ? "重新拆解" : extractingId === sel.id ? "拆解中…" : "拆解抽取" }}
               </button>
             </span>
           </div>
           <div class="xp-body">
+            <div class="chips" style="margin-bottom: 12px">
+              <select v-model="catFilter" class="f-select">
+                <option value="all">全部分类</option>
+                <option v-for="c in CATS" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
             <template v-if="grouped.length">
               <div v-for="g in grouped" :key="g.label" class="xg">
                 <div class="lab">{{ g.label }} · {{ g.groups.reduce((s, x) => s + x.items.length, 0) }} 项</div>
@@ -271,7 +292,7 @@ onMounted(async () => {
             <div v-else class="xempty"><b>未抽取到结构</b><p>本文档已拆解，但没有匹配到结构项。可尝试重新拆解或人工核对原文。</p></div>
           </div>
         </template>
-        <div v-else class="xempty"><b>选择左侧文档</b><p>左列选文件，右栏查看拆解结构。</p></div>
+        <div v-else class="xempty"><b>选择左侧文档</b></div>
       </div>
     </div>
 
@@ -283,18 +304,18 @@ onMounted(async () => {
         <div class="frm">
           <div class="bind-opt">
             <div class="bopt" :class="{ on: bindChoice === 'existing' }" @click="chooseBind('existing')">
-              <span class="rd" /><span class="bt"><b>绑定到现有项目</b><span>与项目库中的项目关联</span></span>
+              <span class="rd" /><span class="bt"><b>绑定到现有项目</b></span>
               <span class="bx" @click.stop><select v-model="bindSel"><option value="" disabled>选择项目…</option><option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option></select></span>
             </div>
             <div class="bopt" :class="{ on: bindChoice === 'new' }" @click="chooseBind('new')">
-              <span class="rd" /><span class="bt"><b>新建项目并绑定</b><span>快速建档，稍后可在项目库补全</span></span>
+              <span class="rd" /><span class="bt"><b>新建项目并绑定</b></span>
               <span class="bx" @click.stop>
                 <input v-model="bindNewName" type="text" placeholder="新项目名称 *" :class="{ err: bindNewErr }">
                 <select v-model="bindNewInd"><option v-for="i in INDUSTRIES" :key="i">{{ i }}</option></select>
               </span>
             </div>
             <div class="bopt" :class="{ on: bindChoice === 'none' }" @click="chooseBind('none')">
-              <span class="rd" /><span class="bt"><b>解除绑定</b><span>文档保留在文档库，不关联任何项目</span></span>
+              <span class="rd" /><span class="bt"><b>解除绑定</b></span>
             </div>
           </div>
         </div>

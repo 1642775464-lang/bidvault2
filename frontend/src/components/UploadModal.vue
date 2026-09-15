@@ -102,7 +102,6 @@ async function save(): Promise<void> {
   <div v-if="open" class="modal-wrap" @click.self="closeUpload()">
     <div class="modal" role="dialog" aria-modal="true" aria-label="上传文档">
       <h3>上传文档</h3>
-      <p class="m-sub">支持批量上传；招标文件可拆解前附表与章节，投标文件可拆解资格、业绩与团队内容</p>
       <div class="frm">
         <div class="f">
           <span class="fl">文档类型</span>
@@ -115,7 +114,6 @@ async function save(): Promise<void> {
           <span class="fl">选择文件</span>
           <div class="upzone" :class="{ hot: files.length === 0 }">
             <div class="uz-t">PDF / Word / 图片</div>
-            <div class="uz-s">可多选 · 上传后可在文档库拆解抽取与绑定项目</div>
             <button type="button" class="mini-btn" @click="pick()">选择文件</button>
             <input ref="fileInput" type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" multiple style="display:none" @change="onFiles">
             <div class="upfiles">
@@ -127,14 +125,14 @@ async function save(): Promise<void> {
           <span class="fl">绑定项目（可稍后在文档库中绑定）</span>
           <div class="bind-opt">
             <div class="bopt" :class="{ on: bind === 'none' }" @click="chooseBind('none')">
-              <span class="rd" /><span class="bt"><b>暂不绑定</b><span>仅存入文档库，随时可绑定</span></span>
+              <span class="rd" /><span class="bt"><b>暂不绑定</b></span>
             </div>
             <div class="bopt" :class="{ on: bind === 'existing' }" @click="chooseBind('existing')">
-              <span class="rd" /><span class="bt"><b>绑定到现有项目</b><span>与项目库中的项目关联</span></span>
+              <span class="rd" /><span class="bt"><b>绑定到现有项目</b></span>
               <span class="bx" @click.stop><select v-model="projSel"><option value="" disabled>选择项目…</option><option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option></select></span>
             </div>
             <div class="bopt" :class="{ on: bind === 'new' }" @click="chooseBind('new')">
-              <span class="rd" /><span class="bt"><b>新建项目并绑定</b><span>快速建档，稍后可在项目库补全</span></span>
+              <span class="rd" /><span class="bt"><b>新建项目并绑定</b></span>
               <span class="bx" @click.stop>
                 <input v-model="newName" type="text" placeholder="新项目名称 *" :class="{ err: newNameErr }">
                 <select v-model="newInd"><option v-for="i in INDUSTRIES" :key="i">{{ i }}</option></select>

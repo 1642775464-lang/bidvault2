@@ -65,7 +65,7 @@ onMounted(async () => {
                   <b>GLM-4-Flash</b>
                   <span class="chip-role" :class="health?.glm_configured ? 'r-admin' : 'r-viewer'">{{ health?.glm_configured ? "已连接" : "未连接" }}</span>
                 </div>
-                <div class="pd">文本结构化抽取 · 非涉密文档可用 · 免费模型</div>
+                <div class="pd">文本结构化抽取（拆解增强）· 免费模型</div>
                 <div class="pm">zhipu api · server-side</div>
               </div>
               <div class="pcard">
@@ -75,7 +75,7 @@ onMounted(async () => {
               </div>
               <div class="pcard">
                 <div class="ph"><b>PaddleOCR</b><span class="chip-role r-viewer">M2 接入</span></div>
-                <div class="pd">扫描件本地解析 · 涉密文档不出域</div>
+                <div class="pd">扫描件本地解析 · 全程本机运行</div>
                 <div class="pm">local · cpu</div>
               </div>
               <div class="pcard">
@@ -84,7 +84,6 @@ onMounted(async () => {
                 <div class="pm">local</div>
               </div>
             </div>
-            <p class="sub-note">API Key 在服务端 .env 配置（zhipu_api_key），加密存储、不下发浏览器。</p>
           </template>
 
           <!-- 数据安全 -->
@@ -92,10 +91,8 @@ onMounted(async () => {
             <div class="tblbox">
               <table>
                 <tbody>
-                  <tr><td>涉密闸门</td><td><span class="chip-role" style="background:var(--ok-bg);color:var(--ok)">默认全涉密</span></td></tr>
-                  <tr><td>在线模型调用范围</td><td>仅非涉密文档</td></tr>
-                  <tr><td>涉密文档在线调用次数</td><td style="color:var(--ok);font-weight:600">0</td></tr>
                   <tr><td>数据存储</td><td>全程本机磁盘（原件 / 抽取结果 / 页图缓存 / 备份）</td></tr>
+                  <tr><td>在线调用审计</td><td>{{ health?.counts.audit_logs ?? "—" }} 条留痕</td></tr>
                   <tr><td>审计记录</td><td>{{ health?.counts.audit_logs ?? "—" }} 条 · 全部在线调用留痕</td></tr>
                 </tbody>
               </table>
@@ -122,7 +119,6 @@ onMounted(async () => {
               <div class="rh2"><b>业绩与团队</b><span class="n">4 项</span></div>
               <div class="rf"><span class="fchip">近年财务状况</span><span class="fchip">类似项目业绩</span><span class="fchip">在履约项目</span><span class="fchip">团队简历</span></div>
             </div>
-            <p class="sub-note">固定结构为 M1 版本；自定义抽取字段（锚点 / 关键词 / 正则 / LLM）在后续里程碑开放。</p>
           </template>
 
           <!-- 检测规则 -->
@@ -135,7 +131,6 @@ onMounted(async () => {
               </div>
               <div class="rf"><span class="fchip">{{ r.desc }}</span></div>
             </div>
-            <p class="sub-note">内置规则 M4 版随引擎更新；自定义废标清单与版本留痕在后续版本开放维护。</p>
           </template>
 
           <!-- 关于 -->

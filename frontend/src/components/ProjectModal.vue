@@ -116,7 +116,6 @@ onMounted(() => {
   <div v-if="open" class="modal-wrap" @click.self="closeProjectModal()">
     <div class="modal" role="dialog" aria-modal="true" aria-label="项目编辑">
       <h3>{{ editing ? "编辑项目" : "新建项目" }}</h3>
-      <p class="m-sub">{{ editing ? "修改项目信息与招标资料，保存后立即生效" : "填写基本信息并上传招标资料，创建后进入「技术标制作」阶段" }}</p>
       <div class="frm">
         <div class="frow">
           <div class="f">
@@ -173,7 +172,6 @@ onMounted(() => {
             <span class="fl">上传招标文件</span>
             <div class="upzone hot" :class="{ hot: filesT.length === 0 }">
               <div class="uz-t">招标文件</div>
-              <div class="uz-s">PDF / Word · 用于废标检测与评分对照</div>
               <button type="button" class="mini-btn" @click="pickFiles('t')">选择文件</button>
               <input ref="tenderInput" type="file" accept=".pdf,.doc,.docx" multiple style="display:none" @change="onFiles('t', $event)">
               <div class="upfiles">
@@ -185,7 +183,6 @@ onMounted(() => {
             <span class="fl">上传招标公告</span>
             <div class="upzone" :class="{ hot: filesN.length === 0 }">
               <div class="uz-t">招标公告</div>
-              <div class="uz-s">PDF / 图片 · 用于项目信息自动提取</div>
               <button type="button" class="mini-btn" @click="pickFiles('n')">选择文件</button>
               <input ref="noticeInput" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple style="display:none" @change="onFiles('n', $event)">
               <div class="upfiles">
