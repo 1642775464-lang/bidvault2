@@ -1,0 +1,306 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from "vue";
+import { api } from "../api/client";
+import type { DocItem, ExtractGroup } from "../api/types";
+import { INDUSTRIES, fmtSize, openUpload, refreshCore, store, toast } from "../store";
+
+const kindF = ref<"all" | "tender" | "bid">("all");
+const search = ref("");
+const selId = ref("");
+const docs = ref<DocItem[]>([]);
+const extract = ref<ExtractGroup[]>([]);
+const running = ref(false);
+const extractingId = ref("");
+
+/* 绑定弹窗 */
+const bindOpen = ref(false);
+const bindDoc = ref<DocItem | null>(null);
+const bindChoice = ref<"existing" | "new" | "none">("existing");
+const bindSel = ref("");
+const bindNewName = ref("");
+const bindNewInd = ref(INDUSTRIES[0]);
+const bindNewErr = ref(false);
+const projects = ref<{ id: string; name: string }[]>([]);
+
+async function load(): Promise<void> {
+  try {
+    const r = await api.documents({});
+    docs.value = r.items;
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "加载失败");
+  }
+}
+
+const filtered = computed(() =>
+  docs.value.slice().sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? "")).filter((d) => {
+    if (kindF.value !== "all" && d.kind !== kindF.value) return false;
+    const q = search.value.trim().toLowerCase();
+    if (!q) return true;
+    const pid = d.project_id ?? "";
+    const pname = store.projects.find((p) => p.id === pid)?.name ?? "";
+    return (d.filename + " " + pname).toLowerCase().includes(q);
+  }),
+);
+
+const sel = computed(() => docs.value.find((d) => d.id === selId.value) ?? null);
+const projName = computed(() => {
+  const d = sel.value;
+  if (!d) return "";
+  return store.projects.find((p) => p.id === d.project_id)?.name ?? "";
+});
+
+async function pick(d: DocItem): Promise<void> {
+  selId.value = d.id;
+  extract.value = [];
+  if (d.status === 2) {
+    try {
+      const r = await api.extract(d.id);
+      extract.value = r.groups;
+    } catch {
+      extract.value = [];
+    }
+  }
+}
+
+/** 后端组名即原型分组标签，直接按组渲染 */
+const grouped = computed(() => extract.value.map((g) => ({ label: g.name, groups: [g] })));
+
+async function doExtract(): Promise<void> {
+  const d = sel.value;
+  if (!d || d.status === 1 || extractingId.value) return;
+  extractingId.value = d.id;
+  toast(`「${d.filename}」开始拆解抽取…`);
+  try {
+    const r = await api.runExtract(d.id);
+    toast(`拆解完成：${r.extracted} 个结构项已抽取${r.materials ? "，" + r.materials + " 份素材已入库" : ""}`);
+    await load();
+    await refreshCore();
+    const fresh = docs.value.find((x) => x.id === d.id);
+    if (fresh) await pick(fresh);
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "拆解失败");
+  } finally {
+    extractingId.value = "";
+  }
+}
+
+async function openBind(): Promise<void> {
+  if (!sel.value) return;
+  bindDoc.value = sel.value;
+  bindChoice.value = "existing";
+  bindNewErr.value = false;
+  bindNewName.value = "";
+  try {
+    const r = await api.projects("active");
+    projects.value = r.items.map((p) => ({ id: p.id, name: p.name }));
+  } catch {
+    projects.value = [];
+  }
+  bindSel.value = sel.value.project_id ?? "";
+  bindOpen.value = true;
+}
+function chooseBind(b: "existing" | "new" | "none"): void {
+  bindChoice.value = b;
+}
+async function saveBind(): Promise<void> {
+  const d = bindDoc.value;
+  if (!d) return;
+  try {
+    if (bindChoice.value === "existing") {
+      if (!bindSel.value) {
+        toast("请选择要绑定的项目");
+        return;
+      }
+      await api.bind(d.id, { project_id: bindSel.value });
+      toast(`已绑定到「${projects.value.find((p) => p.id === bindSel.value)?.name ?? ""}」`);
+    } else if (bindChoice.value === "new") {
+      const name = bindNewName.value.trim();
+      if (!name) {
+        bindNewErr.value = true;
+        toast("请填写新项目名称");
+        return;
+      }
+      await api.bind(d.id, { new_project_name: name, new_project_industry: bindNewInd.value });
+      toast(`新项目「${name}」已创建并绑定`);
+    } else {
+      await api.bind(d.id, { project_id: null });
+      toast("已解除绑定，文档保留在文档库");
+    }
+    bindOpen.value = false;
+    await load();
+    await refreshCore();
+    const fresh = docs.value.find((x) => x.id === d.id);
+    if (fresh) await pick(fresh);
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "操作失败");
+  }
+}
+
+async function toggleSecret(): Promise<void> {
+  const d = sel.value;
+  if (!d) return;
+  try {
+    await api.setSecret(d.id, !d.is_secret);
+    toast(!d.is_secret ? "已标记涉密" : "已确认非涉密");
+    await load();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "操作失败");
+  }
+}
+
+function srcLabel(d: DocItem): string {
+  return d.project_id ? "项目库上传" : "文档库上传";
+}
+function projChipName(d: DocItem): string {
+  return store.projects.find((p) => p.id === d.project_id)?.name ?? "";
+}
+
+watch(filtered, (list) => {
+  if (!list.length) {
+    selId.value = "";
+    extract.value = [];
+    return;
+  }
+  if (!list.some((d) => d.id === selId.value)) pick(list[0]);
+});
+
+onMounted(async () => {
+  await load();
+  await refreshCore();
+});
+</script>
+
+<template>
+  <div class="viewscroll">
+    <div class="docsub-bar">
+      <div class="f-search">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></svg>
+        <input v-model="search" type="text" placeholder="搜索文档 / 项目">
+      </div>
+      <button v-for="k in ['all', 'tender', 'bid'] as const" :key="k" class="f-chip" :class="{ on: kindF === k }" @click="kindF = k">
+        {{ k === "all" ? "全部" : k === "tender" ? "招标文件" : "投标文件" }}
+      </button>
+      <button class="mini-btn" @click="openUpload(null, 'tender')">上传文档</button>
+      <span class="sub-note">左列选文件，右栏看拆解结构 · 招标抽前附表 / 格式 / 章节，投标抽资格 / 财务 / 业绩 / 团队</span>
+    </div>
+
+    <div class="xwork">
+      <div class="xlist">
+        <div class="xlist-h">
+          <span>{{ filtered.length }} 份文档 · {{ filtered.filter((d) => d.status === 2).length }} 份已拆解</span>
+        </div>
+        <div class="xlist-body">
+          <button v-for="d in filtered" :key="d.id" class="xitem" :class="{ on: d.id === selId }" @click="pick(d)">
+            <span class="doc-ico" :class="d.kind">
+              <svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6Z" /><path d="M14 3v4h4" /></svg>
+            </span>
+            <span class="nm">
+              <b>{{ d.filename }}</b>
+              <span>{{ fmtSize(d.size) }} · {{ (d.created_at ?? "").slice(0, 10) }}{{ d.project_id ? " · " + projChipName(d) : " · 未绑定" }}</span>
+            </span>
+            <span v-if="d.status === 2" class="st-x x-done">已拆解</span>
+            <span v-else-if="d.status === 1" class="st-x x-run"><span class="run-dot" /> 拆解中</span>
+            <span v-else class="st-x x-none">未拆解</span>
+          </button>
+          <div v-if="!filtered.length" class="empty-state"><b>无匹配文档</b>调整筛选，或上传新文档</div>
+        </div>
+      </div>
+
+      <div class="xpanel">
+        <template v-if="sel">
+          <div class="xp-head">
+            <span class="t">
+              <h3>{{ sel.filename }}</h3>
+              <div class="m">{{ fmtSize(sel.size) }} · 上传 {{ (sel.created_at ?? "").slice(0, 10) }} · 来源：{{ srcLabel(sel) }}</div>
+            </span>
+            <span class="sp">
+              <span class="kchip" :class="sel.kind === 'tender' ? 'k-tender' : 'k-bid'">{{ sel.kind === "tender" ? "招标文件" : "投标文件" }}</span>
+              <span v-if="sel.is_secret" class="chip-unbind">涉密</span>
+              <span v-if="sel.project_id" class="chip-proj">{{ projChipName(sel) }}</span>
+              <span v-else class="chip-unbind">未绑定</span>
+              <button class="act" @click="openBind()">绑定 / 换绑</button>
+              <button class="act" @click="toggleSecret()">{{ sel.is_secret ? "标记非涉密" : "标记涉密" }}</button>
+              <button v-if="sel.status !== 1" class="act pri" :disabled="!!extractingId" @click="doExtract()">
+                {{ sel.status === 2 ? "重新拆解" : extractingId === sel.id ? "拆解中…" : "拆解抽取" }}
+              </button>
+            </span>
+          </div>
+          <div class="xp-body">
+            <template v-if="grouped.length">
+              <div v-for="g in grouped" :key="g.label" class="xg">
+                <div class="lab">{{ g.label }} · {{ g.groups.reduce((s, x) => s + x.items.length, 0) }} 项</div>
+                <div class="xgroups">
+                  <details v-for="grp in g.groups" :key="grp.name" class="xrow" open>
+                    <summary>
+                      <svg class="caret" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
+                      <b>{{ grp.name }}</b>
+                      <span class="sum">{{ grp.items.length }} 项</span>
+                    </summary>
+                    <div class="xdetail-wrap">
+                      <details v-for="it in grp.items" :key="it.id" class="xrow" style="margin:8px">
+                        <summary>
+                          <svg class="caret" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
+                          <b>{{ it.name }}</b>
+                          <span v-if="it.sum" class="sum">{{ it.sum }}</span>
+                        </summary>
+                        <div v-if="it.rows.length" class="xdetail">
+                          <table>
+                            <tbody>
+                              <tr v-for="(r, i) in it.rows" :key="i"><td>{{ r[0] }}</td><td>{{ r[1] }}</td></tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            </template>
+            <div v-else-if="sel.status === 0" class="xempty">
+              <b>这份文档还没有拆解</b>
+              <p>拆解抽取将按{{ sel.kind === "tender" ? "「投标人须知前附表 / 评标办法前附表 / 投标文件格式 / 章节内容」" : "「法定代表人身份证明 / 授权委托书 / 基本情况表 / 财务状况 / 类似业绩 / 在履约项目 / 团队简历」" }}的结构输出，供评分对照与写作复用。</p>
+              <button class="act pri" :disabled="!!extractingId" @click="doExtract()">开始拆解抽取</button>
+            </div>
+            <div v-else-if="sel.status === 1" class="xscan">
+              <b>正在拆解：{{ sel.filename }}</b>
+              <div class="bar"><i /></div>
+              <span style="font-size:12px">{{ sel.kind === "tender" ? "解析前附表 / 评标办法 / 格式清单 / 章节目录…" : "解析资格文件 / 财务 / 业绩 / 团队简历…" }}</span>
+            </div>
+            <div v-else class="xempty"><b>未抽取到结构</b><p>本文档已拆解，但没有匹配到结构项。可尝试重新拆解或人工核对原文。</p></div>
+          </div>
+        </template>
+        <div v-else class="xempty"><b>选择左侧文档</b><p>左列选文件，右栏查看拆解结构。</p></div>
+      </div>
+    </div>
+
+    <!-- 绑定项目 -->
+    <div v-if="bindOpen" class="modal-wrap" @click.self="bindOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="绑定项目">
+        <h3>绑定项目</h3>
+        <p class="m-sub">{{ bindDoc?.filename }}</p>
+        <div class="frm">
+          <div class="bind-opt">
+            <div class="bopt" :class="{ on: bindChoice === 'existing' }" @click="chooseBind('existing')">
+              <span class="rd" /><span class="bt"><b>绑定到现有项目</b><span>与项目库中的项目关联</span></span>
+              <span class="bx" @click.stop><select v-model="bindSel"><option value="" disabled>选择项目…</option><option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option></select></span>
+            </div>
+            <div class="bopt" :class="{ on: bindChoice === 'new' }" @click="chooseBind('new')">
+              <span class="rd" /><span class="bt"><b>新建项目并绑定</b><span>快速建档，稍后可在项目库补全</span></span>
+              <span class="bx" @click.stop>
+                <input v-model="bindNewName" type="text" placeholder="新项目名称 *" :class="{ err: bindNewErr }">
+                <select v-model="bindNewInd"><option v-for="i in INDUSTRIES" :key="i">{{ i }}</option></select>
+              </span>
+            </div>
+            <div class="bopt" :class="{ on: bindChoice === 'none' }" @click="chooseBind('none')">
+              <span class="rd" /><span class="bt"><b>解除绑定</b><span>文档保留在文档库，不关联任何项目</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="m-foot">
+          <button class="btn-ghost" @click="bindOpen = false">取消</button>
+          <button class="btn-primary" @click="saveBind()">确认</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>

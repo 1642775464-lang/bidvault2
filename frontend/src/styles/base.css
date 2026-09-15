@@ -1,0 +1,2 @@
+body{margin:0;display:flex;height:100vh;overflow:hidden;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.65}
+#app{display:flex;width:100%;height:100vh}

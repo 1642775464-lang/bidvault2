@@ -1,0 +1,12 @@
+:root{
+  --bg:#f4f6f9; --card:#ffffff; --line:#e2e7ee; --line-soft:#edf1f6;
+  --ink:#1d2b3a; --sub:#51637a; --dim:#71828f;
+  --accent:#2b5fc8; --accent-deep:#1f4aa8; --accent-bg:#edf3fd; --accent-line:#c3d6f4;
+  --fatal:#bd3a30; --fatal-bg:#fbeeea; --fatal-line:#e6b3ac;
+  --risk:#a86408; --risk-bg:#fbf3e3; --risk-line:#e3c48e;
+  --hint:#5f7186; --hint-bg:#f0f3f7; --hint-line:#cdd7e1;
+  --ok:#2e7d4f; --ok-bg:#eaf5ee;
+  --hl:#fbf1cd; --hl-line:#e5c765;
+  --mono:Consolas,"Cascadia Code","Courier New",monospace;
+  --sans:"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+}
