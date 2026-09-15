@@ -80,12 +80,22 @@ def meta() -> dict[str, Any]:
     }
 
 
+def _unique_code(session: Session, base: str) -> str:
+    """编号冲突自动加后缀（重名建档不再 500）。"""
+    code = base
+    n = 2
+    while session.query(Project).filter(Project.code == code).one_or_none() is not None:
+        code = f"{base}-{n}"
+        n += 1
+    return code
+
+
 @router.post("")
 def create_project(body: ProjectIn, session: Session = Depends(get_session)) -> dict[str, Any]:
     if not body.name.strip():
         raise HTTPException(400, "项目名称不能为空")
     p = Project(
-        code="NEW-" + body.name[:8],
+        code=_unique_code(session, "NEW-" + body.name[:8]),
         name=body.name.strip(), role=body.role, industry=body.industry,
         open_at=body.open_at, platform=body.platform,
         cust=body.cust, contact=body.contact, sales=body.sales,

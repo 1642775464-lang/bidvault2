@@ -45,6 +45,11 @@ def process_document(session: Session, doc: Document) -> IngestResult:
         session.commit()
         parsed = parse_any(data, doc.file_type)
         doc.content_text = parsed.text[:800_000]
+        if parsed.page_conf:
+            doc.ocr_conf = round(sum(parsed.page_conf) / len(parsed.page_conf), 4)
+            doc.needs_review = 1 if any(c < 0.85 for c in parsed.page_conf) else 0
+            audit("ocr_done", doc_id=doc.id,
+                  detail=f"pages {len(parsed.page_conf)} · conf {doc.ocr_conf} · review {doc.needs_review}")
 
         n = _write_index(session, doc.id, parsed.pages)
 
@@ -123,13 +128,52 @@ def _write_index(session: Session, doc_id: str, pages: list[str]) -> int:
     chunks = chunk_text(pages)
     conn = session.connection().connection
     for c in chunks:
+        cid = uuid.uuid4().hex
         conn.execute(
             "INSERT INTO chunks (chunk_id, document_id, chunk_index, content, page_no) "
             "VALUES (?, ?, ?, ?, ?)",
-            (uuid.uuid4().hex, doc_id, c.chunk_index, c.content, c.page_no),
+            (cid, doc_id, c.chunk_index, c.content, c.page_no),
         )
+        try:
+            from ..search.embedder import embed
+
+            conn.execute(
+                "INSERT INTO chunks_vec (chunk_id, embedding) VALUES (?, ?)",
+                (cid, json.dumps(embed(c.content))),
+            )
+        except Exception:
+            pass
     session.commit()
     return len(chunks)
+
+
+def backfill_embeddings(session: Session, *, limit: int = 500) -> int:
+    """为缺向量的存量切片补 embedding（启动时调用，幂等）。"""
+    conn = session.connection().connection
+    try:
+        rows = conn.execute(
+            "SELECT chunk_id, content FROM chunks "
+            "WHERE chunk_id NOT IN (SELECT chunk_id FROM chunks_vec) LIMIT ?",
+            (limit,),
+        ).fetchall()
+    except Exception:
+        return 0
+    if not rows:
+        return 0
+    from ..search.embedder import embed
+
+    n = 0
+    for chunk_id, content in rows:
+        try:
+            conn.execute(
+                "INSERT INTO chunks_vec (chunk_id, embedding) VALUES (?, ?)",
+                (chunk_id, json.dumps(embed(content))),
+            )
+            n += 1
+        except Exception:
+            break
+    session.commit()
+    return n
 
 
 def requeue_failed(session: Session, doc_id: str) -> bool:

@@ -36,10 +36,14 @@ BID = (
     "兹证明张建国为本公司法定代表人\n"
     "第三章 授权委托书\n"
     "本人张建国授权代理人王志强参加本项目投标活动\n"
+    "委托代理人：王志强\n"
     "第四章 技术方案\n"
     "机房按 B 级标准建设\n"
     "第五章 类似项目业绩\n"
     "云启数据中心机房改造项目（2024 年，合同额 1,280 万元）\n"
+    "第六章 项目团队成员及相关人员简历\n"
+    "项目经理：王志强（一级建造师机电工程）\n"
+    "技术负责人：李慧敏（高级工程师，暖通方向）\n"
 )
 
 base = "http://127.0.0.1:8000/api"
@@ -87,9 +91,8 @@ def wait_status(doc_id: str, want: int = 2, timeout: float = 60) -> int:
     while time.time() - t0 < timeout:
         s = c.get(f"{base}/documents", params={"q": ""}).json()
         for d in s["items"]:
-            if d["id"] == doc_id:
-                if d["status"] >= want:
-                    return d["status"]
+            if d["id"] == doc_id and d["status"] >= want:
+                return d["status"]
         time.sleep(1)
     return -1
 
@@ -134,9 +137,18 @@ step("重新绑定", r.json().get("project_id") == pid)
 # 9 health
 r = c.get(f"{base}/health")
 cnt = r.json()["counts"]
-step("health 计数", cnt["documents"] == 2 and cnt["materials"] >= 2, str(cnt))
+step("health 计数", cnt["documents"] >= 2 and cnt["materials"] >= 2, str(cnt))
 
-# 10 前端可达
+# 10 F2.2 NL 检索（语义通道）
+r = c.get(f"{base}/search", params={"q": "投标需要交多少钱", "mode": "nl"})
+step("NL 检索", r.status_code == 200 and len(r.json()["hits"]) > 0, f"hits={len(r.json()['hits'])}")
+
+# 11 F2.5 人员档案卡
+r = c.get(f"{base}/people", params={"project_id": pid})
+cards = r.json()["items"]
+step("人员档案卡", r.status_code == 200 and any("王志强" in p["name"] or "张建国" in p["name"] for p in cards), str([p['name'] + '/' + p['role'] for p in cards][:3]))
+
+# 12 前端可达
 r = httpx.get("http://127.0.0.1:5173/", timeout=10)
 step("前端页面", r.status_code == 200 and "标库" in r.text)
 

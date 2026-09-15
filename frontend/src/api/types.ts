@@ -41,7 +41,17 @@ export interface DocItem {
   project_id: string | null;
   is_secret: number;
   error_msg: string | null;
+  ocr_conf: number | null;
+  needs_review: number;
   created_at: string | null;
+}
+
+export interface PersonCard {
+  name: string;
+  role: string;
+  certs: string[];
+  source: string;
+  status: "ok" | "warn";
 }
 
 export interface ExtractRowPair extends Array<string> {

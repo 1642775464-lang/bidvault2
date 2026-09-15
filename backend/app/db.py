@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,7 @@ def make_engine(db_path: Path | None = None) -> Any:
         Base.metadata.create_all(conn)
         for ddl in _chunks_table_sql():
             conn.execute(text(ddl))
+        _migrate(conn)
 
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     with factory() as s:
@@ -84,6 +86,17 @@ def get_engine() -> Any:
         _Engine = make_engine()
         _SessionLocal = sessionmaker(bind=_Engine, expire_on_commit=False)
     return _Engine
+
+
+def _migrate(conn: Any) -> None:
+    """轻量迁移：create_all 不改已有表，缺列逐个补。"""
+    stmts = [
+        "ALTER TABLE documents ADD COLUMN ocr_conf REAL",
+        "ALTER TABLE documents ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 0",
+    ]
+    for ddl in stmts:
+        with contextlib.suppress(Exception):
+            conn.execute(text(ddl))
 
 
 def get_session() -> Iterator[Session]:

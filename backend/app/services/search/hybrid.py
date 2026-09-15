@@ -1,7 +1,9 @@
-"""检索服务（M1 基础版：FTS5 trigram + 3gram 兜底 + 短词 LIKE + 筛选）。"""
+"""检索服务（M2：FTS5 trigram + 3gram 兜底 + 短词 LIKE + 本地向量语义通道）。"""
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -117,6 +119,80 @@ def _snippet_html(content: str, terms: list[str], *, width: int = 120) -> str:
         escaped = escaped.replace(et, f"<mark>{et}</mark>")
     head = "…" if pos >= 0 and start > 0 else ""
     return head + escaped + ("…" if has_tail else "")
+
+
+def search_vector(conn: Any, query: str, *, limit: int = 20) -> list[SearchHit]:
+    """语义通道：本地 embedding + sqlite-vec KNN。扩展缺失或向量为空时返回空。"""
+    from .embedder import embed
+
+    try:
+        qvec = embed(query)
+        rows = conn.execute(
+            "SELECT chunk_id, distance FROM chunks_vec WHERE embedding MATCH :q AND k = :k "
+            "ORDER BY distance",
+            {"q": json.dumps(qvec), "k": max(1, limit * 2)},
+        ).fetchall()
+    except Exception:
+        return []
+    if not rows:
+        return []
+
+    meta = {
+        r[0]: r
+        for r in conn.execute(
+            "SELECT chunk_id, content, page_no, document_id FROM chunks "
+            f"WHERE chunk_id IN ({','.join('?' * len(rows))})",
+            [r[0] for r in rows],
+        ).fetchall()
+    }
+    doc_ids = sorted({m[3] for m in meta.values()})
+    if not doc_ids:
+        return []
+    placeholders = ",".join("?" * len(doc_ids))
+    docs = {
+        r[0]: r
+        for r in conn.execute(
+            "SELECT id, filename, kind, is_secret FROM documents " f"WHERE id IN ({placeholders})",
+            doc_ids,
+        ).fetchall()
+    }
+    out: list[SearchHit] = []
+    for chunk_id, distance in rows:
+        m = meta.get(chunk_id)
+        if m is None:
+            continue
+        d = docs.get(m[3])
+        if d is None:
+            continue
+        content = m[1]
+        out.append(SearchHit(
+            document_id=m[3], filename=d[1], kind=d[2], is_secret=d[3],
+            score=round(1.0 / (1.0 + float(distance)), 6),
+            snippet=_snippet(content, [query]),
+            snippet_html=_snippet_html(content, [query]),
+            page_no=m[2], chunk_id=chunk_id,
+        ))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def search_nl(conn: Any, query: str, *, limit: int = 20) -> list[SearchHit]:
+    """自然语言检索（F2.2）：语义通道优先，关键词通道补齐，按文档去重。"""
+    terms = [t for t in re.split(r"[\s,，、;；]+", query) if t] or [query]
+    seen: set[str] = set()
+    merged: list[SearchHit] = []
+
+    def push(hits: list[SearchHit]) -> None:
+        for h in hits:
+            if h.document_id in seen:
+                continue
+            seen.add(h.document_id)
+            merged.append(h)
+
+    push(search_vector(conn, query, limit=limit))
+    push(search_hybrid(conn, query, limit=limit, terms=terms))
+    return merged[:limit]
 
 
 @dataclass(frozen=True)

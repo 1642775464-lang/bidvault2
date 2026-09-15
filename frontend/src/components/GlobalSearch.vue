@@ -7,7 +7,7 @@ import { toast } from "../store";
 const emit = defineEmits<{ close: [] }>();
 
 const q = ref("");
-const kind = ref("");
+const mode = ref("fts");
 const hits = ref<SearchHit[]>([]);
 const done = ref(false);
 const inputEl = ref<HTMLInputElement | null>(null);
@@ -18,7 +18,7 @@ async function run(): Promise<void> {
   const query = q.value.trim();
   if (!query) return;
   try {
-    const r = await api.search(query, kind.value);
+    const r = await api.search(query, "", mode.value);
     hits.value = r.hits;
     done.value = true;
   } catch (e) {
@@ -42,12 +42,9 @@ async function run(): Promise<void> {
             placeholder="关键词…"
             @keyup.enter="run"
           >
-          <select v-model="kind" class="f-select">
-            <option value="">全部</option>
-            <option value="docx">docx</option>
-            <option value="pdf">pdf</option>
-            <option value="txt">txt</option>
-            <option value="表格">表格</option>
+          <select v-model="mode" class="f-select">
+            <option value="fts">关键词</option>
+            <option value="nl">自然语言</option>
           </select>
           <button class="btn-primary" @click="run">检索</button>
         </div>

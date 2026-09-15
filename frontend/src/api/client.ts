@@ -3,6 +3,7 @@ import type {
   ExtractResp,
   Health,
   Material,
+  PersonCard,
   Project,
   ProjectMeta,
   ScanReportT,
@@ -186,8 +187,13 @@ export const api = {
   },
 
   /* ---- 检索 ---- */
-  async search(q: string, kind = ""): Promise<{ query: string; hits: SearchHit[] }> {
-    return handle(fetch(`/api/search${qs({ q, kind })}`));
+  async search(q: string, kind = "", mode = "fts"): Promise<{ query: string; hits: SearchHit[] }> {
+    return handle(fetch(`/api/search${qs({ q, kind, mode })}`));
+  },
+
+  /* ---- 人员档案 ---- */
+  async people(projectId: string): Promise<{ items: PersonCard[] }> {
+    return handle(fetch(`/api/people${qs({ project_id: projectId })}`));
   },
 
   /* ---- 系统 ---- */

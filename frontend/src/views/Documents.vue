@@ -216,6 +216,8 @@ onMounted(async () => {
             <span class="sp">
               <span class="kchip" :class="sel.kind === 'tender' ? 'k-tender' : 'k-bid'">{{ sel.kind === "tender" ? "招标文件" : "投标文件" }}</span>
               <span v-if="sel.is_secret" class="chip-unbind">涉密</span>
+              <span v-if="sel.needs_review" class="chip-miss">OCR 待复核 · 置信度 {{ ((sel.ocr_conf ?? 0) * 100).toFixed(0) }}%</span>
+              <span v-else-if="sel.ocr_conf != null" class="chip-src">OCR 置信度 {{ ((sel.ocr_conf ?? 0) * 100).toFixed(0) }}%</span>
               <span v-if="sel.project_id" class="chip-proj">{{ projChipName(sel) }}</span>
               <span v-else class="chip-unbind">未绑定</span>
               <button class="act" @click="openBind()">绑定 / 换绑</button>

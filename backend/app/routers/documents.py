@@ -50,6 +50,7 @@ def list_docs(
                 "file_type": d.file_type, "size": d.size,
                 "status": d.status, "project_id": d.project_id,
                 "is_secret": d.is_secret, "error_msg": d.error_msg,
+                "ocr_conf": d.ocr_conf, "needs_review": d.needs_review,
                 "created_at": d.created_at.isoformat() if d.created_at else None,
             }
             for d in rows
@@ -116,8 +117,10 @@ def bind_project(doc_id: str, body: BindIn, session: Session = Depends(get_sessi
     if doc is None:
         raise HTTPException(404, "文档不存在")
     if body.new_project_name:
+        from .projects import _unique_code
+
         np = Project(
-            code="NEW-" + body.new_project_name[:8],
+            code=_unique_code(session, "NEW-" + body.new_project_name[:8]),
             name=body.new_project_name.strip(),
             industry=body.new_project_industry or BUILTIN_INDUSTRIES[0],
         )

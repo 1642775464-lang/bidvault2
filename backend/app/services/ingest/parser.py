@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 from dataclasses import dataclass
+from dataclasses import field as dataclasses_field
 from pathlib import Path
 from typing import Any
+
+# Windows CPU + paddle 3.x 兼容：mkldnn PIR 指令未实现，须在 paddle 首次导入前禁用
+os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "0")
 
 
 @dataclass(frozen=True)
 class ParsedDoc:
     text: str
     pages: list[str]  # 每页文本（page_no = 下标+1）；docx/表格整篇一页
+    page_conf: list[float] = dataclasses_field(default_factory=list)  # OCR 页均置信度；非 OCR 为空
 
 
 def parse_docx(data: bytes) -> ParsedDoc:
@@ -76,10 +82,15 @@ def parse_table(data: bytes, ext: str) -> ParsedDoc:
 
 
 class OCREngine:
-    """PaddleOCR mobile 懒加载单例。[ai] 未装时抛错，由管线落 failed。"""
+    """PaddleOCR（v3 API）懒加载单例。CPU 纪律：mobile 模型、关方向分类/扭曲矫正。
+
+    低置信度复核：单页均分 < 0.85 记入 page_conf，由管线落 needs_review。
+    """
 
     _instance: OCREngine | None = None
     _ocr: Any | None = None
+
+    LOW_CONF = 0.85
 
     @classmethod
     def get(cls) -> OCREngine:
@@ -87,31 +98,47 @@ class OCREngine:
             cls._instance = cls()
         return cls._instance
 
-    def _load(self) -> Any:  # pragma: no cover
+    def _load(self) -> Any:
         if self._ocr is None:
+            import os
+
+            # Windows CPU + paddle 3.x：mkldnn PIR 指令未实现（ConvertPirAttribute2RuntimeAttribute），禁用后走普通核
+            os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "0")
             from paddleocr import PaddleOCR
 
-            self._ocr = PaddleOCR(use_angle_cls=True, lang="ch", show_log=False)
+            self._ocr = PaddleOCR(
+                lang="ch",
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                use_textline_orientation=False,
+                text_detection_model_name="PP-OCRv5_mobile_det",
+                text_recognition_model_name="PP-OCRv5_mobile_rec",
+                cpu_threads=4,
+            )
         return self._ocr
 
-    def ocr_pdf(self, data: bytes) -> ParsedDoc:  # pragma: no cover
+    def ocr_pdf(self, data: bytes) -> ParsedDoc:
         import fitz
         import numpy as np
 
         ocr = self._load()
         pages: list[str] = []
+        page_conf: list[float] = []
         with fitz.open(stream=data, filetype="pdf") as pdf:
             for page in pdf:
-                pix = page.get_pixmap(dpi=200)
+                pix = page.get_pixmap(dpi=150)
                 img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
                 if pix.n == 4:
                     img = img[:, :, :3]
-                result = ocr.ocr(img, cls=True)
-                lines: list[str] = []
-                if result and result[0]:
-                    lines.extend(str(line[1][0]) for line in result[0])
-                pages.append("\n".join(lines))
-        return ParsedDoc(text="\n".join(pages), pages=pages)
+                result = ocr.predict(img)
+                texts: list[str] = []
+                scores: list[float] = []
+                for res in result:
+                    texts.extend(str(t) for t in res.get("rec_texts", []))
+                    scores.extend(float(s) for s in res.get("rec_scores", []))
+                pages.append("\n".join(texts))
+                page_conf.append(round(sum(scores) / len(scores), 4) if scores else 0.0)
+        return ParsedDoc(text="\n".join(pages), pages=pages, page_conf=page_conf)
 
 
 def parse_any(data: bytes, file_type: str) -> ParsedDoc:

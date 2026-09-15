@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import make_engine
-from .routers import documents, materials, paths, projects, search
+from .routers import documents, materials, paths, people, projects, search
 from .services.archive.watcher import WatchService
 from .workers.queue import start_workers, stop_workers
 
@@ -30,6 +30,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _watcher = WatchService()
     _watcher.restart()
     app.state.watcher = _watcher
+    try:  # F2.2 存量向量回填（无缺失时零开销）
+        from sqlalchemy.orm import Session
+
+        from .db import get_engine
+        from .services.ingest.pipeline import backfill_embeddings
+
+        with Session(bind=get_engine()) as s:
+            backfill_embeddings(s)
+    except Exception:
+        logging.getLogger(__name__).warning("embed backfill skipped")
     yield
     if _watcher is not None:
         _watcher.stop()
@@ -49,6 +59,7 @@ app.include_router(paths.router)
 app.include_router(documents.router)
 app.include_router(materials.router)
 app.include_router(search.router)
+app.include_router(people.router)
 
 
 @app.get("/api/health")

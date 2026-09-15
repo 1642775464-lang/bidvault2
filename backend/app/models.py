@@ -67,6 +67,8 @@ class Document(Base):
     bid_type: Mapped[str] = mapped_column(String(10), default="自主")
     doc_date: Mapped[str | None] = mapped_column(String(20), default=None)
     content_text: Mapped[str | None] = mapped_column(Text, default=None)
+    ocr_conf: Mapped[float | None] = mapped_column(Float, default=None)  # OCR 全文均置信度
+    needs_review: Mapped[int] = mapped_column(Integer, default=0)  # 1=OCR 低置信度待复核
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 

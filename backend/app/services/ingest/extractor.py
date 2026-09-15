@@ -91,11 +91,11 @@ def extract_structured(text: str, kind: str) -> list[ExtractedGroup]:
                     if not item["fields"] and fname in ("第一章", "第二章", "第三章", "第四章", "第五章", "第六章"):
                         continue
                     rows.append((fname, m.group(2).strip()))
-            # 指定字段但未匹配到的，用宽松搜索
+            # 指定字段但未匹配到的，用宽松搜索（必须有冒号分隔，防止把标题行当值）
             for fname in item["fields"]:
                 if any(r[0] == fname for r in rows):
                     continue
-                pat = re.compile(fname + r"[:：\s]*([^\n]{1,120})")
+                pat = re.compile(re.escape(fname) + r"\s*[:：]\s*([^\n]{1,120})")
                 fm = pat.search(text)
                 if fm:
                     rows.append((fname, fm.group(1).strip()))

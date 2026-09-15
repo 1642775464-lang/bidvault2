@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
-import type { ExtractGroup, Material, Project } from "../api/types";
+import type { ExtractGroup, Material, PersonCard, Project } from "../api/types";
 import {
   RISK_TYPES,
   dueInfo,
@@ -268,12 +268,12 @@ const scoreRows = computed<string[][]>(() => {
   return g.items.flatMap((it) => it.rows.map((r) => [it.name + " · " + r[0], r[1], "—"] as string[]));
 });
 const caseMats = ref<Material[]>([]);
-const peopleMats = ref<Material[]>([]);
+const peopleCards = ref<PersonCard[]>([]);
 
 async function loadPanels(): Promise<void> {
   tenderExtract.value = [];
   caseMats.value = [];
-  peopleMats.value = [];
+  peopleCards.value = [];
   if (!cur.value) return;
   try {
     if (tenderDoc.value && tenderDoc.value.status === 2) {
@@ -283,7 +283,10 @@ async function loadPanels(): Promise<void> {
     const mats = await api.materials();
     const mine = mats.items.filter((m) => m.project_id === cur.value?.id);
     caseMats.value = mine.filter((m) => m.cat === "业绩案例");
-    peopleMats.value = mine.filter((m) => m.cat === "人员团队");
+    if (cur.value) {
+      const pp = await api.people(cur.value.id);
+      peopleCards.value = pp.items;
+    }
   } catch {
     /* 空态 */
   }
@@ -519,15 +522,15 @@ onMounted(async () => {
           <!-- 人员介绍 -->
           <div v-show="tab === 'people'" class="tabpane">
             <div class="person">
-              <div v-for="m in peopleMats" :key="m.id" class="p-row">
-                <span class="p-ava">{{ (m.title || "？").slice(0, 1) }}</span>
+              <div v-for="p in peopleCards" :key="p.name + p.role" class="p-row">
+                <span class="p-ava">{{ p.name.slice(0, 1) }}</span>
                 <span class="p-info">
-                  <b>{{ m.title }}</b>
-                  <span>{{ m.rows && m.rows.length ? m.rows.slice(0, 2).map((r) => r[1]).join(" · ") : m.text?.slice(0, 40) || "—" }}</span>
+                  <b>{{ p.name }} · {{ p.role }}</b>
+                  <span>{{ p.certs.length ? p.certs.join(" · ") : "暂无证书线索" }}</span>
                 </span>
-                <span class="p-tag ok">材料入库</span>
+                <span class="p-tag" :class="p.status">{{ p.status === "ok" ? "材料齐全" : "材料待补" }}</span>
               </div>
-              <div v-if="!peopleMats.length" class="empty-state"><b>暂无人员团队素材</b>拆解投标文件后，团队成员与简历将汇总在这里</div>
+              <div v-if="!peopleCards.length" class="empty-state"><b>暂无人员团队素材</b>拆解投标文件后，团队成员与简历将汇总在这里</div>
             </div>
           </div>
         </div>
