@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import { api } from "../api/client";
 import type { SearchHit } from "../api/types";
 import { toast } from "../store";
+import PagePreview from "./PagePreview.vue";
 
 const emit = defineEmits<{ close: [] }>();
 
@@ -11,6 +12,7 @@ const mode = ref("fts");
 const hits = ref<SearchHit[]>([]);
 const done = ref(false);
 const inputEl = ref<HTMLInputElement | null>(null);
+const preview = ref<{ docId: string; name: string; page: number } | null>(null);
 
 onMounted(() => inputEl.value?.focus());
 
@@ -24,6 +26,11 @@ async function run(): Promise<void> {
   } catch (e) {
     toast(e instanceof Error ? e.message : "检索失败");
   }
+}
+
+function openPreview(h: SearchHit): void {
+  if (!h.page_no) return;
+  preview.value = { docId: h.document_id, name: h.filename, page: h.page_no };
 }
 </script>
 
@@ -55,7 +62,7 @@ async function run(): Promise<void> {
               <b>{{ h.filename }}</b>
               <span class="kchip" :class="h.kind === 'tender' ? 'k-tender' : 'k-bid'">{{ h.kind === "tender" ? "招标" : "投标" }}</span>
               <span v-if="h.is_secret" class="chip-unbind">涉密</span>
-              <span v-if="h.page_no" class="chip-src">P{{ h.page_no }}</span>
+              <button v-if="h.page_no" class="chip-src" style="cursor: pointer" @click="openPreview(h)">P{{ h.page_no }} 原文</button>
             </div>
             <!-- eslint-disable-next-line vue/no-v-html -->
             <div class="hb-snip" v-html="h.snippet_html" />
@@ -67,6 +74,14 @@ async function run(): Promise<void> {
         <button class="btn-ghost" @click="emit('close')">关闭</button>
       </div>
     </div>
+
+    <PagePreview
+      v-if="preview"
+      :doc-id="preview.docId"
+      :doc-name="preview.name"
+      :page="preview.page"
+      @close="preview = null"
+    />
   </div>
 </template>
 

@@ -90,6 +90,7 @@ export interface Material {
   text: string | null;
   file_name: string | null;
   file_size: string | null;
+  source_page: number | null;
   used: number;
   updated_at: string | null;
 }

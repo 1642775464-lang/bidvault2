@@ -53,14 +53,20 @@ def process_document(session: Session, doc: Document) -> IngestResult:
 
         n = _write_index(session, doc.id, parsed.pages)
 
-        doc.status = 2
-        session.commit()
-
         extracted, made = extract_and_harvest(session, doc)
+        img_made = 0
+        if doc.file_type == "pdf":
+            try:
+                from ..images import extract_images, harvest_image_materials
+
+                imgs = extract_images(data, doc.id)
+                img_made = harvest_image_materials(session, doc.id, doc.filename, doc.project_id, imgs)
+            except Exception:
+                logger.warning("image extraction failed: %s", doc.filename, exc_info=True)
         doc.status = 2
         session.commit()
-        audit("doc_extracted", doc_id=doc.id, detail=f"结构项 {extracted} · 素材 {made}")
-        return IngestResult(doc.id, 2, n, extracted, made)
+        audit("doc_extracted", doc_id=doc.id, detail=f"结构项 {extracted} · 素材 {made + img_made}")
+        return IngestResult(doc.id, 2, n, extracted, made + img_made)
     except Exception as exc:
         logger.exception("ingest failed: %s", doc.filename)
         doc.status = 0

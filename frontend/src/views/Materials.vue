@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { Material } from "../api/types";
 import { CATS, navTo, refreshCore, store, toast } from "../store";
+import PagePreview from "../components/PagePreview.vue";
 
 const search = ref("");
 const cat = ref("all");
@@ -69,6 +70,19 @@ const groups = computed(() => {
 });
 
 const sel = computed(() => mats.value.find((m) => m.id === selId.value) ?? null);
+const imgDocId = computed(() => (sel.value?.file_name ?? "").startsWith("img/") ? sel.value!.file_name!.split("/")[1] : "");
+const previewOpen = ref(false);
+
+async function analyze(): Promise<void> {
+  if (!imgDocId.value) return;
+  try {
+    const r = await api.analyzeImages(imgDocId.value);
+    toast(`AI 识别完成：${r.analyzed} 张成功${r.failed ? ` · ${r.failed} 张失败` : ""}`);
+    await load();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "识别失败");
+  }
+}
 const counts = computed(() => ({
   total: filtered.value.length,
   auto: mats.value.filter((m) => m.src === "文档库拆解").length,
@@ -286,6 +300,19 @@ onMounted(async () => {
                 </table>
               </div>
             </template>
+            <template v-else-if="sel.type === '图片' && sel.file_name">
+              <div class="xg">
+                <div class="lab">图片证据{{ sel.source_page ? ` · 来源第 ${sel.source_page} 页` : "" }}</div>
+                <div style="display: flex; gap: 8px; margin-top: 6px">
+                  <button v-if="imgDocId" class="act pri" @click="previewOpen = true">查看原文{{ sel.source_page ? ` P${sel.source_page}` : "" }}</button>
+                  <button v-if="imgDocId" class="act" @click="analyze()">AI 识别字段</button>
+                </div>
+              </div>
+              <div class="filebox" style="max-width: none">
+                <img :src="`/api/files/${sel.file_name}`" style="max-width: 100%; max-height: 420px; border-radius: 8px">
+              </div>
+              <p v-if="sel.text" class="prose">{{ sel.text }}</p>
+            </template>
             <template v-else-if="sel.type === '文本' && sel.text">
               <div class="xg"><div class="lab">文本内容 · {{ sel.text.length }} 字</div></div>
               <div class="prose">{{ sel.text }}</div>
@@ -397,5 +424,14 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+
+    <!-- 原文预览 -->
+    <PagePreview
+      v-if="previewOpen && imgDocId && sel"
+      :doc-id="imgDocId"
+      :doc-name="sel.doc_name ?? '原文'"
+      :page="sel.source_page ?? 1"
+      @close="previewOpen = false"
+    />
   </div>
 </template>

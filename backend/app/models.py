@@ -121,6 +121,7 @@ class Material(Base):
     text: Mapped[str | None] = mapped_column(Text, default=None)
     file_name: Mapped[str | None] = mapped_column(String(300), default=None)
     file_size: Mapped[str | None] = mapped_column(String(30), default=None)
+    source_page: Mapped[int | None] = mapped_column(Integer, default=None)  # 图片证据来源页码
     used: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 

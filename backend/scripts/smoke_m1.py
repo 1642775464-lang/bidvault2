@@ -152,5 +152,53 @@ step("人员档案卡", r.status_code == 200 and any("王志强" in p["name"] or
 r = httpx.get("http://127.0.0.1:5173/", timeout=10)
 step("前端页面", r.status_code == 200 and "标库" in r.text)
 
+
+import os
+
+# 13 M3 图片证据链：构造含内嵌图的 PDF 上传
+def _random_png(w=400, h=300):
+    import struct as _s, zlib as _z
+    rows = b"".join(b"\x00" + os.urandom(w * 3) for _ in range(h))
+    def chunk(tag, data):
+        return _s.pack(">I", len(data)) + tag + data + _s.pack(">I", _z.crc32(tag + data) & 0xFFFFFFFF)
+    ihdr = _s.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", _z.compress(rows)) + chunk(b"IEND", b"")
+
+import io as _io
+import fitz
+pdf = fitz.open()
+page = pdf.new_page(width=595, height=842)
+page.insert_text((72, 90), "营业执照复印件", fontsize=15, fontname="china-s")
+page.insert_image(fitz.Rect(72, 120, 400, 350), stream=_random_png())
+buf = _io.BytesIO(); pdf.save(buf)
+r = c.post(f"{base}/documents/upload", files=[("files", ("资质文件_图片版.pdf", buf.getvalue(), "application/pdf"))], data={"kind": "bid", "project_id": pid, "is_secret": "true"})
+img_doc_id = r.json()["created"][0]["id"]
+
+
+def _wait_img(timeout=60):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        mats_ = c.get(f"{base}/materials", params={"q": "图片证据"}).json()["items"]
+        if mats_:
+            return mats_
+        time.sleep(1)
+    return []
+
+imgmats = _wait_img()
+step("图片素材自动入库", len(imgmats) >= 1 and imgmats[0]["source_page"] == 1, str([(m["title"], m["source_page"]) for m in imgmats[:2]]))
+
+# 14 页面预览
+pc = c.get(f"{base}/documents/{img_doc_id}/page_count").json()
+r = c.get(f"{base}/documents/{img_doc_id}/pages", params={"page_no": 1})
+step("页面预览 PNG", pc["pages"] == 1 and r.status_code == 200 and r.headers["content-type"] == "image/png")
+
+# 15 证据图片文件直读
+r = c.get(f"{base}/files/{imgmats[0]['file_name']}")
+step("证据图片直读", r.status_code == 200 and r.headers["content-type"].startswith("image/"))
+
+# 16 涉密闸门：默认涉密 → GLM-4V 拒绝
+r = c.post(f"{base}/documents/{img_doc_id}/analyze_images")
+step("涉密 GLM-4V 拦截", r.status_code == 403)
+
 print(f"\n冒烟结果：{ok} 过 / {fail} 败")
 raise SystemExit(1 if fail else 0)

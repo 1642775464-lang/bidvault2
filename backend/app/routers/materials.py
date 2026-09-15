@@ -24,7 +24,7 @@ def _m_dict(m: Material, session: Session) -> dict[str, Any]:
         "project_name": proj.name if proj else None,
         "tags": json.loads(m.tags_json) if m.tags_json else [],
         "rows": json.loads(m.rows_json) if m.rows_json else None,
-        "text": m.text, "file_name": m.file_name, "file_size": m.file_size,
+        "text": m.text, "file_name": m.file_name, "file_size": m.file_size, "source_page": m.source_page,
         "used": m.used,
         "updated_at": m.updated_at.isoformat() if m.updated_at else None,
     }

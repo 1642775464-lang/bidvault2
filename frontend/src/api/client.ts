@@ -103,6 +103,12 @@ export const api = {
   async content(docId: string): Promise<{ filename: string; text: string }> {
     return handle(fetch(`/api/documents/${docId}/content`));
   },
+  async pageCount(docId: string): Promise<{ pages: number; previewable: boolean }> {
+    return handle(fetch(`/api/documents/${docId}/page_count`));
+  },
+  async analyzeImages(docId: string): Promise<{ analyzed: number; failed: number; total: number }> {
+    return handle(fetch(`/api/documents/${docId}/analyze_images`, { method: "POST" }));
+  },
   async runExtract(docId: string): Promise<{ status: number; extracted: number; materials: number }> {
     return handle(fetch(`/api/documents/${docId}/extract`, { method: "POST" }));
   },
