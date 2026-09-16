@@ -252,27 +252,21 @@ class TestExtractEditing:
         # 覆盖语义：旧行被替换
         assert len(item2["rows"]) == 2
 
-    def test_chapter_toc_only_chapters(self, client):
-        """章节目录只收章级条目，不收 8.3.1 之类细目。"""
+    def test_tender_three_items_structure(self, client):
+        """招标文件拆三项（不分组）：须知前附表/评标办法前附表/投标文件格式；无章节目录。"""
         tender = [
             "测试项目招标文件",
-            "目录",
-            "第一章 招标公告",
-            "第二章 投标人须知",
-            "第三章 评标办法",
             "投标人须知前附表",
             "递交截止时间：2026-10-01 09:00",
-            "1. 招标条件",
-            "8.3.1 规范性审查功能 应能够按照规则进行审查",
-            "8.3.2 工艺设备招标文件规范性审查功能",
-            "招标编号：TEST-2026-001",
+            "投标有效期：90 日历天",
             "评标办法前附表",
             "评标办法：综合评估法",
+            "技术分：60 分",
         ]
-        pid = client.post("/api/projects", json={"name": "目录项目"}).json()["id"]
+        pid = client.post("/api/projects", json={"name": "三项结构项目"}).json()["id"]
         r = client.post(
             "/api/documents/upload",
-            files=[("files", ("目录招标.docx", _docx_bytes(tender), "application/octet-stream"))],
+            files=[("files", ("三项招标.docx", _docx_bytes(tender), "application/octet-stream"))],
             data={"kind": "tender", "project_id": pid},
         )
         doc_id = r.json()["created"][0]["id"]
@@ -283,9 +277,12 @@ class TestExtractEditing:
                 break
             time.sleep(0.4)
         ex = client.get(f"/api/documents/{doc_id}/extract").json()
-        toc = next((it for g in ex["groups"] for it in g["items"] if "章节目录" in it["name"]), None)
-        assert toc is not None
-        fields = [row[0] for row in toc["rows"]]
-        assert "第一章" in fields and "第二章" in fields and "第三章" in fields
-        assert not any(f and f[0].isdigit() for f in fields), f"目录混入数字细目：{fields}"
-        assert not any("招标编号" in f for f in fields), f"目录混入信息行：{fields}"
+        names = [it["name"] for g in ex["groups"] for it in g["items"]]
+        groups = [g["name"] for g in ex["groups"]]
+        assert "投标人须知前附表" in names
+        assert "评标办法前附表" in names
+        assert set(groups) <= set(names), "招标文件应按三项平铺，不分组"
+        assert not any("章节目录" in n for n in names), "章节目录已移除"
+        # 关键条款值应抽到
+        all_rows = [row for g in ex["groups"] for it in g["items"] for row in it["rows"]]
+        assert any("递交截止时间" in row[0] for row in all_rows), all_rows

@@ -14,35 +14,79 @@ from typing import Any
 os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "0")
 
 
+@dataclass
+class TableBlock:
+    """docx 表格结构化块：rows 行列文本 + 在正文行流中的行号范围 + 高亮颜色（有标注文档时）。"""
+
+    rows: list[list[str]]
+    hl: str = ""  # yellow | cyan | gray | ""（众数高亮色，仅标注过的文档有）
+    start_line: int = 0  # 表格首行在正文 lines 中的位置
+    end_line: int = 0  # 表格末行位置（含）
+
+
 @dataclass(frozen=True)
 class ParsedDoc:
     text: str
     pages: list[str]  # 每页文本（page_no = 下标+1）；docx/表格整篇一页
     page_conf: list[float] = dataclasses_field(default_factory=list)  # OCR 页均置信度；非 OCR 为空
+    doc_tables: list[TableBlock] = dataclasses_field(default_factory=list)  # docx 专属
 
 
 def parse_docx(data: bytes) -> ParsedDoc:
-    """按文档顺序抽取段落与表格（前附表多为表格，python-docx 的 .paragraphs 会丢表格内容）。"""
+    """按文档顺序抽取段落与表格（前附表多为表格，python-docx 的 .paragraphs 会丢表格内容）。
+
+    同时输出结构化表格块及其高亮颜色（标注规则：黄=须知前附表，蓝/青=评标办法前附表，灰=投标文件格式）。
+    """
+    from collections import Counter
+
     from docx import Document as DocxDocument
     from docx.table import Table
     from docx.text.paragraph import Paragraph
 
     doc = DocxDocument(io.BytesIO(data))
     lines: list[str] = []
+    doc_tables: list[TableBlock] = []
+
+    def _cell_hl(cell: Any) -> str:
+        cnt: Counter[str] = Counter()
+        for para in cell.paragraphs:
+            for run in para.runs:
+                rpr = run._element.rPr
+                if rpr is None:
+                    continue
+                hl = rpr.find("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}highlight")
+                if hl is not None:
+                    val = hl.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val")
+                    if val and val != "none":
+                        cnt[{"yellow": "yellow", "cyan": "cyan", "blue": "cyan", "lightGray": "gray", "gray": "gray"}.get(val, val)] += 1
+        return cnt.most_common(1)[0][0] if cnt else ""
+
     for child in doc.element.body.iterchildren():
         if child.tag.endswith("}p"):
-            p = Paragraph(child, doc)
-            if p.text.strip():
-                lines.append(p.text.strip())
+            para = Paragraph(child, doc)
+            if para.text.strip():
+                lines.append(para.text.strip())
         elif child.tag.endswith("}tbl"):
             t = Table(child, doc)
+            hl_counter: Counter[str] = Counter()
+            table = TableBlock(rows=[], start_line=len(lines))
             for row in t.rows:
-                cells = [c.text.strip().replace("\n", " ") for c in row.cells]
-                cells = [c for c in cells if c]
-                if cells:
-                    lines.append(" | ".join(cells))
+                cells: list[str] = []
+                for c in row.cells:
+                    cells.append(c.text.strip().replace("\n", " "))
+                    h = _cell_hl(c)
+                    if h:
+                        hl_counter[h] += 1
+                table.rows.append(cells)
+                flat = [c for c in cells if c]
+                if flat:
+                    lines.append(" | ".join(flat))
+            if hl_counter:
+                table.hl = hl_counter.most_common(1)[0][0]
+            table.end_line = len(lines) - 1
+            doc_tables.append(table)
     whole = "\n".join(lines)
-    return ParsedDoc(text=whole, pages=[whole])
+    return ParsedDoc(text=whole, pages=[whole], doc_tables=doc_tables)
 
 
 def parse_pdf(data: bytes) -> ParsedDoc:

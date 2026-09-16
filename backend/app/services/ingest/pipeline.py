@@ -7,6 +7,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -54,7 +55,7 @@ def process_document(session: Session, doc: Document) -> IngestResult:
 
         n = _write_index(session, doc.id, parsed.pages)
 
-        extracted, made = extract_and_harvest(session, doc)
+        extracted, made = extract_and_harvest(session, doc, parsed)
         img_made = 0
         if doc.file_type == "pdf":
             try:
@@ -77,13 +78,13 @@ def process_document(session: Session, doc: Document) -> IngestResult:
         return IngestResult(doc_id=doc.id, status=0, chunks=0, extracted=0, materials=0, error=str(exc))
 
 
-def extract_and_harvest(session: Session, doc: Document) -> tuple[int, int]:
+def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> tuple[int, int]:
     """拆解抽取：规则锚点 + GLM-4-Flash 大模型合并 → 结构项+行落库 → 素材入库（去重）。"""
     from ..llm_extract import llm_available, llm_extract
     from .extractor import ExtractedGroup, extract_structured
 
     text = doc.content_text or ""
-    groups = extract_structured(text, doc.kind)
+    groups = extract_structured(text, doc.kind, parsed.doc_tables if parsed else None)
     # 过滤空值行（LLM 有时按 schema 占位输出空字段）
     for g in groups:
         g.rows = [r for r in g.rows if r[1].strip()]

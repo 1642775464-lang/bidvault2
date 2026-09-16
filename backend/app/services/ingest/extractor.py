@@ -1,6 +1,11 @@
-"""拆解结构定义（对齐原型 v1.2 文档库）：招标 4 组 / 投标 7 项。
+"""拆解结构定义与抽取引擎。
 
-正则锚点从拆解正文中提取「字段：值」行；提取不到的组仅定位章节标题。
+招标文件：三项（不分组）——投标人须知前附表 / 评标办法前附表 / 投标文件格式。
+锚点定位后直接取对应 docx 表格（项目负责人 2026-09-16 标注定稿：黄表=须知前附表、
+蓝表=评标办法前附表、灰表区=投标文件格式；真实文档无颜色，按锚点+表头特征分类）。
+
+投标文件：4 组 7 项窗口法（资格身份/单位财务/业绩履约/项目团队）。
+LLM 分段抽取与规则结果合并（pipeline 层），失败回退纯规则。
 """
 
 from __future__ import annotations
@@ -9,19 +14,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-TENDER_GROUPS: list[tuple[str, list[dict[str, Any]]]] = [
-    ("前附表与格式抽取", [
-        {"name": "投标人须知前附表", "sum": "关键条款锚点", "anchors": ["投标人须知前附表", "前附表"],
-         "fields": ["递交截止时间", "投标有效期", "投标保证金", "正副本份数"]},
-        {"name": "评标办法前附表", "sum": "评分办法锚点", "anchors": ["评标办法前附表", "评标办法"],
-         "fields": ["评标办法", "技术分", "商务分", "价格分"]},
-        {"name": "投标文件格式", "sum": "格式清单锚点", "anchors": ["投标文件格式", "格式要求"],
-         "fields": ["商务格式", "技术格式", "资格审查格式"]},
-    ]),
-    ("章节内容抽取", [
-        {"name": "章节目录", "sum": "章节锚点", "anchors": ["章节目录", "目录", "第一章"],
-         "fields": []},
-    ]),
+# 招标三项（锚点用 | 分隔备选）
+TENDER_ITEMS: list[dict[str, str]] = [
+    {"name": "投标人须知前附表", "anchors": "投标人须知前附表", "sum": "关键条款锚点"},
+    {"name": "评标办法前附表", "anchors": "评标办法前附表", "sum": "评分办法锚点"},
+    {"name": "投标文件格式", "anchors": "投标文件格式|第六章 投标文件格式", "sum": "格式表格锚点"},
 ]
 
 BID_GROUPS: list[tuple[str, list[dict[str, Any]]]] = [
@@ -38,13 +35,15 @@ BID_GROUPS: list[tuple[str, list[dict[str, Any]]]] = [
          "fields": ["营收", "净利", "负债率"]},
     ]),
     ("业绩与履约情况", [
-        {"name": "近年完成的类似项目情况表", "sum": "业绩锚点", "anchors": ["类似项目情况表", "类似项目一览表", "类似项目业绩"],
+        {"name": "近年完成的类似项目情况表", "sum": "业绩锚点",
+         "anchors": ["类似项目情况表", "类似项目一览表", "类似项目业绩"],
          "fields": ["项目名称", "合同额", "验收情况"]},
         {"name": "正在供货和新承接的项目情况表", "sum": "履约锚点", "anchors": ["正在供货", "新承接"],
          "fields": ["项目名称", "完成度"]},
     ]),
     ("项目团队", [
-        {"name": "项目团队成员及相关人员简历", "sum": "团队锚点", "anchors": ["项目团队", "团队成员", "简历"],
+        {"name": "项目团队成员及相关人员简历", "sum": "团队锚点",
+         "anchors": ["项目团队", "团队成员", "简历"],
          "fields": ["项目经理", "技术负责人", "商务负责人"]},
     ]),
 ]
@@ -60,90 +59,145 @@ class ExtractedGroup:
     rows: list[tuple[str, str]] = field(default_factory=list)
 
 
-def extract_structured(text: str, kind: str) -> list[ExtractedGroup]:
-    """从正文提取结构组：锚点定位 + 字段行收割。返回按组聚合的列表。"""
-    groups = TENDER_GROUPS if kind == "tender" else BID_GROUPS
+def extract_structured(
+    text: str, kind: str, doc_tables: list[Any] | None = None,
+) -> list[ExtractedGroup]:
+    """抽取入口：招标=三项锚点分配；投标=7 项窗口法。"""
+    if kind == "tender":
+        return _extract_tender(text, doc_tables or [])
     out: list[ExtractedGroup] = []
-    for group_name, items in groups:
+    for group_name, items in BID_GROUPS:
         for item in items:
-            hit_line = None
-            all_lines = text.splitlines()
-            # 优先命中独立标题行（整行≈锚点），避免正文里「见XX前附表」引用抢先命中
-            for anchor in item["anchors"]:
-                for ln in all_lines:
-                    st = ln.strip()
-                    if st == anchor or (st.startswith(anchor) and len(st) <= len(anchor) + 6):
-                        hit_line = st
-                        break
-                if hit_line:
-                    break
-            if hit_line is None:
-                for anchor in item["anchors"]:
-                    for ln in all_lines:
-                        if anchor in ln:
-                            hit_line = ln.strip()
-                            break
-                    if hit_line:
-                        break
-            if hit_line is None:
-                continue
-            # 锚点行之后收割字段行（取锚点后 40 行窗口）
-            rows: list[tuple[str, str]] = []
-            lines = all_lines
-            try:
-                start = next(
-                    i for i, ln in enumerate(lines)
-                    if hit_line is not None and ln.strip() == hit_line
-                )
-            except StopIteration:
-                start = 0
-            # 章节目录：仅收录「第X章」级条目（目录行或章标题），其余编号/键值一律不收
-            if "章节目录" in item["name"]:
-                for ln in lines[start: start + 60]:
-                    m = re.match(r"^\s*(第[一二三四五六七八九十百零]+章)\s*(\S.{0,40}?)\s*$", ln.strip())
-                    if m and m.group(2).strip():
-                        rows.append((m.group(1), m.group(2).strip()))
-                        continue
-                    m2 = re.match(r"^\s*(第[一二三四五六七八九十百零]+章)([^\n]{0,40}?)\s*[·.\u2026\d\s]*\d+\s*$", ln.strip())
-                    if m2 and m2.group(2).strip():
-                        rows.append((m2.group(1), m2.group(2).strip()))
-                rows = rows[:30]
-                out.append(ExtractedGroup(group_name=group_name, name=item["name"], sum=item["sum"], rows=rows))
-                continue
-
-            # 表格块解析：锚点窗口内按连续 | 行切块，支持任意列数（含表头映射）
-            table_rows, prose_rows = _harvest_tables(lines[start: start + 80], item["fields"])
-            rows.extend(table_rows)
-            for ln in lines[start: start + 80]:
-                if "|" in ln:
-                    continue  # 表格行已由 _harvest_tables 处理
-                for m in _FIELD_LINE.finditer(ln):
-                    fname = m.group(1).strip()
-                    if item["fields"] and fname not in item["fields"]:
-                        continue
-                    if not item["fields"] and fname in ("第一章", "第二章", "第三章", "第四章", "第五章", "第六章"):
-                        continue
-                    rows.append((fname, m.group(2).strip()))
-            rows.extend(prose_rows)
-            # 指定字段但未匹配到的，用宽松搜索（必须有冒号分隔，防止把标题行当值）
-            for fname in item["fields"]:
-                if any(r[0] == fname for r in rows):
-                    continue
-                pat = re.compile(re.escape(fname) + r"\s*[:：]\s*([^\n]{1,120})")
-                fm = pat.search(text)
-                if fm:
-                    rows.append((fname, fm.group(1).strip()))
-            out.append(ExtractedGroup(
-                group_name=group_name, name=item["name"], sum=item["sum"],
-                rows=rows[:40],
-            ))
+            out.extend(_extract_item_window(text, group_name, item))
     return out
+
+
+def _find_anchor_line(lines: list[str], anchors: list[str]) -> int | None:
+    """锚点行号：优先独立标题行（整行≈锚点），fallback 包含匹配。"""
+    for anchor in anchors:
+        for i, ln in enumerate(lines):
+            st = ln.strip()
+            if st == anchor or (st.startswith(anchor) and len(st) <= len(anchor) + 6):
+                return i
+    for anchor in anchors:
+        for i, ln in enumerate(lines):
+            if anchor in ln:
+                return i
+    return None
+
+
+def _table_to_rows(rows: list[list[str]]) -> list[tuple[str, str]]:
+    """表格行列 → 键值行：两列键值；多列取倒数第二列做字段名、末列做值。"""
+    out: list[tuple[str, str]] = []
+    ncols = max((len(r) for r in rows), default=0)
+    for r in rows:
+        r = (r + [""] * ncols)[:ncols]
+        if ncols == 2:
+            if r[0] and r[1]:
+                out.append((r[0][:60], r[1][:400]))
+        elif len(r) >= 3:
+            fname = r[-2] or (r[-3] if len(r) >= 3 else "")
+            fval = r[-1]
+            if fname and fval and fval != "/":
+                out.append((fname[:60], fval[:400]))
+    return out
+
+
+def _extract_tender(text: str, doc_tables: list[Any]) -> list[ExtractedGroup]:
+    """招标三项：须知/评标办法=锚点后第一张表；投标文件格式=格式锚点后全部表。
+
+    docx 有结构化表格时直接分配；无表格（pdf/纯文本）时回退窗口法抽冒号行，并靠 LLM 补充。
+    """
+    lines = text.splitlines()
+    out: list[ExtractedGroup] = []
+    used: set[int] = set()
+    last_end = 0
+
+    for item in TENDER_ITEMS:
+        ai = _find_anchor_line(lines, item["anchors"].split("|"))
+        rows: list[tuple[str, str]] = []
+        if ai is not None:
+            if item["name"] == "投标文件格式":
+                tables = [tb for ti, tb in enumerate(doc_tables) if tb.start_line > ai and ti not in used]
+            else:
+                cand = sorted(
+                    (tb for ti, tb in enumerate(doc_tables) if tb.start_line > ai and ti not in used),
+                    key=lambda tb: tb.start_line,
+                )
+                tables = cand[:1]
+            for tb in tables:
+                used.add(id(tb))
+                rows.extend(_table_to_rows(tb.rows))
+                last_end = max(last_end, tb.end_line)
+        if not rows:
+            # 无结构化表格：锚点窗口内抽冒号行兜底（LLM 会再补）
+            win = lines[ai + 1: ai + 60] if ai is not None else []
+            for ln in win:
+                if "|" in ln:
+                    parts = [c.strip() for c in ln.split("|") if c.strip()]
+                    if len(parts) >= 2:
+                        rows.append((parts[-2][:60], parts[-1][:400]))
+                    continue
+                rows.extend((m.group(1).strip(), m.group(2).strip()) for m in _FIELD_LINE.finditer(ln))
+        rows = rows[:40]
+        out.append(ExtractedGroup(group_name=item["name"], name=item["name"], sum=item["sum"], rows=rows))
+
+    # 格式锚点未命中或无表时，把锚点区之后剩余的未使用表归入投标文件格式
+    fmt = out[-1]
+    if fmt.name == "投标文件格式" and not fmt.rows:
+        remaining = [tb for tb in doc_tables if id(tb) not in used and tb.start_line > last_end]
+        for tb in remaining:
+            fmt.rows.extend(_table_to_rows(tb.rows))
+        fmt.rows = fmt.rows[:40]
+    return out
+
+
+def _extract_item_window(
+    text: str, group_name: str, item: dict[str, Any],
+) -> list[ExtractedGroup]:
+    """投标 7 项：锚点窗口收割（表格块 + 冒号行 + 宽松搜索）。"""
+    lines = text.splitlines()
+    hit_line = None
+    for anchor in item["anchors"]:
+        for ln in lines:
+            if anchor in ln:
+                hit_line = ln.strip()
+                break
+        if hit_line:
+            break
+    if hit_line is None:
+        return []
+    try:
+        start = next(i for i, ln in enumerate(lines) if item["anchors"][0] in ln)
+    except StopIteration:
+        start = 0
+
+    table_rows, prose_rows = _harvest_tables(lines[start: start + 80], item["fields"])
+    rows: list[tuple[str, str]] = list(table_rows)
+    for ln in lines[start: start + 80]:
+        if "|" in ln:
+            continue
+        for m in _FIELD_LINE.finditer(ln):
+            fname = m.group(1).strip()
+            if item["fields"] and fname not in item["fields"]:
+                continue
+            rows.append((fname, m.group(2).strip()))
+    rows.extend(prose_rows)
+    for fname in item["fields"]:
+        if any(r[0] == fname for r in rows):
+            continue
+        pat = re.compile(re.escape(fname) + r"\s*[:：]\s*([^\n]{1,120})")
+        fm = pat.search(text)
+        if fm:
+            rows.append((fname, fm.group(1).strip()))
+    rows = rows[:40]
+    return [ExtractedGroup(group_name=group_name, name=item["name"], sum=item["sum"], rows=rows)]
 
 
 def _harvest_tables(
     window: list[str], fields: list[str],
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
-    """解析窗口内表格：连续 | 行成块；两列→键值，多列→首行表头映射。
+    """解析窗口内表格：连续 | 行成块；两列→键值，多列→倒数第二列字段名+末列值。
 
     返回 (表格字段行, 窗口内非表格正文里的字段:值行)。
     """
@@ -156,26 +210,7 @@ def _harvest_tables(
         nonlocal block
         if not block:
             return
-        ncols = max(len(r) for r in block)
-        header: list[str] = []
-        first = block[0]
-        # 首行是表头：各列均短且非空
-        if len(first) == ncols and all(len(c) <= 16 and c for c in first):
-            header = first
-            data = block[1:]
-        else:
-            data = block
-        for r in data:
-            r = (r + [""] * ncols)[:ncols]
-            if ncols == 2:
-                if r[0] and r[1]:
-                    table_rows.append((r[0][:60], r[1][:300]))
-            elif len(r) >= 3:
-                # 通用：倒数第二列做字段名（条款名称/评审因素），最后一列做值
-                fname = r[-2] or (header[-2] if len(header) >= 2 else "")
-                fval = r[-1]
-                if fname and fval and fval != "/":
-                    table_rows.append((fname[:60], fval[:400]))
+        table_rows.extend(_table_to_rows(block))
         block = []
 
     for ln in window:

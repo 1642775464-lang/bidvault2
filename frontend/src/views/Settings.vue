@@ -101,24 +101,37 @@ onMounted(async () => {
 
           <!-- 拆解规则 -->
           <template v-else-if="section === '拆解规则'">
-            <div class="sec-lab">招标文件 · 固定拆解结构</div>
+            <div class="sec-lab">招标文件 · 三项（不分组）</div>
             <div class="rulecard">
-              <div class="rh2"><b>投标人须知前附表</b><span class="n">锚点定位</span></div>
-              <div class="rf"><span class="fchip hit">递交截止时间</span><span class="fchip hit">投标有效期</span><span class="fchip hit">投标保证金</span><span class="fchip hit">正副本份数</span><span class="fchip">资质要求</span></div>
+              <div class="rh2"><b>投标人须知前附表</b><span class="n">锚点定位 · 整表抽取</span></div>
+              <div class="rf"><span class="fchip hit">递交截止时间</span><span class="fchip hit">投标有效期</span><span class="fchip hit">投标保证金</span><span class="fchip hit">正副本份数</span><span class="fchip">资质/财务/业绩/信誉要求</span><span class="fchip">招标人/代理机构/交货期</span></div>
             </div>
             <div class="rulecard">
-              <div class="rh2"><b>评标办法前附表</b><span class="n">锚点定位</span></div>
-              <div class="rf"><span class="fchip hit">评标办法</span><span class="fchip hit">技术分</span><span class="fchip hit">商务分</span><span class="fchip hit">价格分</span></div>
-            </div>
-            <div class="sec-lab" style="margin-top:14px">投标文件 · 固定拆解结构</div>
-            <div class="rulecard">
-              <div class="rh2"><b>资格与身份文件</b><span class="n">7 项</span></div>
-              <div class="rf"><span class="fchip">法定代表人身份证明</span><span class="fchip">授权委托书</span><span class="fchip">基本情况表</span></div>
+              <div class="rh2"><b>评标办法前附表</b><span class="n">锚点定位 · 整表抽取</span></div>
+              <div class="rf"><span class="fchip hit">评标方法与排序规则</span><span class="fchip hit">形式评审标准</span><span class="fchip hit">资格评审标准</span><span class="fchip">评分项及分值</span></div>
             </div>
             <div class="rulecard">
-              <div class="rh2"><b>业绩与团队</b><span class="n">4 项</span></div>
-              <div class="rf"><span class="fchip">近年财务状况</span><span class="fchip">类似项目业绩</span><span class="fchip">在履约项目</span><span class="fchip">团队简历</span></div>
+              <div class="rh2"><b>投标文件格式</b><span class="n">格式章节内全部表格</span></div>
+              <div class="rf"><span class="fchip">开标一览表</span><span class="fchip">产品明细报价</span><span class="fchip">商务/技术偏差表</span><span class="fchip">资格文件</span><span class="fchip">分项报价表</span></div>
             </div>
+            <div class="sec-lab" style="margin-top:14px">投标文件 · 七项</div>
+            <div class="rulecard">
+              <div class="rh2"><b>资格与身份文件</b><span class="n">2 项</span></div>
+              <div class="rf"><span class="fchip">法定代表人身份证明</span><span class="fchip">授权委托书</span></div>
+            </div>
+            <div class="rulecard">
+              <div class="rh2"><b>单位与财务状况</b><span class="n">2 项</span></div>
+              <div class="rf"><span class="fchip">基本情况表</span><span class="fchip">近年财务状况</span></div>
+            </div>
+            <div class="rulecard">
+              <div class="rh2"><b>业绩与履约情况</b><span class="n">2 项</span></div>
+              <div class="rf"><span class="fchip">类似项目情况表</span><span class="fchip">在履约项目情况表</span></div>
+            </div>
+            <div class="rulecard">
+              <div class="rh2"><b>项目团队</b><span class="n">1 项</span></div>
+              <div class="rf"><span class="fchip">团队成员及简历</span></div>
+            </div>
+            <p class="sub-note">抽取 = docx 表格结构化解析 + GLM-4-Flash 分段抽取合并；规则由项目负责人 2026-09-16 标注定稿。</p>
           </template>
 
           <!-- 检测规则 -->
