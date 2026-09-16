@@ -21,31 +21,13 @@ TENDER_ITEMS: list[dict[str, str]] = [
     {"name": "投标文件格式", "anchors": "投标文件格式|第六章 投标文件格式", "sum": "格式表格锚点"},
 ]
 
-BID_GROUPS: list[tuple[str, list[dict[str, Any]]]] = [
-    ("资格与身份文件", [
-        {"name": "法定代表人（单位负责人）身份证明", "sum": "法代锚点",
-         "anchors": ["法定代表人身份证明", "法定代表人资格证明"], "fields": ["法定代表人", "单位性质"]},
-        {"name": "授权委托书", "sum": "代理人锚点", "anchors": ["授权委托书", "委托代理书"],
-         "fields": ["委托代理人", "委托权限", "有效期"]},
-    ]),
-    ("单位与财务状况", [
-        {"name": "基本情况表", "sum": "单位信息锚点", "anchors": ["基本情况表", "投标人基本情况"],
-         "fields": ["单位名称", "资质等级", "注册资本", "质量体系"]},
-        {"name": "近年财务状况", "sum": "财务锚点", "anchors": ["财务状况", "审计报告"],
-         "fields": ["营收", "净利", "负债率"]},
-    ]),
-    ("业绩与履约情况", [
-        {"name": "近年完成的类似项目情况表", "sum": "业绩锚点",
-         "anchors": ["类似项目情况表", "类似项目一览表", "类似项目业绩"],
-         "fields": ["项目名称", "合同额", "验收情况"]},
-        {"name": "正在供货和新承接的项目情况表", "sum": "履约锚点", "anchors": ["正在供货", "新承接"],
-         "fields": ["项目名称", "完成度"]},
-    ]),
-    ("项目团队", [
-        {"name": "项目团队成员及相关人员简历", "sum": "团队锚点",
-         "anchors": ["项目团队", "团队成员", "简历"],
-         "fields": ["项目经理", "技术负责人", "商务负责人"]},
-    ]),
+# 投标文件拆解：两项区间（项目负责人 2026-09-16 标注定稿：黄区=业绩、青区=团队）
+# 区间 = 本项锚点行 → 下一项锚点行（或文末）；区间内表格与正文段落全部归入
+BID_ITEMS: list[dict[str, str]] = [
+    {"name": "近年完成的类似项目情况表", "group": "业绩与履约情况",
+     "anchors": "近年完成的类似项目情况表|三年内成功实施类似设备|类似项目业绩|类似项目一览表"},
+    {"name": "项目团队成员及相关人员简历", "group": "项目团队",
+     "anchors": "项目团队成员及相关人员简历|项目团队成员|项目团队"},
 ]
 
 _FIELD_LINE = re.compile(r"([\u4e00-\u9fa5A-Za-z0-9（）()·/ ]{2,30})[:：]\s*(\S[^\n]{0,120})")
@@ -65,10 +47,66 @@ def extract_structured(
     """抽取入口：招标=三项锚点分配；投标=7 项窗口法。"""
     if kind == "tender":
         return _extract_tender(text, doc_tables or [])
+    return _extract_bid_regions(text, doc_tables or [])
+
+
+def _extract_bid_regions(text: str, doc_tables: list[Any]) -> list[ExtractedGroup]:
+    """投标两项：区间法——业绩锚点到团队锚点之间为业绩区，团队锚点到文末为团队区。
+
+    区间内全部表格（键值化）与正文段落（每段一行）都归入对应项，保证标注范围内的内容不丢。
+    """
+    lines = text.splitlines()
+    a_perf = _find_anchor_line(lines, BID_ITEMS[0]["anchors"].split("|"))
+    a_team = _find_anchor_line(lines, BID_ITEMS[1]["anchors"].split("|"))
+
+    regions: list[tuple[int, int, dict[str, str]]] = []
+    if a_perf is not None:
+        regions.append((a_perf, a_team if a_team is not None and a_team > a_perf else len(lines), BID_ITEMS[0]))
+    if a_team is not None:
+        regions.append((a_team, len(lines), BID_ITEMS[1]))
+    if not regions:
+        # 双锚点均未命中：整篇按顺序归业绩+团队（前半/后半），LLM 会再补充
+        mid = len(lines) // 2
+        regions = [(0, mid, BID_ITEMS[0]), (mid, len(lines), BID_ITEMS[1])]
+
+    def tables_in(lo: int, hi: int) -> list[Any]:
+        return [tb for tb in doc_tables if tb.start_line >= lo and tb.start_line < hi]
+
     out: list[ExtractedGroup] = []
-    for group_name, items in BID_GROUPS:
-        for item in items:
-            out.extend(_extract_item_window(text, group_name, item))
+    used_tables: set[int] = set()
+    for lo, hi, item in regions:
+        rows: list[tuple[str, str]] = []
+        for ti, tb in enumerate(doc_tables):
+            if ti in used_tables or not (lo <= tb.start_line < hi):
+                continue
+            used_tables.add(ti)
+            for f, v in _table_to_rows(tb.rows):
+                rows.append((f[:40], v[:400]))
+        para_n = 0
+        for ln in lines[lo + 1: hi]:
+            st = ln.strip()
+            if not st or "|" in st or re.match(r"^第[一二三四五六七八九十百零]+章", st):
+                continue
+            if len(st) < 8:
+                continue
+            para_n += 1
+            if para_n > 30:
+                break
+            # 段落含冒号时拆键值（如「项目经理：王志强」），否则整段一行
+            m = re.match(r"^([^：:]{2,20})[:：]\s*(.+)$", st)
+            if m:
+                rows.append((m.group(1).strip(), m.group(2).strip()[:400]))
+            else:
+                rows.append((st[:12], st[:400]))
+        # 去重（同值行）
+        seen: set[str] = set()
+        uniq: list[tuple[str, str]] = []
+        for f, v in rows:
+            key = f + "|" + v[:80]
+            if key not in seen:
+                seen.add(key)
+                uniq.append((f, v))
+        out.append(ExtractedGroup(group_name=item["group"], name=item["name"], sum=item["group"], rows=uniq[:60]))
     return out
 
 

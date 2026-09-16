@@ -148,22 +148,21 @@ def detect_project(session: Session, project_id: str) -> DetectResult:
     for bid in bids:
         text = bid.content_text or ""
         bid_items = _tender_items(session, bid.id)
-        item_names = " ".join(bid_items.keys())
 
-        # 1 法定代表人身份证明
-        if "身份证明" not in item_names:
+        # 1 法定代表人身份证明（投标拆解为业绩/团队两项，改全文关键词判断）
+        if "法定代表人" not in text or "身份证明" not in text:
             findings.append(Finding(
                 sev="fatal", type="缺项", title="法定代表人身份证明缺失",
-                meta=f"投标文件《{bid.filename}》拆解结果中未找到身份证明结构项",
+                meta=f"投标文件《{bid.filename}》全文未找到法定代表人身份证明相关内容",
                 req="招标要求投标文件含法定代表人身份证明（资格审查必备件）",
                 advice="补编法定代表人身份证明（按招标格式），盖章后插入资格审查文件章节。",
                 fix="填入模板", doc_id=bid.id,
             ))
         # 2 授权委托书
-        if "授权" not in item_names:
+        if "授权委托书" not in text and "委托代理人" not in text:
             findings.append(Finding(
                 sev="fatal", type="缺项", title="授权委托书缺失",
-                meta=f"投标文件《{bid.filename}》拆解结果中未找到授权委托书",
+                meta=f"投标文件《{bid.filename}》全文未找到授权委托书相关内容",
                 req="招标要求投标文件含法定代表人授权委托书（格式清单必备项）",
                 advice="补编授权委托书，明确委托代理人与权限，法定代表人签字并盖章。",
                 fix="填入模板", doc_id=bid.id,

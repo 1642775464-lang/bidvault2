@@ -114,22 +114,14 @@ onMounted(async () => {
               <div class="rh2"><b>投标文件格式</b><span class="n">格式章节内全部表格</span></div>
               <div class="rf"><span class="fchip">开标一览表</span><span class="fchip">产品明细报价</span><span class="fchip">商务/技术偏差表</span><span class="fchip">资格文件</span><span class="fchip">分项报价表</span></div>
             </div>
-            <div class="sec-lab" style="margin-top:14px">投标文件 · 七项</div>
+            <div class="sec-lab" style="margin-top:14px">投标文件 · 两项（不分组）</div>
             <div class="rulecard">
-              <div class="rh2"><b>资格与身份文件</b><span class="n">2 项</span></div>
-              <div class="rf"><span class="fchip">法定代表人身份证明</span><span class="fchip">授权委托书</span></div>
+              <div class="rh2"><b>近年完成的类似项目情况表</b><span class="n">区间法 · 业绩与履约情况</span></div>
+              <div class="rf"><span class="fchip hit">项目名称</span><span class="fchip hit">合同金额</span><span class="fchip hit">实施时间</span><span class="fchip hit">验收情况</span><span class="fchip">设备/货物配置明细</span><span class="fchip">业绩描述段落</span></div>
             </div>
             <div class="rulecard">
-              <div class="rh2"><b>单位与财务状况</b><span class="n">2 项</span></div>
-              <div class="rf"><span class="fchip">基本情况表</span><span class="fchip">近年财务状况</span></div>
-            </div>
-            <div class="rulecard">
-              <div class="rh2"><b>业绩与履约情况</b><span class="n">2 项</span></div>
-              <div class="rf"><span class="fchip">类似项目情况表</span><span class="fchip">在履约项目情况表</span></div>
-            </div>
-            <div class="rulecard">
-              <div class="rh2"><b>项目团队</b><span class="n">1 项</span></div>
-              <div class="rf"><span class="fchip">团队成员及简历</span></div>
+              <div class="rh2"><b>项目团队成员及相关人员简历</b><span class="n">区间法 · 项目团队</span></div>
+              <div class="rf"><span class="fchip hit">姓名</span><span class="fchip hit">职务/层级</span><span class="fchip hit">职称</span><span class="fchip hit">执业资格及证书编号</span><span class="fchip">简历正文</span></div>
             </div>
             <p class="sub-note">抽取 = docx 表格结构化解析 + GLM-4-Flash 分段抽取合并；规则由项目负责人 2026-09-16 标注定稿。</p>
           </template>

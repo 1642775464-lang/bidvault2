@@ -189,7 +189,9 @@ class TestDocumentLibrary:
         docs = _wait_docs(client)
         r = client.get(f"/api/documents/{docs[0]['id']}/extract").json()
         all_names = [i["name"] for g in r["groups"] for i in g["items"]]
-        assert "授权委托书" in all_names
+        # 投标只拆两项（业绩/团队），结构项名=组名
+        assert "近年完成的类似项目情况表" in all_names
+        assert set(g["name"] for g in r["groups"]) <= {"业绩与履约情况", "项目团队"}
         # 字段行内容
         rows = [rw for grp in r["groups"] for it in grp["items"] for rw in it["rows"]]
         assert rows or r["groups"]
