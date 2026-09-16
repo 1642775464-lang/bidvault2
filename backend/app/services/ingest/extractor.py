@@ -67,20 +67,34 @@ def extract_structured(text: str, kind: str) -> list[ExtractedGroup]:
     for group_name, items in groups:
         for item in items:
             hit_line = None
+            all_lines = text.splitlines()
+            # 优先命中独立标题行（整行≈锚点），避免正文里「见XX前附表」引用抢先命中
             for anchor in item["anchors"]:
-                for ln in text.splitlines():
-                    if anchor in ln:
-                        hit_line = ln.strip()
+                for ln in all_lines:
+                    st = ln.strip()
+                    if st == anchor or (st.startswith(anchor) and len(st) <= len(anchor) + 6):
+                        hit_line = st
                         break
                 if hit_line:
                     break
             if hit_line is None:
+                for anchor in item["anchors"]:
+                    for ln in all_lines:
+                        if anchor in ln:
+                            hit_line = ln.strip()
+                            break
+                    if hit_line:
+                        break
+            if hit_line is None:
                 continue
             # 锚点行之后收割字段行（取锚点后 40 行窗口）
             rows: list[tuple[str, str]] = []
-            lines = text.splitlines()
+            lines = all_lines
             try:
-                start = next(i for i, ln in enumerate(lines) if item["anchors"][0] in ln)
+                start = next(
+                    i for i, ln in enumerate(lines)
+                    if hit_line is not None and ln.strip() == hit_line
+                )
             except StopIteration:
                 start = 0
             # 章节目录：仅收录「第X章」级条目（目录行或章标题），其余编号/键值一律不收
@@ -97,15 +111,12 @@ def extract_structured(text: str, kind: str) -> list[ExtractedGroup]:
                 out.append(ExtractedGroup(group_name=group_name, name=item["name"], sum=item["sum"], rows=rows))
                 continue
 
-            for ln in lines[start: start + 40]:
-                # 表格行（解析器输出「字段 | 值」）：两列即键值对
-                parts = [c.strip() for c in ln.split("|")]
-                if len(parts) == 2 and parts[0] and parts[1]:
-                    fname, fval = parts[0], parts[1]
-                    chapter = ("第一章", "第二章", "第三章", "第四章", "第五章", "第六章")
-                    if (not item["fields"] or fname in item["fields"]) and fname not in chapter:
-                        rows.append((fname, fval[:120]))
-                        continue
+            # 表格块解析：锚点窗口内按连续 | 行切块，支持任意列数（含表头映射）
+            table_rows, prose_rows = _harvest_tables(lines[start: start + 80], item["fields"])
+            rows.extend(table_rows)
+            for ln in lines[start: start + 80]:
+                if "|" in ln:
+                    continue  # 表格行已由 _harvest_tables 处理
                 for m in _FIELD_LINE.finditer(ln):
                     fname = m.group(1).strip()
                     if item["fields"] and fname not in item["fields"]:
@@ -113,6 +124,7 @@ def extract_structured(text: str, kind: str) -> list[ExtractedGroup]:
                     if not item["fields"] and fname in ("第一章", "第二章", "第三章", "第四章", "第五章", "第六章"):
                         continue
                     rows.append((fname, m.group(2).strip()))
+            rows.extend(prose_rows)
             # 指定字段但未匹配到的，用宽松搜索（必须有冒号分隔，防止把标题行当值）
             for fname in item["fields"]:
                 if any(r[0] == fname for r in rows):
@@ -123,6 +135,62 @@ def extract_structured(text: str, kind: str) -> list[ExtractedGroup]:
                     rows.append((fname, fm.group(1).strip()))
             out.append(ExtractedGroup(
                 group_name=group_name, name=item["name"], sum=item["sum"],
-                rows=rows[:20],
+                rows=rows[:40],
             ))
     return out
+
+
+def _harvest_tables(
+    window: list[str], fields: list[str],
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """解析窗口内表格：连续 | 行成块；两列→键值，多列→首行表头映射。
+
+    返回 (表格字段行, 窗口内非表格正文里的字段:值行)。
+    """
+    table_rows: list[tuple[str, str]] = []
+    prose_rows: list[tuple[str, str]] = []
+    block: list[list[str]] = []
+    prev_cols = 0
+
+    def flush() -> None:
+        nonlocal block
+        if not block:
+            return
+        ncols = max(len(r) for r in block)
+        header: list[str] = []
+        first = block[0]
+        # 首行是表头：各列均短且非空
+        if len(first) == ncols and all(len(c) <= 16 and c for c in first):
+            header = first
+            data = block[1:]
+        else:
+            data = block
+        for r in data:
+            r = (r + [""] * ncols)[:ncols]
+            if ncols == 2:
+                if r[0] and r[1]:
+                    table_rows.append((r[0][:60], r[1][:300]))
+            elif len(r) >= 3:
+                # 通用：倒数第二列做字段名（条款名称/评审因素），最后一列做值
+                fname = r[-2] or (header[-2] if len(header) >= 2 else "")
+                fval = r[-1]
+                if fname and fval and fval != "/":
+                    table_rows.append((fname[:60], fval[:400]))
+        block = []
+
+    for ln in window:
+        if "|" in ln:
+            parts = [c.strip() for c in ln.split("|") if c.strip()]
+            if len(parts) >= 2:
+                if block and len(parts) != prev_cols:
+                    flush()
+                block.append(parts)
+                prev_cols = len(parts)
+                continue
+        flush()
+        for m in _FIELD_LINE.finditer(ln):
+            fname = m.group(1).strip()
+            if not fields or fname in fields:
+                prose_rows.append((fname, m.group(2).strip()[:120]))
+    flush()
+    return table_rows, prose_rows
