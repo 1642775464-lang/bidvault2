@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { Material } from "../api/types";
 import { CATS, navTo, refreshCore, store, toast } from "../store";
@@ -84,6 +84,74 @@ const pagedGroups = computed(() => {
 const sel = computed(() => mats.value.find((m) => m.id === selId.value) ?? null);
 const imgDocId = computed(() => (sel.value?.file_name ?? "").startsWith("img/") ? sel.value!.file_name!.split("/")[1] : "");
 const previewOpen = ref(false);
+
+/* ---------- Word 式页内编辑 ---------- */
+const paper = reactive({ title: "", tags: "", type: "表格", rows: [] as string[][], text: "" });
+const dirty = ref(false);
+const saving = ref(false);
+
+function loadPaper(): void {
+  const m = sel.value;
+  if (!m) return;
+  paper.title = m.title;
+  paper.tags = m.tags.join("，");
+  paper.type = m.type;
+  paper.rows = (m.rows ?? []).map((r) => [r[0] ?? "", r[1] ?? ""]);
+  paper.text = m.text ?? "";
+  dirty.value = false;
+}
+watch(() => sel.value?.id, loadPaper, { immediate: true });
+watch(paper, () => {
+  dirty.value = dirty.value || sel.value != null;
+}, { deep: true });
+
+function markDirty(): void {
+  dirty.value = true;
+}
+
+async function saveInline(): Promise<void> {
+  if (!sel.value || !dirty.value) return;
+  saving.value = true;
+  try {
+    const body: Record<string, unknown> = {
+      title: paper.title.trim() || sel.value.title,
+      cat: sel.value.cat,
+      type: paper.type,
+      tags: paper.tags.split(/[,，]/).map((x) => x.trim()).filter(Boolean),
+    };
+    if (paper.type === "表格") {
+      const rows = paper.rows.filter((r) => r[0].trim() || (r[1] ?? "").trim());
+      if (!rows.length) {
+        toast("表格素材至少保留一行内容");
+        saving.value = false;
+        return;
+      }
+      body.rows = rows;
+      body.text = null;
+    } else if (paper.type === "文本") {
+      body.text = paper.text?.trim() || null;
+      body.rows = null;
+    } else if (paper.type === "图片") {
+      const rows = paper.rows.filter((r) => r[0].trim() || (r[1] ?? "").trim());
+      body.rows = rows.length ? rows : null;
+      body.text = paper.text;
+    }
+    await api.updateMaterial(sel.value.id, body);
+    dirty.value = false;
+    toast("已保存");
+    await load();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "保存失败");
+  } finally {
+    saving.value = false;
+  }
+}
+
+function autoGrow(ev: Event): void {
+  const el = ev.target as HTMLTextAreaElement;
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight}px`;
+}
 
 async function analyze(): Promise<void> {
   if (!imgDocId.value) return;
@@ -286,73 +354,80 @@ onMounted(async () => {
         <template v-if="sel">
           <div class="ed-head">
             <span class="t">
-              <h3>{{ sel.title }}</h3>
+              <h3>{{ sel.cat }}素材</h3>
               <div class="m">
-                {{ sel.cat }} · {{ sel.src }}{{ sel.doc_name ? " · 来自《" + sel.doc_name + "》" : " · 手动上传" }}
-                {{ sel.project_name ? " · 已关联 " + sel.project_name : " · 未关联项目" }}
+                {{ sel.src }}{{ sel.doc_name ? " · 来自《" + sel.doc_name + "》" : "" }}
+                {{ sel.project_name ? " · 已关联 " + sel.project_name : "" }}
                 · 更新 {{ (sel.updated_at ?? "").slice(0, 10) }} ·
                 <span class="chip-use" style="vertical-align:1px">×{{ sel.used }} 引用</span>
               </div>
             </span>
             <span class="sp">
-              <button class="act pri" @click="openEdit(sel.id)">编辑素材</button>
+              <button v-if="dirty" class="act pri" :disabled="saving" @click="saveInline()">{{ saving ? "保存中…" : "保存修改" }}</button>
               <button class="act" @click="openUse(sel)">引用到项目</button>
               <button class="act danger" @click="openDel(sel)">删除</button>
             </span>
           </div>
           <div class="ed-body">
-            <div class="ed-tags">
-              <template v-if="sel.tags.length">
-                <span v-for="t in sel.tags" :key="t" class="chip-tag">{{ t }}</span>
+            <div class="paper" :key="sel.id">
+              <input v-model="paper.title" class="paper-title-edit" placeholder="素材标题">
+              <div class="paper-tags-edit">
+                <span class="chip-tag" style="flex:none">{{ sel.cat }}</span>
+                <input v-model="paper.tags" class="paper-tags-input" placeholder="标签，逗号分隔">
+              </div>
+
+              <template v-if="paper.type === '表格'">
+                <div class="paper-item-head" style="margin-top:14px">
+                  <span class="paper-item-name">结构化内容</span>
+                  <button class="row-add" style="opacity:1" @click="paper.rows.push(['', ''])">＋ 添加行</button>
+                </div>
+                <div v-for="(r, ri) in paper.rows" :key="ri" class="p-row-edit">
+                  <input class="fk" v-model="r[0]" placeholder="字段">
+                  <textarea class="fv" v-model="r[1]" rows="1" placeholder="内容" @input="autoGrow($event)" />
+                  <button class="row-del" @click="paper.rows.splice(ri, 1)">✕</button>
+                </div>
               </template>
-              <span v-else class="chip-src">无标签</span>
+
+              <template v-else-if="paper.type === '文本'">
+                <div class="paper-item-head" style="margin-top:14px">
+                  <span class="paper-item-name">文本内容</span>
+                </div>
+                <textarea v-model="paper.text" class="paper-prose-edit" rows="10" />
+              </template>
+
+              <template v-else-if="paper.type === '图片' && sel.file_name">
+                <div class="paper-item-head" style="margin-top:14px">
+                  <span class="paper-item-name">图片证据{{ sel.source_page ? ` · 来源第 ${sel.source_page} 页` : "" }}</span>
+                </div>
+                <div style="display: flex; gap: 8px; margin: 8px 0" v-if="imgDocId">
+                  <button class="act pri" @click="previewOpen = true">查看原文{{ sel.source_page ? ` P${sel.source_page}` : "" }}</button>
+                  <button class="act" @click="analyze()">AI 识别字段</button>
+                </div>
+                <img :src="`/api/files/${sel.file_name}`" style="max-width: 100%; max-height: 460px; border-radius: 6px; box-shadow: 0 1px 8px rgba(15,30,55,.15)">
+                <template v-if="paper.rows.length">
+                  <div class="paper-item-head" style="margin-top:16px"><span class="paper-item-name">识别字段</span></div>
+                  <div v-for="(r, ri) in paper.rows" :key="ri" class="p-row-edit">
+                    <input class="fk" v-model="r[0]" placeholder="字段">
+                    <textarea class="fv" v-model="r[1]" rows="1" placeholder="内容" @input="autoGrow($event)" />
+                    <button class="row-del" @click="paper.rows.splice(ri, 1)">✕</button>
+                  </div>
+                </template>
+              </template>
+
+              <template v-else>
+                <div class="filebox">
+                  <div class="fi"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6Z" /><path d="M14 3v4h4" /></svg></div>
+                  <b>{{ sel.file_name || "—" }}</b>
+                  <span>{{ sel.file_size || "" }}</span>
+                </div>
+              </template>
             </div>
-            <template v-if="sel.type === '表格' && sel.rows">
-              <div class="xg"><div class="lab">结构化内容 · {{ sel.rows.length }} 个字段</div></div>
-              <div class="kv">
-                <table>
-                  <tbody>
-                    <tr v-for="(r, i) in sel.rows" :key="i"><td>{{ r[0] }}</td><td>{{ r[1] }}</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </template>
-            <template v-else-if="sel.type === '图片' && sel.file_name">
-              <div class="xg">
-                <div class="lab">图片证据{{ sel.source_page ? ` · 来源第 ${sel.source_page} 页` : "" }}</div>
-                <div style="display: flex; gap: 8px; margin-top: 6px">
-                  <button v-if="imgDocId" class="act pri" @click="previewOpen = true">查看原文{{ sel.source_page ? ` P${sel.source_page}` : "" }}</button>
-                  <button v-if="imgDocId" class="act" @click="analyze()">AI 识别字段</button>
-                </div>
-              </div>
-              <div class="filebox" style="max-width: none">
-                <img :src="`/api/files/${sel.file_name}`" style="max-width: 100%; max-height: 420px; border-radius: 8px">
-              </div>
-              <p v-if="sel.text" class="prose">{{ sel.text }}</p>
-            </template>
-            <template v-else-if="sel.type === '文本' && sel.text">
-              <div class="xg"><div class="lab">文本内容 · {{ sel.text.length }} 字</div></div>
-              <div class="prose">{{ sel.text }}</div>
-            </template>
-            <template v-else>
-              <div class="xg"><div class="lab">文件</div></div>
-              <div class="filebox">
-                <div class="fi">
-                  <svg viewBox="0 0 24 24">
-                    <template v-if="sel.type === '图片'"><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="9" cy="10" r="1.6" /><path d="m5 18 5-5 3 3 3-3 3 3" /></template>
-                    <template v-else><path d="M6 3h8l4 4v14H6Z" /><path d="M14 3v4h4" /></template>
-                  </svg>
-                </div>
-                <b>{{ sel.file_name || "—" }}</b>
-                <span>{{ sel.file_size || "" }}</span>
-              </div>
-            </template>
           </div>
           <div class="ed-foot">
             <button class="act" @click="goSource(sel)">{{ sel.doc_name ? "查看来源文档" : "查看上传记录" }}</button>
           </div>
         </template>
-        <div v-else class="xempty"><b>选择左侧素材</b><p>左列选素材，右侧编辑面板。</p></div>
+        <div v-else class="xempty"><b>选择左侧素材</b></div>
       </div>
     </div>
 

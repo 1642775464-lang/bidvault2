@@ -136,6 +136,15 @@ export const api = {
   async runExtract(docId: string): Promise<{ status: number; extracted: number; materials: number }> {
     return handle(fetch(`/api/documents/${docId}/extract`, { method: "POST" }));
   },
+  async updateExtractItem(docId: string, itemId: string, rows: string[][]): Promise<{ ok: boolean }> {
+    return handle(
+      fetch(`/api/documents/${docId}/extract/${itemId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows }),
+      }),
+    );
+  },
   async bind(docId: string, body: { project_id?: string | null; new_project_name?: string; new_project_industry?: string }): Promise<{ ok: boolean; project_id: string | null }> {
     return handle(
       fetch(`/api/documents/${docId}/bind`, {

@@ -83,6 +83,20 @@ def extract_structured(text: str, kind: str) -> list[ExtractedGroup]:
                 start = next(i for i, ln in enumerate(lines) if item["anchors"][0] in ln)
             except StopIteration:
                 start = 0
+            # 章节目录：仅收录「第X章」级条目（目录行或章标题），其余编号/键值一律不收
+            if "章节目录" in item["name"]:
+                for ln in lines[start: start + 60]:
+                    m = re.match(r"^\s*(第[一二三四五六七八九十百零]+章)\s*(\S.{0,40}?)\s*$", ln.strip())
+                    if m and m.group(2).strip():
+                        rows.append((m.group(1), m.group(2).strip()))
+                        continue
+                    m2 = re.match(r"^\s*(第[一二三四五六七八九十百零]+章)([^\n]{0,40}?)\s*[·.\u2026\d\s]*\d+\s*$", ln.strip())
+                    if m2 and m2.group(2).strip():
+                        rows.append((m2.group(1), m2.group(2).strip()))
+                rows = rows[:30]
+                out.append(ExtractedGroup(group_name=group_name, name=item["name"], sum=item["sum"], rows=rows))
+                continue
+
             for ln in lines[start: start + 40]:
                 # 表格行（解析器输出「字段 | 值」）：两列即键值对
                 parts = [c.strip() for c in ln.split("|")]

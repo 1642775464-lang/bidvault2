@@ -93,6 +93,58 @@ const grouped = computed(() => {
   return out;
 });
 
+/* ---------- Word 式页内编辑 ---------- */
+const rowEdits = ref<Record<string, string[][]>>({});
+const dirtyItems = ref(new Set<string>());
+
+function rowsOf(itemId: string, origin: string[][]): string[][] {
+  return rowEdits.value[itemId] ?? origin.map((r) => [r[0] ?? "", r[1] ?? ""]);
+}
+function itemRows(itemId: string): string[][] {
+  const origin = grouped.value.flatMap((x) => x.groups).flatMap((g) => g.items).find((it) => it.id === itemId);
+  return rowsOf(itemId, origin?.rows ?? []);
+}
+function setRow(itemId: string, rows: string[][]): void {
+  rowEdits.value[itemId] = rows;
+  dirtyItems.value.add(itemId);
+}
+function editField(itemId: string, ri: number, ci: number, val: string): void {
+  const rows = itemRows(itemId).map((r) => [...r]);
+  rows[ri][ci] = val;
+  setRow(itemId, rows);
+}
+function addRow(itemId: string): void {
+  setRow(itemId, [...itemRows(itemId), ["", ""]]);
+}
+function delRow(itemId: string, ri: number): void {
+  setRow(itemId, itemRows(itemId).filter((_, i) => i !== ri));
+}
+const anyDirty = computed(() => dirtyItems.value.size > 0);
+
+async function saveAll(): Promise<void> {
+  if (!sel.value || !anyDirty.value) return;
+  let n = 0;
+  for (const itemId of [...dirtyItems.value]) {
+    try {
+      await api.updateExtractItem(sel.value.id, itemId, itemRows(itemId));
+      dirtyItems.value.delete(itemId);
+      n++;
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "保存失败");
+    }
+  }
+  if (n) toast(`已保存 ${n} 个结构项`);
+}
+watch([selId, extract], () => {
+  rowEdits.value = {};
+  dirtyItems.value = new Set();
+});
+function autoGrow(ev: Event): void {
+  const el = ev.target as HTMLTextAreaElement;
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight}px`;
+}
+
 async function doExtract(): Promise<void> {
   const d = sel.value;
   if (!d || d.status === 1 || extractingId.value) return;
@@ -243,40 +295,50 @@ onMounted(async () => {
             </span>
           </div>
           <div class="xp-body">
-            <div class="chips" style="margin-bottom: 12px">
+            <div class="bar" style="margin-bottom: 10px">
               <select v-model="catFilter" class="f-select">
                 <option value="all">全部分类</option>
                 <option v-for="c in CATS" :key="c" :value="c">{{ c }}</option>
               </select>
+              <span class="spacer" style="flex: 1" />
+              <button v-if="anyDirty" class="act pri" @click="saveAll()">保存修改</button>
             </div>
             <template v-if="grouped.length">
-              <div v-for="g in grouped" :key="g.label" class="xg">
-                <div class="lab">{{ g.label }} · {{ g.groups.reduce((s, x) => s + x.items.length, 0) }} 项</div>
-                <div class="xgroups">
-                  <details v-for="grp in g.groups" :key="grp.name" class="xrow" open>
-                    <summary>
-                      <svg class="caret" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
-                      <b>{{ grp.name }}</b>
-                      <span class="sum">{{ grp.items.length }} 项</span>
-                    </summary>
-                    <div class="xdetail-wrap">
-                      <details v-for="it in grp.items" :key="it.id" class="xrow" style="margin:8px">
-                        <summary>
-                          <svg class="caret" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
-                          <b>{{ it.name }}</b>
-                          <span v-if="it.sum" class="sum">{{ it.sum }}</span>
-                        </summary>
-                        <div v-if="it.rows.length" class="xdetail">
-                          <table>
-                            <tbody>
-                              <tr v-for="(r, i) in it.rows" :key="i"><td>{{ r[0] }}</td><td>{{ r[1] }}</td></tr>
-                            </tbody>
-                          </table>
+              <div class="paper">
+                <h2 class="paper-title">{{ sel.filename.replace(/\.[^.]+$/, "") }}</h2>
+                <template v-for="g in grouped" :key="g.label">
+                  <div class="paper-sec">
+                    <h3 class="paper-h3">{{ g.label }}</h3>
+                    <div v-for="grp in g.groups" :key="grp.name" class="paper-item">
+                      <div class="paper-item-head">
+                        <span class="paper-item-name">{{ grp.name }}</span>
+                        <span class="paper-item-sum">{{ grp.items.length }} 项</span>
+                      </div>
+                      <template v-for="it in grp.items" :key="it.id">
+                        <div class="paper-block">
+                          <div class="paper-block-head">
+                            <span class="paper-bname">{{ it.name }}</span>
+                            <button v-if="it.rows.length || itemRows(it.id).length" class="row-add" title="添加字段行" @click="addRow(it.id)">＋</button>
+                          </div>
+                          <template v-if="itemRows(it.id).length">
+                            <div v-for="(r, ri) in itemRows(it.id)" :key="ri" class="p-row-edit">
+                              <input class="fk" :value="r[0]" placeholder="字段" @input="editField(it.id, ri, 0, ($event.target as HTMLInputElement).value)">
+                              <textarea
+                                class="fv"
+                                :value="r[1]"
+                                rows="1"
+                                placeholder="内容"
+                                @input="editField(it.id, ri, 1, ($event.target as HTMLTextAreaElement).value); autoGrow($event)"
+                              />
+                              <button class="row-del" title="删除此行" @click="delRow(it.id, ri)">✕</button>
+                            </div>
+                          </template>
+                          <p v-else class="paper-none">—</p>
                         </div>
-                      </details>
+                      </template>
                     </div>
-                  </details>
-                </div>
+                  </div>
+                </template>
               </div>
             </template>
             <div v-else-if="sel.status === 0" class="xempty">

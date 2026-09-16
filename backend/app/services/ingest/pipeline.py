@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 
@@ -83,6 +84,10 @@ def extract_and_harvest(session: Session, doc: Document) -> tuple[int, int]:
 
     text = doc.content_text or ""
     groups = extract_structured(text, doc.kind)
+    # 过滤空值行（LLM 有时按 schema 占位输出空字段）
+    for g in groups:
+        g.rows = [r for r in g.rows if r[1].strip()]
+    groups = [g for g in groups if g.rows or "章节目录" in g.name]
 
     # 重新拆解：先清空旧结构项与行（素材由标题去重自行保护）
     old_items = session.query(ExtractItem).filter(ExtractItem.doc_id == doc.id).all()
@@ -99,7 +104,10 @@ def extract_and_harvest(session: Session, doc: Document) -> tuple[int, int]:
             by_key = {(g.group_name, g.name): g for g in groups}
             for it in llm_items:
                 key = (str(it.get("group")), str(it.get("name")))
-                rows = [tuple(r) for r in it.get("rows") or []]
+                # 模型偶尔把章号当结构项名（name="第一章"），丢弃
+                if re.match(r"^第[一二三四五六七八九十百零]+章$", key[1]):
+                    continue
+                rows = [(str(r[0]), str(r[1])) for r in it.get("rows") or [] if len(r) >= 2 and str(r[1]).strip()]
                 if key in by_key:
                     merged = dict.fromkeys(r[0] for r in by_key[key].rows)
                     by_key[key].rows = by_key[key].rows + [r for r in rows if r[0] not in merged]

@@ -231,3 +231,61 @@ class TestLlmExtract:
         pid = _setup_project(client, BID_GOOD)
         r = client.post(f"/api/detect/{pid}")
         assert r.status_code == 200 and r.json()["items"] is not None
+
+
+class TestExtractEditing:
+    def test_put_rows_updates_item(self, client):
+        _setup_project(client, BID_GOOD)
+        docs = client.get("/api/documents").json()["items"]
+        bid_doc = next(d for d in docs if d["kind"] == "bid")
+        ex = client.get(f"/api/documents/{bid_doc['id']}/extract").json()
+        item = next(it for g in ex["groups"] for it in g["items"] if it["rows"])
+        r = client.put(
+            f"/api/documents/{bid_doc['id']}/extract/{item['id']}",
+            json={"rows": [["页内编辑字段", "页内编辑值"], ["新增字段", "新增值"]]},
+        )
+        assert r.status_code == 200 and r.json()["ok"]
+        ex2 = client.get(f"/api/documents/{bid_doc['id']}/extract").json()
+        item2 = next(it for g in ex2["groups"] for it in g["items"] if it["id"] == item["id"])
+        assert ["页内编辑字段", "页内编辑值"] in item2["rows"]
+        assert ["新增字段", "新增值"] in item2["rows"]
+        # 覆盖语义：旧行被替换
+        assert len(item2["rows"]) == 2
+
+    def test_chapter_toc_only_chapters(self, client):
+        """章节目录只收章级条目，不收 8.3.1 之类细目。"""
+        tender = [
+            "测试项目招标文件",
+            "目录",
+            "第一章 招标公告",
+            "第二章 投标人须知",
+            "第三章 评标办法",
+            "投标人须知前附表",
+            "递交截止时间：2026-10-01 09:00",
+            "1. 招标条件",
+            "8.3.1 规范性审查功能 应能够按照规则进行审查",
+            "8.3.2 工艺设备招标文件规范性审查功能",
+            "招标编号：TEST-2026-001",
+            "评标办法前附表",
+            "评标办法：综合评估法",
+        ]
+        pid = client.post("/api/projects", json={"name": "目录项目"}).json()["id"]
+        r = client.post(
+            "/api/documents/upload",
+            files=[("files", ("目录招标.docx", _docx_bytes(tender), "application/octet-stream"))],
+            data={"kind": "tender", "project_id": pid},
+        )
+        doc_id = r.json()["created"][0]["id"]
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            docs = client.get("/api/documents").json()["items"]
+            if docs and all(d["status"] == 2 for d in docs):
+                break
+            time.sleep(0.4)
+        ex = client.get(f"/api/documents/{doc_id}/extract").json()
+        toc = next((it for g in ex["groups"] for it in g["items"] if "章节目录" in it["name"]), None)
+        assert toc is not None
+        fields = [row[0] for row in toc["rows"]]
+        assert "第一章" in fields and "第二章" in fields and "第三章" in fields
+        assert not any(f and f[0].isdigit() for f in fields), f"目录混入数字细目：{fields}"
+        assert not any("招标编号" in f for f in fields), f"目录混入信息行：{fields}"

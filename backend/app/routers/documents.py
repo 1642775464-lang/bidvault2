@@ -139,6 +139,32 @@ def bind_project(doc_id: str, body: BindIn, session: Session = Depends(get_sessi
     return {"ok": True, "project_id": doc.project_id}
 
 
+class RowsIn(BaseModel):
+    rows: list[list[str]]
+
+
+@router.put("/{doc_id}/extract/{item_id}")
+def update_extract_item(doc_id: str, item_id: str, body: RowsIn, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """页内编辑保存：全量替换结构项的字段行。"""
+    from ..models import ExtractRow
+
+    item = session.get(ExtractItem, item_id)
+    if item is None or item.doc_id != doc_id:
+        raise HTTPException(404, "结构项不存在")
+    session.query(ExtractRow).filter(ExtractRow.item_id == item.id).delete()
+    for ri, pair in enumerate(body.rows):
+        if not isinstance(pair, list) or len(pair) < 2:
+            continue
+        field = str(pair[0]).strip()
+        if not field:
+            continue
+        session.add(ExtractRow(item_id=item.id, field=field[:120], value=str(pair[1]).strip()[:2000], seq=ri))
+    item.sum = f"{len(body.rows)} 字段" if body.rows else item.sum
+    session.commit()
+    audit("extract_item_edited", doc_id=doc_id, detail=item.name[:60])
+    return {"ok": True, "rows": len(body.rows)}
+
+
 @router.get("/{doc_id}/content")
 def doc_content(doc_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
     """正文预览（按切片序拼接，工作台编辑区用）。"""
