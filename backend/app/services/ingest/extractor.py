@@ -110,16 +110,29 @@ def _extract_bid_regions(text: str, doc_tables: list[Any]) -> list[ExtractedGrou
     return out
 
 
+_PUNCT_TAIL = re.compile(r"[；。，、：,]...$|[；。，、：,]$")
+
+
+def _norm(s: str) -> str:
+    """标题归一化：去空白（中英文），使「第六章投标文件格式」与「第六章 投标文件格式」等价。"""
+    return re.sub(r"[\s　]+", "", s)
+
+
 def _find_anchor_line(lines: list[str], anchors: list[str]) -> int | None:
-    """锚点行号：优先独立标题行（整行≈锚点），fallback 包含匹配。"""
-    for anchor in anchors:
+    """锚点行号：仅命中独立标题行（归一化后整行=锚点，或锚点+≤2字且不以句读结尾）。
+
+    正文里的「见/按XX前附表」引用句以标点结尾或含引用动词，天然被排除。
+    """
+    anchors_n = [_norm(a) for a in anchors]
+    for an in anchors_n:
         for i, ln in enumerate(lines):
-            st = ln.strip()
-            if st == anchor or (st.startswith(anchor) and len(st) <= len(anchor) + 6):
+            st = _norm(ln)
+            if not st or len(st) < len(an):
+                continue
+            if st == an:
                 return i
-    for anchor in anchors:
-        for i, ln in enumerate(lines):
-            if anchor in ln:
+            tail = st[len(an):]
+            if st.startswith(an) and len(tail) <= 2 and not re.search(r"[；。，、：,]", tail):
                 return i
     return None
 
