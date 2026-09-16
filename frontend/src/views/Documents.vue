@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { DocItem, ExtractGroup } from "../api/types";
 import { CATS, INDUSTRIES, fmtSize, openUpload, refreshCore, store, toast } from "../store";
@@ -76,6 +76,8 @@ async function pick(d: DocItem): Promise<void> {
     try {
       const r = await api.extract(d.id);
       extract.value = r.groups;
+      await nextTick();
+      recount();
     } catch {
       extract.value = [];
     }
@@ -93,56 +95,60 @@ const grouped = computed(() => {
   return out;
 });
 
-/* ---------- Word 式页内编辑 ---------- */
-const rowEdits = ref<Record<string, string[][]>>({});
-const dirtyItems = ref(new Set<string>());
+/* ---------- Word 画布编辑 ---------- */
+const docPage = ref<HTMLElement | null>(null);
+const wordCount = ref(0);
+const dirty = ref(false);
+const savingDoc = ref(false);
 
-function rowsOf(itemId: string, origin: string[][]): string[][] {
-  return rowEdits.value[itemId] ?? origin.map((r) => [r[0] ?? "", r[1] ?? ""]);
-}
-function itemRows(itemId: string): string[][] {
-  const origin = grouped.value.flatMap((x) => x.groups).flatMap((g) => g.items).find((it) => it.id === itemId);
-  return rowsOf(itemId, origin?.rows ?? []);
-}
-function setRow(itemId: string, rows: string[][]): void {
-  rowEdits.value[itemId] = rows;
-  dirtyItems.value.add(itemId);
-}
-function editField(itemId: string, ri: number, ci: number, val: string): void {
-  const rows = itemRows(itemId).map((r) => [...r]);
-  rows[ri][ci] = val;
-  setRow(itemId, rows);
-}
-function addRow(itemId: string): void {
-  setRow(itemId, [...itemRows(itemId), ["", ""]]);
-}
-function delRow(itemId: string, ri: number): void {
-  setRow(itemId, itemRows(itemId).filter((_, i) => i !== ri));
-}
-const anyDirty = computed(() => dirtyItems.value.size > 0);
-
-async function saveAll(): Promise<void> {
-  if (!sel.value || !anyDirty.value) return;
-  let n = 0;
-  for (const itemId of [...dirtyItems.value]) {
-    try {
-      await api.updateExtractItem(sel.value.id, itemId, itemRows(itemId));
-      dirtyItems.value.delete(itemId);
-      n++;
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "保存失败");
-    }
+function recount(): void {
+  if (docPage.value) {
+    wordCount.value = (docPage.value.innerText || "").replace(/\s/g, "").length;
   }
-  if (n) toast(`已保存 ${n} 个结构项`);
 }
-watch([selId, extract], () => {
-  rowEdits.value = {};
-  dirtyItems.value = new Set();
-});
-function autoGrow(ev: Event): void {
-  const el = ev.target as HTMLTextAreaElement;
-  el.style.height = "auto";
-  el.style.height = `${el.scrollHeight}px`;
+function onDocInput(): void {
+  dirty.value = true;
+  recount();
+}
+function exec(cmd: string): void {
+  docPage.value?.focus();
+  document.execCommand(cmd);
+}
+
+async function saveDoc(): Promise<void> {
+  if (!sel.value || !dirty.value || !docPage.value) return;
+  savingDoc.value = true;
+  try {
+    const linesById: Record<string, string[]> = {};
+    docPage.value.querySelectorAll<HTMLElement>(".wp-p[data-item]").forEach((el) => {
+      const id = el.getAttribute("data-item") || "";
+      const line = (el.innerText || "").replace(/ /g, " ").trim();
+      (linesById[id] ??= []).push(line);
+    });
+    let n = 0;
+    for (const g of extract.value) {
+      for (const it of g.items) {
+        const lines = linesById[it.id];
+        if (!lines) continue;
+        const rows: string[][] = lines.map((line, i) => {
+          const m = line.match(/^(.*?)[:：]([\s\S]*)$/);
+          if (m && m[1].trim()) return [m[1].trim(), m[2].trim()];
+          return [it.rows[i]?.[0] ?? `字段${i + 1}`, line];
+        });
+        const orig = JSON.stringify(it.rows);
+        if (JSON.stringify(rows) === orig) continue;
+        await api.updateExtractItem(sel.value!.id, it.id, rows);
+        it.rows = rows;
+        n++;
+      }
+    }
+    dirty.value = false;
+    toast(n ? `已保存 ${n} 个结构项` : "内容无变化");
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "保存失败");
+  } finally {
+    savingDoc.value = false;
+  }
 }
 
 async function doExtract(): Promise<void> {
@@ -294,51 +300,42 @@ onMounted(async () => {
               </button>
             </span>
           </div>
-          <div class="xp-body">
-            <div class="bar" style="margin-bottom: 10px">
-              <select v-model="catFilter" class="f-select">
-                <option value="all">全部分类</option>
-                <option v-for="c in CATS" :key="c" :value="c">{{ c }}</option>
-              </select>
-              <span class="spacer" style="flex: 1" />
-              <button v-if="anyDirty" class="act pri" @click="saveAll()">保存修改</button>
-            </div>
+          <div class="xp-body" style="display: flex; flex-direction: column; overflow: hidden; padding: 0">
             <template v-if="grouped.length">
-              <div class="paper">
-                <h2 class="paper-title">{{ sel.filename.replace(/\.[^.]+$/, "") }}</h2>
-                <template v-for="g in grouped" :key="g.label">
-                  <div class="paper-sec">
-                    <h3 class="paper-h3">{{ g.label }}</h3>
-                    <div v-for="grp in g.groups" :key="grp.name" class="paper-item">
-                      <div class="paper-item-head">
-                        <span class="paper-item-name">{{ grp.name }}</span>
-                        <span class="paper-item-sum">{{ grp.items.length }} 项</span>
-                      </div>
+              <div class="wordbar">
+                <span class="wname">{{ sel.filename }}</span>
+                <span class="wcount">{{ wordCount }} 字</span>
+                <button class="wbtn pri" :disabled="!dirty || savingDoc" @click="saveDoc">{{ savingDoc ? "保存中…" : "保存修改" }}</button>
+              </div>
+              <div class="wordtools">
+                <button class="wtool" @click="exec('undo')">↶ 撤销</button>
+                <button class="wtool" @click="exec('redo')">↷ 恢复</button>
+                <span class="tool-sep" />
+                <button class="wtool" @click="saveDoc()">保存</button>
+              </div>
+              <div class="wordstage">
+                <div ref="docPage" class="wordpage" contenteditable="true" spellcheck="false" @input="onDocInput">
+                  <template v-for="g in grouped" :key="g.label">
+                    <div class="wp-sec" contenteditable="false">{{ g.label }}</div>
+                    <template v-for="grp in g.groups" :key="grp.name">
+                      <div class="wp-h" contenteditable="false">{{ grp.name }}</div>
                       <template v-for="it in grp.items" :key="it.id">
-                        <div class="paper-block">
-                          <div class="paper-block-head">
-                            <span class="paper-bname">{{ it.name }}</span>
-                            <button v-if="it.rows.length || itemRows(it.id).length" class="row-add" title="添加字段行" @click="addRow(it.id)">＋</button>
-                          </div>
-                          <template v-if="itemRows(it.id).length">
-                            <div v-for="(r, ri) in itemRows(it.id)" :key="ri" class="p-row-edit">
-                              <input class="fk" :value="r[0]" placeholder="字段" @input="editField(it.id, ri, 0, ($event.target as HTMLInputElement).value)">
-                              <textarea
-                                class="fv"
-                                :value="r[1]"
-                                rows="1"
-                                placeholder="内容"
-                                @input="editField(it.id, ri, 1, ($event.target as HTMLTextAreaElement).value); autoGrow($event)"
-                              />
-                              <button class="row-del" title="删除此行" @click="delRow(it.id, ri)">✕</button>
-                            </div>
-                          </template>
-                          <p v-else class="paper-none">—</p>
-                        </div>
+                        <div
+                          v-for="(r, ri) in it.rows"
+                          :key="it.id + '-' + ri"
+                          class="wp-p"
+                          contenteditable="true"
+                          :data-item="it.id"
+                          :data-ri="ri"
+                        >{{ r[0] }}：{{ r[1] }}</div>
                       </template>
-                    </div>
-                  </div>
-                </template>
+                    </template>
+                  </template>
+                </div>
+              </div>
+              <div class="wordstatus">
+                <span>字数统计：{{ wordCount }}</span>
+                <span>{{ grouped.reduce((n, x) => n + x.groups.reduce((m, g2) => m + g2.items.length, 0), 0) }} 个结构项</span>
               </div>
             </template>
             <div v-else-if="sel.status === 0" class="xempty">

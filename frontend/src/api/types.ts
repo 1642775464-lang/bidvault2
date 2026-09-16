@@ -54,16 +54,11 @@ export interface PersonCard {
   status: "ok" | "warn";
 }
 
-export interface ExtractRowPair extends Array<string> {
-  0: string;
-  1: string;
-}
-
 export interface ExtractItemT {
   id: string;
   name: string;
   sum: string | null;
-  rows: ExtractRowPair[];
+  rows: string[][];
 }
 
 export interface ExtractGroup {

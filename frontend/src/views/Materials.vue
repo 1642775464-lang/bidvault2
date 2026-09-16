@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { Material } from "../api/types";
 import { CATS, navTo, refreshCore, store, toast } from "../store";
@@ -10,22 +10,19 @@ const cat = ref("all");
 const selId = ref("");
 const mats = ref<Material[]>([]);
 
-/* 编辑弹窗 */
+const useOpen = ref(false);
+const useId = ref<string | null>(null);
+const useProj = ref("");
+const delOpen = ref(false);
+const delId = ref<string | null>(null);
+
 const editOpen = ref(false);
-const editId = ref<string | null>(null);
 const eTitle = ref("");
 const eCat = ref(CATS[0]);
 const eType = ref("表格");
 const eTags = ref("");
 const eContent = ref("");
 const eTitleErr = ref(false);
-
-/* 引用 / 删除弹窗 */
-const useOpen = ref(false);
-const useId = ref<string | null>(null);
-const useProj = ref("");
-const delOpen = ref(false);
-const delId = ref<string | null>(null);
 
 const typeIconPath: Record<string, string> = {
   表格: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/>',
@@ -68,9 +65,15 @@ const groups = computed(() => {
   }
   return out;
 });
+
+const page = ref(1);
+const MAT_PAGE_SIZE = 10;
+const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / MAT_PAGE_SIZE)));
 const pagedGroups = computed(() => {
+  const startIdx = (page.value - 1) * MAT_PAGE_SIZE;
+  const slice = filtered.value.slice(startIdx, startIdx + MAT_PAGE_SIZE);
   const out: { cat: string; items: Material[] }[] = [];
-  for (const m of pagedMats.value) {
+  for (const m of slice) {
     const last = out[out.length - 1];
     if (last && last.cat === m.cat) {
       last.items.push(m);
@@ -80,47 +83,69 @@ const pagedGroups = computed(() => {
   }
   return out;
 });
+watch([cat, search], () => {
+  page.value = 1;
+});
 
 const sel = computed(() => mats.value.find((m) => m.id === selId.value) ?? null);
-const imgDocId = computed(() => (sel.value?.file_name ?? "").startsWith("img/") ? sel.value!.file_name!.split("/")[1] : "");
+const imgDocId = computed(() =>
+  (sel.value?.file_name ?? "").startsWith("img/") ? sel.value!.file_name!.split("/")[1] : "",
+);
 const previewOpen = ref(false);
 
-/* ---------- Word 式页内编辑 ---------- */
-const paper = reactive({ title: "", tags: "", type: "表格", rows: [] as string[][], text: "" });
+function pick(m: Material): void {
+  selId.value = m.id;
+}
+
+/* ---------- Word 画布编辑 ---------- */
+const matPage = ref<HTMLElement | null>(null);
+const wordCount = ref(0);
 const dirty = ref(false);
 const saving = ref(false);
 
-function loadPaper(): void {
-  const m = sel.value;
-  if (!m) return;
-  paper.title = m.title;
-  paper.tags = m.tags.join("，");
-  paper.type = m.type;
-  paper.rows = (m.rows ?? []).map((r) => [r[0] ?? "", r[1] ?? ""]);
-  paper.text = m.text ?? "";
-  dirty.value = false;
+function recount(): void {
+  if (matPage.value) {
+    wordCount.value = (matPage.value.innerText || "").replace(/\s/g, "").length;
+  }
 }
-watch(() => sel.value?.id, loadPaper, { immediate: true });
-watch(paper, () => {
-  dirty.value = dirty.value || sel.value != null;
-}, { deep: true });
-
-function markDirty(): void {
+function onMatInput(): void {
   dirty.value = true;
+  recount();
+}
+function exec(cmd: string): void {
+  matPage.value?.focus();
+  document.execCommand(cmd);
 }
 
 async function saveInline(): Promise<void> {
-  if (!sel.value || !dirty.value) return;
+  if (!sel.value || !dirty.value || !matPage.value) return;
   saving.value = true;
   try {
+    const root = matPage.value;
+    const title = (root.querySelector(".wp-hl")?.textContent || "").trim() || sel.value.title;
+    const tags = (root.querySelector(".wp-tags")?.textContent || "")
+      .split(/[,，]/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const rows: string[][] = [];
+    const textLines: string[] = [];
+    root.querySelectorAll<HTMLElement>(".wp-p").forEach((el) => {
+      const line = (el.innerText || "").replace(/\u00a0/g, " ").trim();
+      if (!line) return;
+      if (el.getAttribute("data-kind") === "rows") {
+        const m = line.match(/^(.*?)[:：]([\s\S]*)$/);
+        rows.push(m && m[1].trim() ? [m[1].trim(), m[2].trim()] : [line, ""]);
+      } else {
+        textLines.push(line);
+      }
+    });
     const body: Record<string, unknown> = {
-      title: paper.title.trim() || sel.value.title,
+      title,
       cat: sel.value.cat,
-      type: paper.type,
-      tags: paper.tags.split(/[,，]/).map((x) => x.trim()).filter(Boolean),
+      type: sel.value.type,
+      tags,
     };
-    if (paper.type === "表格") {
-      const rows = paper.rows.filter((r) => r[0].trim() || (r[1] ?? "").trim());
+    if (sel.value.type === "表格") {
       if (!rows.length) {
         toast("表格素材至少保留一行内容");
         saving.value = false;
@@ -128,13 +153,12 @@ async function saveInline(): Promise<void> {
       }
       body.rows = rows;
       body.text = null;
-    } else if (paper.type === "文本") {
-      body.text = paper.text?.trim() || null;
+    } else if (sel.value.type === "文本") {
+      body.text = textLines.length ? textLines.join("\n") : null;
       body.rows = null;
-    } else if (paper.type === "图片") {
-      const rows = paper.rows.filter((r) => r[0].trim() || (r[1] ?? "").trim());
+    } else if (sel.value.type === "图片") {
       body.rows = rows.length ? rows : null;
-      body.text = paper.text;
+      body.text = textLines.length ? textLines.join("\n") : null;
     }
     await api.updateMaterial(sel.value.id, body);
     dirty.value = false;
@@ -147,66 +171,83 @@ async function saveInline(): Promise<void> {
   }
 }
 
-function autoGrow(ev: Event): void {
-  const el = ev.target as HTMLTextAreaElement;
-  el.style.height = "auto";
-  el.style.height = `${el.scrollHeight}px`;
-}
-
 async function analyze(): Promise<void> {
   if (!imgDocId.value) return;
   try {
     const r = await api.analyzeImages(imgDocId.value);
-    toast(`AI 识别完成：${r.analyzed} 张成功${r.failed ? ` · ${r.failed} 张失败` : ""}`);
+    toast("AI 识别完成：" + r.analyzed + " 张成功" + (r.failed ? " · " + r.failed + " 张失败" : ""));
     await load();
   } catch (e) {
     toast(e instanceof Error ? e.message : "识别失败");
   }
 }
-const page = ref(1);
-const MAT_PAGE_SIZE = 10;
-const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / MAT_PAGE_SIZE)));
-const pagedMats = computed(() => filtered.value.slice((page.value - 1) * MAT_PAGE_SIZE, page.value * MAT_PAGE_SIZE));
-watch([cat, search], () => {
-  page.value = 1;
-});
 
-function pick(m: Material): void {
-  selId.value = m.id;
+function goSource(m: Material): void {
+  if (!m.doc_name) {
+    toast("上传记录在后续版本开放");
+    return;
+  }
+  navTo("docs");
+  toast("源文档《" + m.doc_name + "》已在文档库中定位");
 }
 
-function openEdit(id: string | null): void {
-  editId.value = id;
-  const m = id ? mats.value.find((x) => x.id === id) ?? null : null;
-  eTitleErr.value = false;
-  if (m) {
-    eTitle.value = m.title;
-    eCat.value = m.cat;
-    eType.value = m.type;
-    eTags.value = m.tags.join(", ");
-    eContent.value =
-      m.type === "表格" ? (m.rows ?? []).map((r) => r.join("：")).join("\n") : m.type === "文本" ? m.text ?? "" : "";
-  } else {
-    eTitle.value = "";
-    eCat.value = CATS[0];
-    eType.value = "表格";
-    eTags.value = "";
-    eContent.value = "";
+function openUse(m: Material): void {
+  useId.value = m.id;
+  useProj.value = m.project_id ?? "";
+  useOpen.value = true;
+}
+async function saveUse(): Promise<void> {
+  const m = mats.value.find((x) => x.id === useId.value);
+  if (!m) return;
+  if (!useProj.value) {
+    toast("请选择目标项目");
+    return;
   }
+  try {
+    await api.useMaterial(m.id, "素材库引用");
+    toast("「" + m.title + "」已引用到「" + (store.projects.find((p) => p.id === useProj.value)?.name ?? "") + "」");
+    useOpen.value = false;
+    await load();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "操作失败");
+  }
+}
+
+function openDel(m: Material): void {
+  delId.value = m.id;
+  delOpen.value = true;
+}
+async function saveDel(): Promise<void> {
+  const m = mats.value.find((x) => x.id === delId.value);
+  if (!m) return;
+  try {
+    await api.deleteMaterial(m.id);
+    toast("素材「" + m.title + "」已删除");
+    delOpen.value = false;
+    if (selId.value === m.id) selId.value = "";
+    await load();
+    await refreshCore();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "删除失败");
+  }
+}
+
+function openCreate(): void {
+  eTitleErr.value = false;
+  eTitle.value = "";
+  eCat.value = cat.value === "all" ? CATS[0] : cat.value;
+  eType.value = "表格";
+  eTags.value = "";
+  eContent.value = "";
   editOpen.value = true;
 }
-
-function syncContentLabel(): string {
-  return eType.value === "表格" ? "内容（每行一条：字段：值）" : "内容（文本段落）";
-}
-
-async function saveEdit(): Promise<void> {
+async function saveCreate(): Promise<void> {
   const title = eTitle.value.trim();
   if (!title) {
     eTitleErr.value = true;
     return;
   }
-  const tags = eTags.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+  const tags = eTags.value.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
   const body: Record<string, unknown> = { title, cat: eCat.value, type: eType.value, tags };
   if (eType.value === "表格") {
     const rows = eContent.value
@@ -231,68 +272,13 @@ async function saveEdit(): Promise<void> {
     body.text = text;
   }
   try {
-    if (editId.value) {
-      await api.updateMaterial(editId.value, body);
-      toast(`素材「${title}」已更新`);
-    } else {
-      await api.createMaterial(body);
-      toast(`素材「${title}」已创建`);
-    }
+    await api.createMaterial(body);
+    toast("素材「" + title + "」已创建");
     editOpen.value = false;
     await load();
   } catch (e) {
     toast(e instanceof Error ? e.message : "保存失败");
   }
-}
-
-function openUse(m: Material): void {
-  useId.value = m.id;
-  useProj.value = m.project_id ?? "";
-  useOpen.value = true;
-}
-async function saveUse(): Promise<void> {
-  const m = mats.value.find((x) => x.id === useId.value);
-  if (!m) return;
-  if (!useProj.value) {
-    toast("请选择目标项目");
-    return;
-  }
-  try {
-    await api.useMaterial(m.id, "素材库引用");
-    toast(`「${m.title}」已引用到「${store.projects.find((p) => p.id === useProj.value)?.name ?? ""}」`);
-    useOpen.value = false;
-    await load();
-  } catch (e) {
-    toast(e instanceof Error ? e.message : "操作失败");
-  }
-}
-
-function openDel(m: Material): void {
-  delId.value = m.id;
-  delOpen.value = true;
-}
-async function saveDel(): Promise<void> {
-  const m = mats.value.find((x) => x.id === delId.value);
-  if (!m) return;
-  try {
-    await api.deleteMaterial(m.id);
-    toast(`素材「${m.title}」已删除`);
-    delOpen.value = false;
-    if (selId.value === m.id) selId.value = "";
-    await load();
-    await refreshCore();
-  } catch (e) {
-    toast(e instanceof Error ? e.message : "删除失败");
-  }
-}
-
-function goSource(m: Material): void {
-  if (!m.doc_name) {
-    toast("上传记录在后续版本开放");
-    return;
-  }
-  navTo("docs");
-  toast(`源文档《${m.doc_name}》已在文档库中定位`);
 }
 
 watch(filtered, (list) => {
@@ -301,6 +287,11 @@ watch(filtered, (list) => {
   } else if (!list.some((m) => m.id === selId.value)) {
     selId.value = list[0].id;
   }
+});
+watch([selId, mats], async () => {
+  dirty.value = false;
+  await nextTick();
+  recount();
 });
 
 onMounted(async () => {
@@ -320,7 +311,7 @@ onMounted(async () => {
         <option value="all">全部分类</option>
         <option v-for="c in CATS" :key="c">{{ c }}</option>
       </select>
-      <button class="mini-btn" @click="openEdit(null)">上传 / 新建素材</button>
+      <button class="mini-btn" @click="openCreate()">上传 / 新建素材</button>
     </div>
 
     <div class="v2wrap">
@@ -363,64 +354,65 @@ onMounted(async () => {
               </div>
             </span>
             <span class="sp">
-              <button v-if="dirty" class="act pri" :disabled="saving" @click="saveInline()">{{ saving ? "保存中…" : "保存修改" }}</button>
+              <button v-if="dirty" class="act pri" :disabled="saving" @click="saveInline">{{ saving ? "保存中…" : "保存修改" }}</button>
               <button class="act" @click="openUse(sel)">引用到项目</button>
               <button class="act danger" @click="openDel(sel)">删除</button>
             </span>
           </div>
-          <div class="ed-body">
-            <div class="paper" :key="sel.id">
-              <input v-model="paper.title" class="paper-title-edit" placeholder="素材标题">
-              <div class="paper-tags-edit">
-                <span class="chip-tag" style="flex:none">{{ sel.cat }}</span>
-                <input v-model="paper.tags" class="paper-tags-input" placeholder="标签，逗号分隔">
-              </div>
+          <div class="ed-body" style="display: flex; flex-direction: column; overflow: hidden; padding: 0">
+            <div class="wordbar">
+              <span class="wname">{{ sel.cat }}素材 · {{ sel.type }}</span>
+              <span class="wcount">{{ wordCount }} 字</span>
+              <button class="wbtn pri" :disabled="!dirty || saving" @click="saveInline">{{ saving ? "保存中…" : "保存修改" }}</button>
+            </div>
+            <div class="wordtools">
+              <button class="wtool" @click="exec('undo')">↶ 撤销</button>
+              <button class="wtool" @click="exec('redo')">↷ 恢复</button>
+              <span class="tool-sep" />
+              <button class="wtool" @click="saveInline()">保存</button>
+            </div>
+            <div class="wordstage">
+              <div :key="sel.id" ref="matPage" class="wordpage" contenteditable="true" spellcheck="false" @input="onMatInput">
+                <div class="wp-hl" contenteditable="true">{{ sel.title }}</div>
+                <div class="wp-p wp-tags" contenteditable="true" style="text-align:center;text-indent:0;font-size:12px;color:var(--dim)">{{ sel.tags.join("，") }}</div>
+                <div class="wp-p" contenteditable="false" style="text-align:center;text-indent:0;font-size:12px;color:#98a6b8">
+                  {{ sel.src }}{{ sel.doc_name ? " · 来自《" + sel.doc_name + "》" : "" }}{{ sel.project_name ? " · 已关联 " + sel.project_name : "" }} · 更新 {{ (sel.updated_at ?? "").slice(0, 10) }}
+                </div>
 
-              <template v-if="paper.type === '表格'">
-                <div class="paper-item-head" style="margin-top:14px">
-                  <span class="paper-item-name">结构化内容</span>
-                  <button class="row-add" style="opacity:1" @click="paper.rows.push(['', ''])">＋ 添加行</button>
-                </div>
-                <div v-for="(r, ri) in paper.rows" :key="ri" class="p-row-edit">
-                  <input class="fk" v-model="r[0]" placeholder="字段">
-                  <textarea class="fv" v-model="r[1]" rows="1" placeholder="内容" @input="autoGrow($event)" />
-                  <button class="row-del" @click="paper.rows.splice(ri, 1)">✕</button>
-                </div>
-              </template>
-
-              <template v-else-if="paper.type === '文本'">
-                <div class="paper-item-head" style="margin-top:14px">
-                  <span class="paper-item-name">文本内容</span>
-                </div>
-                <textarea v-model="paper.text" class="paper-prose-edit" rows="10" />
-              </template>
-
-              <template v-else-if="paper.type === '图片' && sel.file_name">
-                <div class="paper-item-head" style="margin-top:14px">
-                  <span class="paper-item-name">图片证据{{ sel.source_page ? ` · 来源第 ${sel.source_page} 页` : "" }}</span>
-                </div>
-                <div style="display: flex; gap: 8px; margin: 8px 0" v-if="imgDocId">
-                  <button class="act pri" @click="previewOpen = true">查看原文{{ sel.source_page ? ` P${sel.source_page}` : "" }}</button>
-                  <button class="act" @click="analyze()">AI 识别字段</button>
-                </div>
-                <img :src="`/api/files/${sel.file_name}`" style="max-width: 100%; max-height: 460px; border-radius: 6px; box-shadow: 0 1px 8px rgba(15,30,55,.15)">
-                <template v-if="paper.rows.length">
-                  <div class="paper-item-head" style="margin-top:16px"><span class="paper-item-name">识别字段</span></div>
-                  <div v-for="(r, ri) in paper.rows" :key="ri" class="p-row-edit">
-                    <input class="fk" v-model="r[0]" placeholder="字段">
-                    <textarea class="fv" v-model="r[1]" rows="1" placeholder="内容" @input="autoGrow($event)" />
-                    <button class="row-del" @click="paper.rows.splice(ri, 1)">✕</button>
-                  </div>
+                <template v-if="sel.type === '表格' && sel.rows">
+                  <div class="wp-sec" contenteditable="false">结构化内容</div>
+                  <div v-for="(r, i) in sel.rows" :key="'r' + i" class="wp-p" contenteditable="true" data-kind="rows">{{ r[0] }}：{{ r[1] }}</div>
                 </template>
-              </template>
 
-              <template v-else>
-                <div class="filebox">
-                  <div class="fi"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6Z" /><path d="M14 3v4h4" /></svg></div>
-                  <b>{{ sel.file_name || "—" }}</b>
-                  <span>{{ sel.file_size || "" }}</span>
-                </div>
-              </template>
+                <template v-else-if="sel.type === '文本' && sel.text">
+                  <div class="wp-sec" contenteditable="false">文本内容</div>
+                  <div v-for="(para, i) in sel.text.split('\n')" :key="'t' + i" class="wp-p" contenteditable="true" data-kind="text">{{ para }}</div>
+                </template>
+
+                <template v-else-if="sel.type === '图片' && sel.file_name">
+                  <div class="wp-sec" contenteditable="false">图片证据{{ sel.source_page ? " · 来源第 " + sel.source_page + " 页" : "" }}</div>
+                  <div class="wp-img" contenteditable="false">
+                    <img :src="'/api/files/' + sel.file_name">
+                  </div>
+                  <div v-if="imgDocId" class="wp-p" contenteditable="false" style="text-align:center;text-indent:0">
+                    <button class="act pri" @click="previewOpen = true" style="margin-right:8px">查看原文{{ sel.source_page ? " P" + sel.source_page : "" }}</button>
+                    <button class="act" @click="analyze()">AI 识别字段</button>
+                  </div>
+                  <template v-if="sel.rows && sel.rows.length">
+                    <div class="wp-sec" contenteditable="false">识别字段</div>
+                    <div v-for="(r, i) in sel.rows" :key="'ar' + i" class="wp-p" contenteditable="true" data-kind="rows">{{ r[0] }}：{{ r[1] }}</div>
+                  </template>
+                </template>
+
+                <template v-else>
+                  <div class="wp-sec" contenteditable="false">文件</div>
+                  <div class="wp-p" contenteditable="false" style="text-align:center;text-indent:0">{{ sel.file_name || "—" }} {{ sel.file_size || "" }}</div>
+                </template>
+              </div>
+            </div>
+            <div class="wordstatus">
+              <span>字数统计：{{ wordCount }}</span>
+              <span v-if="dirty" style="color:var(--risk)">有未保存修改</span>
             </div>
           </div>
           <div class="ed-foot">
@@ -431,10 +423,10 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- 编辑素材 -->
+    <!-- 新建素材 -->
     <div v-if="editOpen" class="modal-wrap" @click.self="editOpen = false">
-      <div class="modal" role="dialog" aria-modal="true" aria-label="素材编辑">
-        <h3>{{ editId ? "编辑素材" : "上传 / 新建素材" }}</h3>
+      <div class="modal" role="dialog" aria-modal="true" aria-label="新建素材">
+        <h3>上传 / 新建素材</h3>
         <div class="frm">
           <div class="frow">
             <div class="f">
@@ -453,8 +445,6 @@ onMounted(async () => {
               <select v-model="eType">
                 <option value="表格">表格（键值行）</option>
                 <option value="文本">文本段落</option>
-                <option value="图片">图片扫描件</option>
-                <option value="附件">附件文档</option>
               </select>
             </div>
             <div class="f">
@@ -462,14 +452,14 @@ onMounted(async () => {
               <input v-model="eTags" type="text" placeholder="如：资质, 营业执照">
             </div>
           </div>
-          <div v-if="eType === '表格' || eType === '文本'" class="f">
-            <label class="fl">{{ syncContentLabel() }}</label>
-            <textarea v-model="eContent" rows="6" placeholder="法定代表人：张建国&#10;单位性质：有限责任公司" />
+          <div class="f">
+            <label class="fl">内容（每行一条：字段：值 / 文本段落）</label>
+            <textarea v-model="eContent" rows="6" placeholder="法定代表人：张建国" />
           </div>
         </div>
         <div class="m-foot">
           <button class="btn-ghost" @click="editOpen = false">取消</button>
-          <button class="btn-primary" @click="saveEdit()">保存</button>
+          <button class="btn-primary" @click="saveCreate()">保存</button>
         </div>
       </div>
     </div>
