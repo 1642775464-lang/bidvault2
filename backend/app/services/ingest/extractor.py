@@ -138,10 +138,16 @@ def _find_anchor_line(lines: list[str], anchors: list[str]) -> int | None:
 
 
 def _table_to_rows(rows: list[list[str]]) -> list[tuple[str, str]]:
-    """表格行列 → 键值行：两列键值；多列取倒数第二列做字段名、末列做值。"""
+    """表格行列 → 键值行：两列键值；多列取倒数第二列做字段名、末列做值。首行表头过滤。"""
     out: list[tuple[str, str]] = []
-    ncols = max((len(r) for r in rows), default=0)
-    for r in rows:
+    body = rows
+    if len(rows) >= 2:
+        first = rows[0]
+        # 首行是表头：各列均短且非空（如「条款号|条款名称|编列内容」「评审因素|评审标准」）
+        if all(len(c.strip()) <= 16 and c.strip() for c in first if True) and first:
+            body = rows[1:]
+    ncols = max((len(r) for r in body), default=0)
+    for r in body:
         r = (r + [""] * ncols)[:ncols]
         if ncols == 2:
             if r[0] and r[1]:
@@ -169,6 +175,11 @@ def _extract_tender(text: str, doc_tables: list[Any]) -> list[ExtractedGroup]:
         rows: list[tuple[str, str]] = []
         if ai is not None:
             if item["name"] == "投标文件格式":
+                # 格式章节的目录条目（一、投标函 … 十五、合规承诺书）
+                for ln in lines[ai + 1: ai + 60]:
+                    m = re.match(r"^([一二三四五六七八九十]+)\s*[、.]\s*(\S.{1,30}?)\s*$", ln.strip())
+                    if m:
+                        rows.append((m.group(1) + "、" + m.group(2).strip()[:20], "格式文件"))
                 tables = [tb for ti, tb in enumerate(doc_tables) if tb.start_line > ai and ti not in used]
             else:
                 cand = sorted(
@@ -190,7 +201,7 @@ def _extract_tender(text: str, doc_tables: list[Any]) -> list[ExtractedGroup]:
                         rows.append((parts[-2][:60], parts[-1][:400]))
                     continue
                 rows.extend((m.group(1).strip(), m.group(2).strip()) for m in _FIELD_LINE.finditer(ln))
-        rows = rows[:40]
+        rows = rows[:80]
         out.append(ExtractedGroup(group_name=item["name"], name=item["name"], sum=item["sum"], rows=rows))
 
     # 格式锚点未命中或无表时，把锚点区之后剩余的未使用表归入投标文件格式
@@ -199,7 +210,7 @@ def _extract_tender(text: str, doc_tables: list[Any]) -> list[ExtractedGroup]:
         remaining = [tb for tb in doc_tables if id(tb) not in used and tb.start_line > last_end]
         for tb in remaining:
             fmt.rows.extend(_table_to_rows(tb.rows))
-        fmt.rows = fmt.rows[:40]
+        fmt.rows = fmt.rows[:80]
     return out
 
 
@@ -241,7 +252,7 @@ def _extract_item_window(
         fm = pat.search(text)
         if fm:
             rows.append((fname, fm.group(1).strip()))
-    rows = rows[:40]
+    rows = rows[:80]
     return [ExtractedGroup(group_name=group_name, name=item["name"], sum=item["sum"], rows=rows)]
 
 

@@ -117,7 +117,7 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
                     llm_made += 1
             audit("llm_extract_merged", doc_id=doc.id, detail=f"LLM 结构项 {llm_made} · 合并后 {len(groups)}")
 
-    existing = {m.title for m in session.query(Material).filter(
+    existing = {m.title: m for m in session.query(Material).filter(
         Material.doc_name == doc.filename).all()}
 
     made = 0
@@ -131,7 +131,15 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
             session.add(ExtractRow(item_id=item.id, field=field_name, value=value, seq=ri))
 
         title = g.name if len(g.name) <= 24 else g.name[:22] + "…"
-        if title not in existing:
+        new_rows = json.dumps(g.rows, ensure_ascii=False) if g.rows else None
+        if title in existing:
+            # 重新拆解：刷新同名素材内容（保留引用计数与分类）
+            mat = existing[title]
+            mat.rows_json = new_rows or mat.rows_json
+            mat.text = (g.sum or mat.text) if not g.rows else None
+            if g.rows:
+                mat.type = "表格"
+        else:
             mat = Material(
                 title=title,
                 type="表格" if g.rows else "文本",
@@ -140,11 +148,11 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
                 doc_name=doc.filename,
                 project_id=doc.project_id,
                 tags_json=json.dumps([g.group_name], ensure_ascii=False),
-                rows_json=json.dumps(g.rows, ensure_ascii=False) if g.rows else None,
+                rows_json=new_rows,
                 text=g.sum if not g.rows else None,
             )
             session.add(mat)
-            existing.add(title)
+            existing[title] = mat
             made += 1
     session.commit()
     return len(groups), made
