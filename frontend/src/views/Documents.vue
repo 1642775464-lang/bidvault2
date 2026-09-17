@@ -102,6 +102,30 @@ const dirty = ref(false);
 const savingDoc = ref(false);
 const pendingSaves: Promise<unknown>[] = [];
 
+interface RowBlock {
+  type: "table" | "para";
+  rows: string[][];
+}
+
+/** 连续多列行合为表格块，单列行（文本段落）独立成段。 */
+function rowBlocks(rows: string[][]): RowBlock[] {
+  const blocks: RowBlock[] = [];
+  for (const r of rows) {
+    const isTable = r.length >= 2;
+    const last = blocks[blocks.length - 1];
+    if (isTable) {
+      if (last && last.type === "table") {
+        last.rows.push(r);
+      } else {
+        blocks.push({ type: "table", rows: [r] });
+      }
+    } else {
+      blocks.push({ type: "para", rows: [[r[0] || ""]] });
+    }
+  }
+  return blocks;
+}
+
 function recount(): void {
   if (docPage.value) {
     wordCount.value = (docPage.value.innerText || "").replace(/\s/g, "").length;
@@ -121,20 +145,31 @@ async function saveDoc(): Promise<void> {
   savingDoc.value = true;
   try {
     let n = 0;
-    docPage.value.querySelectorAll<HTMLTableElement>("table[data-item]").forEach((tbl) => {
-      const id = tbl.getAttribute("data-item") || "";
-      const rows = Array.from(tbl.querySelectorAll("tr")).map((tr) =>
-        Array.from(tr.querySelectorAll("td,th")).map((td) => ((td as HTMLElement).innerText || "").replace(/ /g, " ").trim()),
-      );
+    // 按 DOM 顺序聚合每个结构项的行：表格行=全列，段落行=单列
+    const byId: Record<string, string[][]> = {};
+    docPage.value.querySelectorAll<HTMLElement>("[data-item]").forEach((el) => {
+      const id = el.getAttribute("data-item") || "";
+      if (el.tagName === "TABLE") {
+        el.querySelectorAll("tr").forEach((tr) => {
+          const cells = Array.from(tr.querySelectorAll("td,th")).map((td) =>
+            ((td as HTMLElement).innerText || "").replace(/\u00a0/g, " ").trim(),
+          );
+          (byId[id] ??= []).push(cells);
+        });
+      } else {
+        const line = (el.innerText || "").replace(/\u00a0/g, " ").trim();
+        if (line) (byId[id] ??= []).push([line]);
+      }
+    });
+    for (const [id, rows] of Object.entries(byId)) {
       const it = extract.value.flatMap((g) => g.items).find((x) => x.id === id);
-      if (!it) return;
-      if (JSON.stringify(rows) === JSON.stringify(it.rows)) return;
-      pendingSaves.push(api.updateExtractItem(sel.value!.id, id, rows).then(() => {
+      if (!it) continue;
+      if (JSON.stringify(rows) === JSON.stringify(it.rows)) continue;
+      await api.updateExtractItem(sel.value!.id, id, rows).then(() => {
         it.rows = rows;
         n++;
-      }));
-    });
-    await Promise.all(pendingSaves);
+      });
+    }
     dirty.value = false;
     toast(n ? `已保存 ${n} 个结构项` : "内容无变化");
   } catch (e) {
@@ -313,11 +348,14 @@ onMounted(async () => {
                     <template v-for="grp in g.groups" :key="grp.name">
                       <div class="wp-h" contenteditable="false">{{ grp.name }}</div>
                       <template v-for="it in grp.items" :key="it.id">
-                        <table class="realtable" :data-item="it.id">
-                          <tr v-for="(r, ri) in it.rows" :key="ri">
-                            <td v-for="(c, ci) in r" :key="ci" contenteditable="true">{{ c }}</td>
-                          </tr>
-                        </table>
+                        <template v-for="(blk, bi) in rowBlocks(it.rows)" :key="it.id + '-' + bi">
+                          <table v-if="blk.type === 'table'" class="realtable" :data-item="it.id" :data-block="bi">
+                            <tr v-for="(r, ri) in blk.rows" :key="ri">
+                              <td v-for="(c, ci) in r" :key="ci" contenteditable="true" @input="onDocInput">{{ c }}</td>
+                            </tr>
+                          </table>
+                          <p v-else class="wp-p" :data-item="it.id" :data-block="bi" contenteditable="true" @input="onDocInput">{{ blk.rows[0][0] }}</p>
+                        </template>
                       </template>
                     </template>
                   </template>
