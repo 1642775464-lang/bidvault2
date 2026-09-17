@@ -128,16 +128,14 @@ async function saveInline(): Promise<void> {
       .map((x) => x.trim())
       .filter(Boolean);
     const rows: string[][] = [];
+    root.querySelectorAll<HTMLTableElement>("table.realtable tr").forEach((tr) => {
+      const cells = Array.from(tr.querySelectorAll("td")).map((td) => (td.innerText || "").replace(/ /g, " ").trim());
+      if (cells.some((c) => c)) rows.push(cells);
+    });
     const textLines: string[] = [];
-    root.querySelectorAll<HTMLElement>(".wp-p").forEach((el) => {
-      const line = (el.innerText || "").replace(/\u00a0/g, " ").trim();
-      if (!line) return;
-      if (el.getAttribute("data-kind") === "rows") {
-        const m = line.match(/^(.*?)[:：]([\s\S]*)$/);
-        rows.push(m && m[1].trim() ? [m[1].trim(), m[2].trim()] : [line, ""]);
-      } else {
-        textLines.push(line);
-      }
+    root.querySelectorAll<HTMLElement>(".wp-p[data-kind=text]").forEach((el) => {
+      const line = (el.innerText || "").trim();
+      if (line) textLines.push(line);
     });
     const body: Record<string, unknown> = {
       title,
@@ -381,7 +379,11 @@ onMounted(async () => {
 
                 <template v-if="sel.type === '表格' && sel.rows">
                   <div class="wp-sec" contenteditable="false">结构化内容</div>
-                  <div v-for="(r, i) in sel.rows" :key="'r' + i" class="wp-p" contenteditable="true" data-kind="rows">{{ r[0] }}：{{ r[1] }}</div>
+                  <table class="realtable" contenteditable="true">
+                    <tr v-for="(r, i) in sel.rows" :key="'r' + i">
+                      <td v-for="(c, ci) in r" :key="ci" contenteditable="true">{{ c }}</td>
+                    </tr>
+                  </table>
                 </template>
 
                 <template v-else-if="sel.type === '文本' && sel.text">
@@ -400,7 +402,11 @@ onMounted(async () => {
                   </div>
                   <template v-if="sel.rows && sel.rows.length">
                     <div class="wp-sec" contenteditable="false">识别字段</div>
-                    <div v-for="(r, i) in sel.rows" :key="'ar' + i" class="wp-p" contenteditable="true" data-kind="rows">{{ r[0] }}：{{ r[1] }}</div>
+                    <table class="realtable" contenteditable="true">
+                      <tr v-for="(r, i) in sel.rows" :key="'ar' + i">
+                        <td v-for="(c, ci) in r" :key="ci" contenteditable="true">{{ c }}</td>
+                      </tr>
+                    </table>
                   </template>
                 </template>
 

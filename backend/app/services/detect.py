@@ -56,22 +56,24 @@ class DetectResult:
     detected_at: str = ""
 
 
-def _tender_items(session: Session, doc_id: str) -> dict[str, list[tuple[str, str]]]:
+def _tender_items(session: Session, doc_id: str) -> dict[str, list[list[str]]]:
     """招标拆解项：{结构项名: [(字段,值)]}。"""
     items = session.query(ExtractItem).filter(ExtractItem.doc_id == doc_id).all()
-    out: dict[str, list[tuple[str, str]]] = {}
+    out: dict[str, list[list[str]]] = {}
     for it in items:
         rows = session.query(ExtractRow).filter(ExtractRow.item_id == it.id).order_by(ExtractRow.seq).all()
-        out[it.name] = [(r.field, r.value or "") for r in rows]
+        out[it.name] = [[r.field, r.value or ""] for r in rows]
     return out
 
 
-def _tender_value(items: dict[str, list[tuple[str, str]]], item_kw: str, field_kw: str) -> str:
+def _tender_value(items: dict[str, list[list[str]]], item_kw: str, field_kw: str) -> str:
+    """从拆解项里取值：字段关键词在行内任一列匹配，返回该行最后一列内容。"""
     for name, rows in items.items():
         if item_kw in name:
-            for f, v in rows:
-                if field_kw in f:
-                    return v
+            for r in rows:
+                cells = [c for c in r if c]
+                if any(field_kw in c for c in cells):
+                    return cells[-1] if len(cells) > 1 else cells[0]
     return ""
 
 
@@ -257,7 +259,7 @@ def detect_project(session: Session, project_id: str) -> DetectResult:
     return result
 
 
-def _score_compare(session: Session, bids: list[Document], t_items: dict[str, list[tuple[str, str]]]) -> list[list[str]]:
+def _score_compare(session: Session, bids: list[Document], t_items: dict[str, list[list[str]]]) -> list[list[str]]:
     """F3.2 评分办法对照：评标前附表字段 × 投标响应核对。"""
     rows_out: list[list[str]] = []
     bid_text = " ".join(b.content_text or "" for b in bids)

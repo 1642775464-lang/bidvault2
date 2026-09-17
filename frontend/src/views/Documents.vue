@@ -100,6 +100,7 @@ const docPage = ref<HTMLElement | null>(null);
 const wordCount = ref(0);
 const dirty = ref(false);
 const savingDoc = ref(false);
+const pendingSaves: Promise<unknown>[] = [];
 
 function recount(): void {
   if (docPage.value) {
@@ -119,29 +120,21 @@ async function saveDoc(): Promise<void> {
   if (!sel.value || !dirty.value || !docPage.value) return;
   savingDoc.value = true;
   try {
-    const linesById: Record<string, string[]> = {};
-    docPage.value.querySelectorAll<HTMLElement>(".wp-p[data-item]").forEach((el) => {
-      const id = el.getAttribute("data-item") || "";
-      const line = (el.innerText || "").replace(/ /g, " ").trim();
-      (linesById[id] ??= []).push(line);
-    });
     let n = 0;
-    for (const g of extract.value) {
-      for (const it of g.items) {
-        const lines = linesById[it.id];
-        if (!lines) continue;
-        const rows: string[][] = lines.map((line, i) => {
-          const m = line.match(/^(.*?)[:：]([\s\S]*)$/);
-          if (m && m[1].trim()) return [m[1].trim(), m[2].trim()];
-          return [it.rows[i]?.[0] ?? `字段${i + 1}`, line];
-        });
-        const orig = JSON.stringify(it.rows);
-        if (JSON.stringify(rows) === orig) continue;
-        await api.updateExtractItem(sel.value!.id, it.id, rows);
+    docPage.value.querySelectorAll<HTMLTableElement>("table[data-item]").forEach((tbl) => {
+      const id = tbl.getAttribute("data-item") || "";
+      const rows = Array.from(tbl.querySelectorAll("tr")).map((tr) =>
+        Array.from(tr.querySelectorAll("td,th")).map((td) => ((td as HTMLElement).innerText || "").replace(/ /g, " ").trim()),
+      );
+      const it = extract.value.flatMap((g) => g.items).find((x) => x.id === id);
+      if (!it) return;
+      if (JSON.stringify(rows) === JSON.stringify(it.rows)) return;
+      pendingSaves.push(api.updateExtractItem(sel.value!.id, id, rows).then(() => {
         it.rows = rows;
         n++;
-      }
-    }
+      }));
+    });
+    await Promise.all(pendingSaves);
     dirty.value = false;
     toast(n ? `已保存 ${n} 个结构项` : "内容无变化");
   } catch (e) {
@@ -320,14 +313,11 @@ onMounted(async () => {
                     <template v-for="grp in g.groups" :key="grp.name">
                       <div class="wp-h" contenteditable="false">{{ grp.name }}</div>
                       <template v-for="it in grp.items" :key="it.id">
-                        <div
-                          v-for="(r, ri) in it.rows"
-                          :key="it.id + '-' + ri"
-                          class="wp-p"
-                          contenteditable="true"
-                          :data-item="it.id"
-                          :data-ri="ri"
-                        >{{ r[0] }}：{{ r[1] }}</div>
+                        <table class="realtable" :data-item="it.id">
+                          <tr v-for="(r, ri) in it.rows" :key="ri">
+                            <td v-for="(c, ci) in r" :key="ci" contenteditable="true">{{ c }}</td>
+                          </tr>
+                        </table>
                       </template>
                     </template>
                   </template>

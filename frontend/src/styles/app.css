@@ -675,3 +675,13 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
   background:#f0f2f5;border:1px solid var(--line);border-top:none;border-radius:0 0 8px 8px;
   padding:4px 14px;font-size:11px;color:var(--dim);display:flex;gap:16px;flex:none;
 }
+
+/* ===== 原表格还原渲染 ===== */
+.realtable{width:100%;border-collapse:collapse;margin:10px 0;font-size:12.5px;font-family:"宋体","SimSun","Times New Roman",serif;color:#1a1a1a}
+.realtable td,.realtable th{
+  border:1px solid #444;padding:6px 9px;vertical-align:top;text-align:left;line-height:1.7;
+  word-break:break-all;background:#fff;
+}
+.realtable tr:first-child td,.realtable tr:first-child th{
+  background:#f0f0f0;font-weight:700;text-align:center;font-family:"SimHei","黑体",sans-serif;
+}

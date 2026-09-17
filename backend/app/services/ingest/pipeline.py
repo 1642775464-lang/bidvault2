@@ -85,10 +85,10 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
 
     text = doc.content_text or ""
     groups = extract_structured(text, doc.kind, parsed.doc_tables if parsed else None)
-    # 过滤空值行（LLM 有时按 schema 占位输出空字段）
+    # 过滤空值行（LLM 有时按 schema 占位输出空字段）；行内列数可变 1~N
     for g in groups:
-        g.rows = [r for r in g.rows if r[1].strip()]
-    groups = [g for g in groups if g.rows or "章节目录" in g.name]
+        g.rows = [r for r in g.rows if any(c.strip() for c in r)]
+    groups = [g for g in groups if g.rows]
 
     # 重新拆解：先清空旧结构项与行（素材由标题去重自行保护）
     old_items = session.query(ExtractItem).filter(ExtractItem.doc_id == doc.id).all()
@@ -103,15 +103,21 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
         llm_items = llm_extract(text, doc.kind)
         if llm_items:
             by_key = {(g.group_name, g.name): g for g in groups}
-            for it in llm_items:
-                key = (str(it.get("group")), str(it.get("name")))
+            for llm_item in llm_items:
+                key = (str(llm_item.get("group")), str(llm_item.get("name")))
                 # 模型偶尔把章号当结构项名（name="第一章"），丢弃
                 if re.match(r"^第[一二三四五六七八九十百零]+章$", key[1]):
                     continue
-                rows = [(str(r[0]), str(r[1])) for r in it.get("rows") or [] if len(r) >= 2 and str(r[1]).strip()]
+                rows = [
+                    [str(c) for c in r if str(c).strip()]
+                    for r in llm_item.get("rows") or []
+                    if isinstance(r, (list, tuple)) and any(str(c).strip() for c in r)
+                ]
                 if key in by_key:
-                    merged = dict.fromkeys(r[0] for r in by_key[key].rows)
-                    by_key[key].rows = by_key[key].rows + [r for r in rows if r[0] not in merged]
+                    seen = {"|".join(c[:40] for c in r) for r in by_key[key].rows}
+                    for r in rows:
+                        if "|".join(c[:40] for c in r) not in seen:
+                            by_key[key].rows.append(r)
                 else:
                     groups.append(ExtractedGroup(group_name=key[0], name=key[1], sum="大模型抽取", rows=rows))
                     llm_made += 1
@@ -127,8 +133,12 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
         )
         session.add(item)
         session.flush()
-        for ri, (field_name, value) in enumerate(g.rows):
-            session.add(ExtractRow(item_id=item.id, field=field_name, value=value, seq=ri))
+        # 表格全列行：首列到倒数第二列合成字段名，最后一列作值
+        for ri, r in enumerate(g.rows):
+            cells = [str(c) for c in r if str(c).strip()]
+            fname = " ".join(cells[:-1]) if len(cells) > 1 else (cells[0] if cells else "")
+            fval = cells[-1] if len(cells) > 1 else ""
+            session.add(ExtractRow(item_id=item.id, field=fname[:120], value=fval[:2000], seq=ri))
 
         title = g.name if len(g.name) <= 24 else g.name[:22] + "…"
         new_rows = json.dumps(g.rows, ensure_ascii=False) if g.rows else None
