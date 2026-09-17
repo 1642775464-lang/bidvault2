@@ -84,8 +84,10 @@ def _table_to_rows(rows: list[list[str]]) -> list[list[str]]:
         cells = [c.strip() for c in r]
         while cells and not cells[-1]:
             cells.pop()
-        if any(cells):
-            out.append(cells)
+        # 单列行（仅条款名、无编列内容的对照行）不构成表格数据，丢弃
+        if len(cells) < 2 or not any(cells):
+            continue
+        out.append(cells)
     return out
 
 

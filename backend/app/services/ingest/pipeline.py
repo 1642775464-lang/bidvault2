@@ -109,9 +109,9 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
                 if re.match(r"^第[一二三四五六七八九十百零]+章$", key[1]):
                     continue
                 rows = [
-                    [str(c) for c in r if str(c).strip()]
+                    [str(c).strip() for c in r]
                     for r in llm_item.get("rows") or []
-                    if isinstance(r, (list, tuple)) and any(str(c).strip() for c in r)
+                    if isinstance(r, (list, tuple)) and len(r) >= 2 and r[0].strip() and r[1].strip()
                 ]
                 if key in by_key:
                     seen = {"|".join(c[:40] for c in r) for r in by_key[key].rows}
