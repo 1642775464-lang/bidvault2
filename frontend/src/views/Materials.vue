@@ -169,6 +169,10 @@ async function saveInline(): Promise<void> {
   }
 }
 
+function matBlocks(rows: string[][]): { type: "table"; rows: string[][] }[] {
+  return [{ type: "table", rows }];
+}
+
 async function analyze(): Promise<void> {
   if (!imgDocId.value) return;
   try {
@@ -379,11 +383,14 @@ onMounted(async () => {
 
                 <template v-if="sel.type === '表格' && sel.rows">
                   <div class="wp-sec" contenteditable="false">结构化内容</div>
-                  <table class="realtable" contenteditable="true">
-                    <tr v-for="(r, i) in sel.rows" :key="'r' + i">
-                      <td v-for="(c, ci) in r" :key="ci" contenteditable="true">{{ c }}</td>
-                    </tr>
-                  </table>
+                  <template v-for="(blk, bi) in matBlocks(sel.rows)" :key="'b' + bi">
+                    <table v-if="blk.type === 'table'" class="realtable" contenteditable="true">
+                      <tr v-for="(r, ri) in blk.rows" :key="ri">
+                        <td v-for="(c, ci) in r" :key="ci" contenteditable="true">{{ c }}</td>
+                      </tr>
+                    </table>
+                    <p v-else class="wp-p" contenteditable="true" style="text-indent:2em">{{ blk.rows[0][0] }}</p>
+                  </template>
                 </template>
 
                 <template v-else-if="sel.type === '文本' && sel.text">

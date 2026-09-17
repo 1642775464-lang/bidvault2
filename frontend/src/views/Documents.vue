@@ -107,20 +107,16 @@ interface RowBlock {
   rows: string[][];
 }
 
-/** 连续多列行合为表格块，单列行（文本段落）独立成段。 */
+/** 表格行分组：连续数据行合为一张完整表格（长文本行也在表内，单元格自动撑高）。 */
 function rowBlocks(rows: string[][]): RowBlock[] {
   const blocks: RowBlock[] = [];
   for (const r of rows) {
-    const isTable = r.length >= 2;
+    const cells = r.map((c) => c.trim());
     const last = blocks[blocks.length - 1];
-    if (isTable) {
-      if (last && last.type === "table") {
-        last.rows.push(r);
-      } else {
-        blocks.push({ type: "table", rows: [r] });
-      }
+    if (last && last.type === "table") {
+      last.rows.push(cells);
     } else {
-      blocks.push({ type: "para", rows: [[r[0] || ""]] });
+      blocks.push({ type: "table", rows: [cells] });
     }
   }
   return blocks;
