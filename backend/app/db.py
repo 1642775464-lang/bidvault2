@@ -94,6 +94,7 @@ def _migrate(conn: Any) -> None:
         "ALTER TABLE documents ADD COLUMN ocr_conf REAL",
         "ALTER TABLE documents ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE materials ADD COLUMN source_page INTEGER",
+        "ALTER TABLE extract_rows ADD COLUMN cells_json TEXT",
         "ALTER TABLE risk_items ADD COLUMN meta TEXT",
         "ALTER TABLE risk_items ADD COLUMN doc_id TEXT",
     ]

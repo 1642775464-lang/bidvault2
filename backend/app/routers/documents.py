@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from typing import Any
@@ -83,9 +84,20 @@ def get_extract(doc_id: str, session: Session = Depends(get_session)) -> dict[st
             .order_by(ExtractRow.seq)
             .all()
         )
+        out_rows: list[list[str]] = []
+        for r in rows:
+            if r.cells_json:
+                try:
+                    cells = json.loads(r.cells_json)
+                    if isinstance(cells, list) and cells:
+                        out_rows.append([str(c) for c in cells])
+                        continue
+                except ValueError:
+                    pass
+            out_rows.append([r.field, r.value or ""])
         groups.setdefault(item.group_name, []).append({
             "id": item.id, "name": item.name, "sum": item.sum,
-            "rows": [[r.field, r.value or ""] for r in rows],
+            "rows": out_rows,
         })
     return {
         "status": doc.status,
@@ -153,12 +165,17 @@ def update_extract_item(doc_id: str, item_id: str, body: RowsIn, session: Sessio
         raise HTTPException(404, "结构项不存在")
     session.query(ExtractRow).filter(ExtractRow.item_id == item.id).delete()
     for ri, pair in enumerate(body.rows):
-        if not isinstance(pair, list) or len(pair) < 2:
+        if not isinstance(pair, list) or not pair:
             continue
-        field = str(pair[0]).strip()
+        cells = [str(c).strip() for c in pair]
+        field = cells[0][:120]
         if not field:
             continue
-        session.add(ExtractRow(item_id=item.id, field=field[:120], value=str(pair[1]).strip()[:2000], seq=ri))
+        value = cells[-1][:2000] if len(cells) > 1 else ""
+        session.add(ExtractRow(
+            item_id=item.id, field=field, value=value, seq=ri,
+            cells_json=json.dumps([str(c) for c in pair], ensure_ascii=False),
+        ))
     item.sum = f"{len(body.rows)} 字段" if body.rows else item.sum
     session.commit()
     audit("extract_item_edited", doc_id=doc_id, detail=item.name[:60])

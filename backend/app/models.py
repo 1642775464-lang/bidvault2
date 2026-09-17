@@ -101,6 +101,7 @@ class ExtractRow(Base):
     item_id: Mapped[str] = mapped_column(String(32), index=True)
     field: Mapped[str] = mapped_column(String(200))
     value: Mapped[str | None] = mapped_column(Text, default=None)
+    cells_json: Mapped[str | None] = mapped_column(Text, default=None)  # 表格行全列 JSON（多列还原用）
     seq: Mapped[int] = mapped_column(Integer, default=0)
 
 

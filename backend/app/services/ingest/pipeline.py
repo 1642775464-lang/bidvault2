@@ -133,12 +133,18 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
         )
         session.add(item)
         session.flush()
-        # 表格全列行：首列到倒数第二列合成字段名，最后一列作值
+        # 表格全列行：cells_json 存整行全列（页面表格还原用）；field/value 存合成值（兼容检索/检测）
         for ri, r in enumerate(g.rows):
-            cells = [str(c) for c in r if str(c).strip()]
-            fname = " ".join(cells[:-1]) if len(cells) > 1 else (cells[0] if cells else "")
+            cells = [str(c).strip() for c in r]
+            cells = [c for c in cells if c]
+            if not cells:
+                continue
+            fname = " ".join(cells[:-1]) if len(cells) > 1 else cells[0]
             fval = cells[-1] if len(cells) > 1 else ""
-            session.add(ExtractRow(item_id=item.id, field=fname[:120], value=fval[:2000], seq=ri))
+            session.add(ExtractRow(
+                item_id=item.id, field=fname[:120], value=fval[:2000], seq=ri,
+                cells_json=json.dumps([str(c) for c in r], ensure_ascii=False),
+            ))
 
         title = g.name if len(g.name) <= 24 else g.name[:22] + "…"
         new_rows = json.dumps(g.rows, ensure_ascii=False) if g.rows else None
