@@ -45,8 +45,9 @@ _NAME_STOP = ("兹证明", "特此证明", "证明", "本人", "本公司", "我
 
 
 def _extract_name(val: str) -> str | None:
-    """从字段值里抠人名：去前缀套话与角色词，取剩余纯汉字段（2-4 字）。"""
-    s = val
+    """从字段值里抠人名：去括号内容、前缀套话与角色词，取剩余纯汉字段（2-4 字）。"""
+    s = re.sub(r"[（（][^））]*[）)]", "，", val)
+
     for w in _NAME_STOP:
         s = s.replace(w, "，")
     for seg in re.split(r"[，。;；,、\s（）()【】\[\]·:：]+", s):
@@ -79,8 +80,8 @@ def collect_people(session: Session, project_id: str) -> list[PersonCard]:
         src = m.doc_name or "手动上传"
         rows: list[list[str]] = json.loads(m.rows_json) if m.rows_json else []
         for r in rows:
-            head = r[0] or ""
-            val = r[1] or ""
+            head = r[0] if len(r) > 0 else ""
+            val = r[1] if len(r) > 1 else (r[0] if r else "")
             sp = _split_person(head) or _split_person(val)
             if sp:
                 upsert(sp[0], sp[1], " ".join(_certs_of(val)) or val, src)

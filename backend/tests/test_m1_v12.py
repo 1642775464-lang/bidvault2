@@ -191,7 +191,7 @@ class TestDocumentLibrary:
         all_names = [i["name"] for g in r["groups"] for i in g["items"]]
         # 投标只拆两项（业绩/团队），结构项名=组名
         assert "近年完成的类似项目情况表" in all_names
-        assert {g["name"] for g in r["groups"]} <= {"业绩与履约情况", "项目团队"}
+        assert {g["name"] for g in r["groups"]} <= {"近年完成的类似项目情况表", "项目团队成员及相关人员简历"}
         # 字段行内容（任意行任意列有内容即通过）
         assert any(any(c.strip() for c in row) for g in r["groups"] for it in g["items"] for row in it["rows"])
 

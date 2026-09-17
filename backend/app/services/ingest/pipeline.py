@@ -139,8 +139,15 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
             cells = [c for c in cells if c]
             if not cells:
                 continue
-            fname = " ".join(cells[:-1]) if len(cells) > 1 else cells[0]
-            fval = cells[-1] if len(cells) > 1 else ""
+            if len(cells) == 1:
+                # 单列行（正文段落）：拆「字段：值」，拆不开则整行作值
+                m = re.match(r"^([^：:]{2,20})[:：]\s*(.+)$", cells[0])
+                fname, fval = (m.group(1).strip(), m.group(2).strip()) if m else ("", cells[0])
+            else:
+                fname = " ".join(cells[:-1])
+                fval = cells[-1]
+            if not fname:
+                continue
             session.add(ExtractRow(
                 item_id=item.id, field=fname[:120], value=fval[:2000], seq=ri,
                 cells_json=json.dumps([str(c) for c in r], ensure_ascii=False),
