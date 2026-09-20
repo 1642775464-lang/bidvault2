@@ -34,6 +34,69 @@ const ooHolder = ref<HTMLElement | null>(null);
 const ooMode = ref<"view" | "edit">("view");
 const ooVersion = ref<number | null>(null);
 const ooSaveState = ref("");
+const verOpen = ref(false);
+const verList = ref<
+  { id: string; version: number; source: string; editor_user: string | null; comment: string | null; created_at: string | null; is_current: boolean; size: number | null; restored_from_version_id: string | null }[]
+>([]);
+const viewingVid = ref<string | null>(null);
+const viewingVer = ref<number | null>(null);
+const restoring = ref(false);
+
+async function loadVersions(): Promise<void> {
+  const d = sel.value;
+  if (!d) return;
+  try {
+    verList.value = (await api.onlyofficeVersions(d.id)).items;
+  } catch {
+    verList.value = [];
+  }
+}
+
+function verById(vid: string): number | null {
+  const v = verList.value.find((x) => x.id === vid);
+  return v ? v.version : null;
+}
+
+function openVersionFile(v: { id: string }): void {
+  window.open(`/api/onlyoffice/versions/${sel.value?.id}/${v.id}/file`);
+}
+
+function toggleVersions(): void {
+  verOpen.value = !verOpen.value;
+  if (verOpen.value) void loadVersions();
+}
+
+async function viewVersion(v: { id: string; version: number }): Promise<void> {
+  viewingVid.value = v.id;
+  viewingVer.value = v.version;
+  await initOnlyoffice(v.id);
+}
+
+async function backToCurrent(): Promise<void> {
+  viewingVid.value = null;
+  viewingVer.value = null;
+  await initOnlyoffice();
+}
+
+async function doRestore(v: { id: string; version: number }): Promise<void> {
+  const d = sel.value;
+  if (!d) return;
+  if (!window.confirm(`确认恢复 v${v.version}？将以新建版本方式回滚（当前内容保留为历史版本），并自动重新拆解。`)) return;
+  restoring.value = true;
+  try {
+    await api.restoreVersion(d.id, v.id);
+    toast(`已恢复 v${v.version} 为新版本，正在重新拆解`);
+    viewingVid.value = null;
+    viewingVer.value = null;
+    await initOnlyoffice();
+    void pollVersion();
+    void loadVersions();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "恢复失败");
+  } finally {
+    restoring.value = false;
+  }
+}
 let ooPoll: ReturnType<typeof setInterval> | null = null;
 let ooEditor: { destroyEditor: () => void } | null = null;
 let ooScriptPromise: Promise<void> | null = null;
@@ -75,13 +138,13 @@ function stopPoll(): void {
   ooPoll = null;
 }
 
-async function initOnlyoffice(): Promise<void> {
+async function initOnlyoffice(vid?: string): Promise<void> {
   const d = sel.value;
   if (!d) return;
   ooState.value = "loading";
   ooError.value = "";
   try {
-    const cfg = await api.editorConfig(d.id);
+    const cfg = await api.editorConfig(d.id, vid);
     ooMode.value = cfg.mode === "edit" ? "edit" : "view";
     await loadOnlyofficeScript(cfg.scriptUrl);
     const DocsAPI = (window as unknown as { DocsAPI: { DocEditor: new (id: string, c: unknown) => { destroyEditor: () => void } } }).DocsAPI;
@@ -91,8 +154,13 @@ async function initOnlyoffice(): Promise<void> {
     ooEditor?.destroyEditor();
     ooEditor = new DocsAPI.DocEditor("onlyoffice-holder", cfg.config);
     ooState.value = "ready";
-    ooVersion.value = cfg.version ?? null;
-    ooSaveState.value = cfg.version != null ? `v${cfg.version}` : "";
+    if (vid) {
+      ooVersion.value = cfg.version ?? null;
+      ooSaveState.value = `查看历史 v${cfg.version}`;
+    } else {
+      ooVersion.value = cfg.version ?? null;
+      ooSaveState.value = cfg.version != null ? `v${cfg.version}` : "";
+    }
     startPoll();
   } catch (e) {
     ooState.value = "error";
@@ -459,6 +527,7 @@ onMounted(async () => {
               <button :class="{ on: docTab === 'original' }" @click="docTab = 'original'">原始文档</button>
               <button :class="{ on: docTab === 'analysis' }" @click="docTab = 'analysis'">拆解与AI分析</button>
               <span v-if="docTab === 'original' && ooVersion" class="verbadge">{{ ooSaveState || ('v' + ooVersion) }}</span>
+              <button v-if="docTab === 'original'" class="verbtn" @click="toggleVersions">历史版本</button>
             </div>
             <template v-if="docTab === 'original'">
               <div class="oo-stage">
@@ -466,7 +535,11 @@ onMounted(async () => {
                 <div v-else-if="ooState === 'nosource'" class="empty-state"><b>该文档没有原始文件</b>仅拆解结果可查看（扫描件/转换件）</div>
                 <div v-else-if="ooState === 'loading'" class="empty-state"><b>编辑器加载中…</b>{{ sel.filename }}</div>
                 <div v-else-if="ooState === 'error'" class="empty-state"><b>编辑器加载失败</b>{{ ooError }}</div>
-                <div v-if="ooState === 'ready' && ooMode === 'edit'" class="oo-warn">开发模式：当前修改不会保存（保存链路阶段三接入后开放正式编辑）</div>
+                <div v-if="ooState === 'ready' && viewingVid" class="oo-warn" style="display:flex;align-items:center;gap:12px">
+                  <span>正在查看历史版本 v{{ viewingVer }}（只读）</span>
+                  <button class="mini-btn" style="color:var(--risk)" @click="backToCurrent">返回当前版本</button>
+                </div>
+                <div v-else-if="ooState === 'ready' && ooMode === 'edit'" class="oo-warn">开发模式：当前修改不会保存（保存链路已接入，Ctrl+S 生成工作快照；关闭文档后生成正式版本）</div>
                 <div v-show="ooState === 'ready'" id="onlyoffice-holder" ref="ooHolder" class="oo-holder"></div>
               </div>
             </template>
@@ -533,6 +606,35 @@ onMounted(async () => {
           </div>
         </template>
         <div v-else class="xempty"><b>选择左侧文档</b></div>
+      </div>
+    </div>
+
+    <!-- 历史版本 -->
+    <div v-if="verOpen" class="modal-wrap" @click.self="verOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="历史版本">
+        <h3>历史版本</h3>
+        <div class="verlist">
+          <div v-for="v in verList" :key="v.id" class="verrow" :class="{ cur: v.is_current }">
+            <div class="vl">
+              <b>v{{ v.version }}</b>
+              <span class="chip-tag">{{ { upload: "上传", init: "上传", onlyoffice: "编辑保存", restore: "恢复" }[v.source] || v.source }}<template v-if="v.restored_from_version_id"> · 源自 v{{ verById(v.restored_from_version_id) }}</template></span>
+              <span class="vm">{{ v.created_at ? v.created_at.slice(0, 19).replace("T", " ") : "" }}{{ v.size != null ? " · " + fmtSize(v.size) : "" }}{{ v.editor_user ? " · " + v.editor_user : "" }}</span>
+              <span v-if="v.comment" class="vm">“{{ v.comment }}”</span>
+            </div>
+            <div class="vr">
+              <span v-if="v.is_current" class="chip-role r-admin">当前版本</span>
+              <template v-else>
+                <button class="mini-btn" @click="viewVersion(v)">查看</button>
+                <button class="mini-btn" @click="openVersionFile(v)">下载</button>
+                <button class="mini-btn pri" :disabled="restoring" @click="doRestore(v)">{{ restoring ? "恢复中…" : "恢复" }}</button>
+              </template>
+            </div>
+          </div>
+          <div v-if="!verList.length" class="empty-state"><b>暂无历史版本</b></div>
+        </div>
+        <div class="m-foot">
+          <button class="btn-ghost" @click="verOpen = false">关闭</button>
+        </div>
       </div>
     </div>
 

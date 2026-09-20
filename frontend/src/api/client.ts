@@ -147,11 +147,29 @@ export const api = {
   async detectRules(): Promise<{ rules: { id: string; name: string; sev: string; type: string; desc: string; enabled: boolean }[] }> {
     return handle(fetch("/api/detect/rules"));
   },
+  async onlyofficeVersions(docId: string): Promise<{
+    items: {
+      id: string; version: number; file_hash: string; source: string;
+      editor_user: string | null; restored_from_version_id: string | null;
+      comment: string | null; created_at: string | null; is_current: boolean; size: number | null;
+    }[];
+  }> {
+    return handle(fetch(`/api/onlyoffice/versions/${docId}`));
+  },
+  async restoreVersion(docId: string, versionId: string, comment?: string): Promise<{ ok: boolean; version: number; restored_from: number }> {
+    return handle(
+      fetch(`/api/onlyoffice/versions/${docId}/${versionId}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comment }),
+      }),
+    );
+  },
   async onlyofficeVersion(docId: string): Promise<{ version: number | null; file_hash?: string; source?: string; editor_user?: string | null; created_at?: string | null }> {
     return handle(fetch(`/api/onlyoffice/version/${docId}`));
   },
-  async editorConfig(docId: string): Promise<{ scriptUrl: string; config: Record<string, unknown>; mode: "view" | "edit"; version: number | null; enabled: boolean }> {
-    return handle(fetch(`/api/documents/${docId}/editor-config`));
+  async editorConfig(docId: string, versionId?: string): Promise<{ scriptUrl: string; config: Record<string, unknown>; mode: "view" | "edit"; version: number | null; enabled: boolean }> {
+    return handle(fetch(`/api/documents/${docId}/editor-config${versionId ? `?version_id=${versionId}` : ""}`));
   },
   async saveContent(docId: string, text: string): Promise<{ ok: boolean }> {
     return handle(

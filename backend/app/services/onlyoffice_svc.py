@@ -36,25 +36,25 @@ def document_key(document_id: str, data: bytes, version: int = 1) -> str:
     return f"{document_id}-v{version}-{file_hash(data)[:12]}"
 
 
-def sign_file_token(document_id: str, *, ttl: int = _TOKEN_TTL_SECONDS) -> str:
-    """DS 拉取文件的短期签名 token（HMAC，防篡改+限时）。"""
+def sign_file_token(document_id: str, *, vid: str = "", ttl: int = _TOKEN_TTL_SECONDS) -> str:
+    """DS 拉取文件的短期签名 token（HMAC，防篡改+限时；vid 绑定历史版本维度）。"""
     exp = int(time.time()) + ttl
-    msg = f"{document_id}:{exp}".encode()
+    msg = f"{document_id}:{vid}:{exp}".encode()
     sig = hmac.new(_secret().encode("utf-8"), msg, hashlib.sha256).hexdigest()[:32]
-    return f"{exp}:{sig}"
+    return f"{exp}:{vid}:{sig}"
 
 
-def verify_file_token(document_id: str, token: str) -> bool:
+def verify_file_token(document_id: str, token: str) -> tuple[bool, str]:
     try:
-        exp_str, sig = token.split(":", 1)
+        exp_str, vid, sig = token.split(":", 2)
         exp = int(exp_str)
     except ValueError:
-        return False
+        return False, ""
     if exp < int(time.time()):
-        return False
-    msg = f"{document_id}:{exp}".encode()
+        return False, vid
+    msg = f"{document_id}:{vid}:{exp}".encode()
     expect = hmac.new(_secret().encode("utf-8"), msg, hashlib.sha256).hexdigest()[:32]
-    return hmac.compare_digest(sig, expect)
+    return hmac.compare_digest(sig, expect), vid
 
 
 def build_editor_config(document_id: str, filename: str, data: bytes, *, mode: str | None = None, key: str | None = None) -> dict[str, Any]:
@@ -207,5 +207,83 @@ def create_version_from_data(session: Any, doc: Any, data: bytes, *, editor_user
     doc.current_version_id = v.id
     doc.stored_name = stored
     doc.size = len(data)
+    session.commit()
+    return v
+
+
+# ---------------- 阶段四：历史版本产品化 ----------------
+
+
+def list_versions(session: Any, doc: Any, limit: int = 50) -> list[dict[str, Any]]:
+    """版本列表（新→旧），带 is_current 标记。"""
+    from ..models import DocumentVersion
+
+    rows = (
+        session.query(DocumentVersion)
+        .filter(DocumentVersion.document_id == doc.id)
+        .order_by(DocumentVersion.version.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": v.id,
+            "version": v.version,
+            "file_hash": v.file_hash,
+            "source": v.source,
+            "editor_user": v.editor_user,
+            "restored_from_version_id": v.restored_from_version_id,
+            "comment": v.comment,
+            "created_at": v.created_at.isoformat() if v.created_at else None,
+            "is_current": v.id == doc.current_version_id,
+            "size": (get_settings().files_dir / v.file_path).stat().st_size
+            if (get_settings().files_dir / v.file_path).is_file()
+            else None,
+        }
+        for v in rows
+    ]
+
+
+def restore_version(session: Any, doc: Any, target: Any, *, editor_user: str | None, comment: str | None = None) -> Any:
+    """恢复历史版本：以「创建新版本」方式落地（绝不指回旧版本、绝不覆盖历史文件）。
+
+    当前 v4 恢复 v2 → 生成 v5：source=restore、restored_from_version_id=v2.id、
+    文件为 v2 文件的完整副本；current_version_id 前移到新版本；重拆由调用方触发。
+    """
+    import shutil
+    import uuid as _uuid
+
+    from ..models import DocumentVersion
+
+    current = ensure_version(session, doc)
+    if current is not None and current.id == target.id:
+        raise ValueError("该版本已是当前版本")
+    src = get_settings().files_dir / target.file_path
+    if not src.is_file():
+        raise FileNotFoundError("历史版本文件已丢失")
+    digest = hash_file(src)
+    stored = _uuid.uuid4().hex + ".docx"
+    shutil.copyfile(src, get_settings().files_dir / stored)  # 历史文件不可变：只复制
+    latest = (
+        session.query(DocumentVersion)
+        .filter(DocumentVersion.document_id == doc.id)
+        .order_by(DocumentVersion.version.desc())
+        .first()
+    )
+    v = DocumentVersion(
+        document_id=doc.id,
+        version=(latest.version + 1) if latest else 1,
+        file_path=stored,
+        file_hash=digest,
+        editor_user=editor_user,
+        source="restore",
+        restored_from_version_id=target.id,
+        comment=(comment or "").strip() or None,
+    )
+    session.add(v)
+    session.flush()
+    doc.current_version_id = v.id
+    doc.stored_name = stored
+    doc.size = src.stat().st_size
     session.commit()
     return v

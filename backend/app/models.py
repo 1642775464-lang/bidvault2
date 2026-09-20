@@ -130,7 +130,9 @@ class DocumentVersion(Base):
     file_path: Mapped[str] = mapped_column(String(500))  # 相对 files_dir 的文件名
     file_hash: Mapped[str] = mapped_column(String(64))
     editor_user: Mapped[str | None] = mapped_column(String(100), default=None)
-    source: Mapped[str] = mapped_column(String(20), default="upload")  # upload | onlyoffice | init
+    source: Mapped[str] = mapped_column(String(20), default="upload")  # upload | onlyoffice | init | restore
+    restored_from_version_id: Mapped[str | None] = mapped_column(String(32), default=None)  # 恢复来源版本
+    comment: Mapped[str | None] = mapped_column(String(300), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     __table_args__ = (UniqueConstraint("document_id", "version", name="uq_docver"),)
