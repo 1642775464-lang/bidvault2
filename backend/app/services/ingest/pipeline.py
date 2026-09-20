@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ...models import Document, ExtractItem, ExtractRow, Material
@@ -38,10 +39,24 @@ def load_pending(session: Session, limit: int = 1) -> list[Document]:
     )
 
 
-def process_document(session: Session, doc: Document) -> IngestResult:
-    """拆解管线：解析→索引→拆解抽取→素材入库。"""
+def process_document(session: Session, doc: Document, *, version_id: str | None = None) -> IngestResult:
+    """拆解管线：解析→索引→拆解抽取→素材入库。
+
+    version_id 给定时（ONLYOFFICE 保存触发的重拆）：按该版本文件解析，
+    且落库前校验 doc.current_version_id 仍指向该版本，旧版本结果绝不覆盖新版本。
+    """
     try:
-        data = read_source(doc.source, doc.origin_path, doc.stored_name)
+        if version_id:
+            from ...models import DocumentVersion
+
+            v = session.get(DocumentVersion, version_id)
+            if v is None:
+                raise ValueError(f"版本不存在：{version_id}")
+            from ...config import get_settings
+
+            data = (get_settings().files_dir / v.file_path).read_bytes()
+        else:
+            data = read_source(doc.source, doc.origin_path, doc.stored_name)
 
         doc.status = 1
         session.commit()
@@ -52,6 +67,17 @@ def process_document(session: Session, doc: Document) -> IngestResult:
             doc.needs_review = 1 if any(c < 0.85 for c in parsed.page_conf) else 0
             audit("ocr_done", doc_id=doc.id,
                   detail=f"pages {len(parsed.page_conf)} · conf {doc.ocr_conf} · review {doc.needs_review}")
+
+        # 防串写：清索引/落库前，当前版本必须仍指向本次解析的版本
+        if version_id:
+            fresh = session.execute(
+                text("SELECT current_version_id FROM documents WHERE id = :i"),
+                {"i": doc.id},
+            ).scalar()
+            if fresh != version_id:
+                logger.warning("stale version parse skipped: doc=%s parsed=%s current=%s", doc.id, version_id, fresh)
+                audit("reextract_stale_skipped", doc_id=doc.id, detail=f"parsed v={version_id} current={fresh}")
+                return IngestResult(doc.id, doc.status, 0, 0, 0, error="stale-version-skipped")
 
         purge_document_index(session, doc.id)
         n = _write_index(session, doc.id, parsed.pages)

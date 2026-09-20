@@ -377,6 +377,7 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .oo-stage{flex:1;min-height:0;display:flex;flex-direction:column;background:#f4f6fa}
 .oo-holder{flex:1;min-height:0}
 .oo-warn{flex:none;background:var(--risk-bg);color:var(--risk);font-size:12.5px;font-weight:600;padding:8px 16px;border-bottom:1px solid var(--risk-line)}
+.doctabs .verbadge{margin-left:auto;font-size:11.5px;font-family:var(--mono);color:var(--ok);background:var(--ok-bg);border-radius:4px;padding:3px 8px;align-self:center}
 .chip-proj{font-size:11px;color:var(--accent-deep);background:var(--accent-bg);border:1px solid var(--accent-line);border-radius:4px;padding:1px 7px;white-space:nowrap}
 .chip-unbind{font-size:11px;color:var(--dim);border:1px dashed var(--line);border-radius:4px;padding:1px 7px;white-space:nowrap}
 .chip-src{font-size:10.5px;color:var(--dim);background:#f4f7fb;border-radius:4px;padding:1px 6px;white-space:nowrap}

@@ -97,6 +97,7 @@ def _migrate(conn: Any) -> None:
         "ALTER TABLE extract_rows ADD COLUMN cells_json TEXT",
         "ALTER TABLE risk_items ADD COLUMN meta TEXT",
         "ALTER TABLE risk_items ADD COLUMN doc_id TEXT",
+        "ALTER TABLE documents ADD COLUMN current_version_id TEXT",
     ]
     for ddl in stmts:
         with contextlib.suppress(Exception):

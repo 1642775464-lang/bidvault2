@@ -32,6 +32,9 @@ const ooState = ref<"idle" | "loading" | "ready" | "error" | "unconfigured" | "n
 const ooError = ref("");
 const ooHolder = ref<HTMLElement | null>(null);
 const ooMode = ref<"view" | "edit">("view");
+const ooVersion = ref<number | null>(null);
+const ooSaveState = ref("");
+let ooPoll: ReturnType<typeof setInterval> | null = null;
 let ooEditor: { destroyEditor: () => void } | null = null;
 let ooScriptPromise: Promise<void> | null = null;
 
@@ -45,6 +48,31 @@ function loadOnlyofficeScript(scriptUrl: string): Promise<void> {
     document.head.appendChild(el);
   });
   return ooScriptPromise;
+}
+
+async function pollVersion(): Promise<void> {
+  const d = sel.value;
+  if (!d) return;
+  try {
+    const st = await api.onlyofficeVersion(d.id);
+    if (st.version != null && st.version !== ooVersion.value) {
+      ooVersion.value = st.version;
+      ooSaveState.value = st.created_at ? `v${st.version} · ${st.created_at.slice(11, 16)}` : `v${st.version}`;
+    }
+  } catch {
+    /* 忽略轮询失败 */
+  }
+}
+
+function startPoll(): void {
+  if (ooPoll) clearInterval(ooPoll);
+  void pollVersion();
+  ooPoll = setInterval(() => void pollVersion(), 20000);
+}
+
+function stopPoll(): void {
+  if (ooPoll) clearInterval(ooPoll);
+  ooPoll = null;
 }
 
 async function initOnlyoffice(): Promise<void> {
@@ -63,6 +91,9 @@ async function initOnlyoffice(): Promise<void> {
     ooEditor?.destroyEditor();
     ooEditor = new DocsAPI.DocEditor("onlyoffice-holder", cfg.config);
     ooState.value = "ready";
+    ooVersion.value = cfg.version ?? null;
+    ooSaveState.value = cfg.version != null ? `v${cfg.version}` : "";
+    startPoll();
   } catch (e) {
     ooState.value = "error";
     ooError.value = e instanceof Error ? e.message : "加载失败";
@@ -75,6 +106,7 @@ watch([selId, docTab], ([, tab]) => {
     ooEditor?.destroyEditor();
     ooEditor = null;
     ooState.value = "idle";
+    stopPoll();
   }
 });
 
@@ -426,6 +458,7 @@ onMounted(async () => {
             <div class="doctabs">
               <button :class="{ on: docTab === 'original' }" @click="docTab = 'original'">原始文档</button>
               <button :class="{ on: docTab === 'analysis' }" @click="docTab = 'analysis'">拆解与AI分析</button>
+              <span v-if="docTab === 'original' && ooVersion" class="verbadge">{{ ooSaveState || ('v' + ooVersion) }}</span>
             </div>
             <template v-if="docTab === 'original'">
               <div class="oo-stage">

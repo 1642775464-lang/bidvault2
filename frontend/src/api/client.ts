@@ -147,7 +147,10 @@ export const api = {
   async detectRules(): Promise<{ rules: { id: string; name: string; sev: string; type: string; desc: string; enabled: boolean }[] }> {
     return handle(fetch("/api/detect/rules"));
   },
-  async editorConfig(docId: string): Promise<{ scriptUrl: string; config: Record<string, unknown>; mode: "view" | "edit"; enabled: boolean }> {
+  async onlyofficeVersion(docId: string): Promise<{ version: number | null; file_hash?: string; source?: string; editor_user?: string | null; created_at?: string | null }> {
+    return handle(fetch(`/api/onlyoffice/version/${docId}`));
+  },
+  async editorConfig(docId: string): Promise<{ scriptUrl: string; config: Record<string, unknown>; mode: "view" | "edit"; version: number | null; enabled: boolean }> {
     return handle(fetch(`/api/documents/${docId}/editor-config`));
   },
   async saveContent(docId: string, text: string): Promise<{ ok: boolean }> {

@@ -59,8 +59,7 @@ with sync_playwright() as pw:
             # 兜底：抓取面板可见文本
             try:
                 body_text = frame.locator("body").inner_text()
-                for kw in ["招标公告", "第二章", "第三章", "第四章", "第五章", "第六章"]:
-                    texts.append(f"{kw}: {'出现' if kw in body_text else '未出现'}")
+                texts.extend(f"{kw}: {'出现' if kw in body_text else '未出现'}" for kw in ["招标公告", "第二章", "第三章", "第四章", "第五章", "第六章"])
             except Exception:
                 pass
         print("标题导航条目样本:", texts[:14])

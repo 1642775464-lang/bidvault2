@@ -5,7 +5,17 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, Text, event
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -56,6 +66,7 @@ class Document(Base):
     stored_name: Mapped[str | None] = mapped_column(String(64), default=None)
     source: Mapped[str] = mapped_column(String(10), default="upload")  # upload | path
     origin_path: Mapped[str | None] = mapped_column(String(1000), unique=True)
+    current_version_id: Mapped[str | None] = mapped_column(String(32), default=None)  # 当前正式版本
     kind: Mapped[str] = mapped_column(String(10), default="tender")  # tender | bid
     file_type: Mapped[str] = mapped_column(String(8), default="docx")  # docx|pdf|txt|xlsx|xls|csv|scan
     size: Mapped[int] = mapped_column(Integer, default=0)
@@ -103,6 +114,26 @@ class ExtractRow(Base):
     value: Mapped[str | None] = mapped_column(Text, default=None)
     cells_json: Mapped[str | None] = mapped_column(Text, default=None)  # 表格行全列 JSON（多列还原用）
     seq: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DocumentVersion(Base):
+    """文档正式版本（阶段三）：upload 初始版本 / ONLYOFFICE status=2 保存版本。
+
+    status=6（forcesave，编辑中）只写工作快照，绝不产生本表记录、不换 key。
+    """
+
+    __tablename__ = "document_versions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    document_id: Mapped[str] = mapped_column(String(32), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    file_path: Mapped[str] = mapped_column(String(500))  # 相对 files_dir 的文件名
+    file_hash: Mapped[str] = mapped_column(String(64))
+    editor_user: Mapped[str | None] = mapped_column(String(100), default=None)
+    source: Mapped[str] = mapped_column(String(20), default="upload")  # upload | onlyoffice | init
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    __table_args__ = (UniqueConstraint("document_id", "version", name="uq_docver"),)
 
 
 class Material(Base):
