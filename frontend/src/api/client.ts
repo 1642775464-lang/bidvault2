@@ -147,6 +147,9 @@ export const api = {
   async detectRules(): Promise<{ rules: { id: string; name: string; sev: string; type: string; desc: string; enabled: boolean }[] }> {
     return handle(fetch("/api/detect/rules"));
   },
+  async editorConfig(docId: string): Promise<{ scriptUrl: string; config: Record<string, unknown>; enabled: boolean }> {
+    return handle(fetch(`/api/documents/${docId}/editor-config`));
+  },
   async saveContent(docId: string, text: string): Promise<{ ok: boolean }> {
     return handle(
       fetch(`/api/documents/${docId}/content`, {

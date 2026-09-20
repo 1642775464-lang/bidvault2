@@ -25,6 +25,15 @@ class Settings:
     )
     data_dir: Path = field(default_factory=lambda: Path(_env("DATA_DIR", default=str(_BASE_DIR / "data"))))
     scan_interval_seconds: int = field(default_factory=lambda: int(_env("SCAN_INTERVAL_SECONDS", default="600")))
+    # ONLYOFFICE Document Server（阶段二：查看/编辑原始 DOCX）
+    # PUBLIC_URL：浏览器加载编辑器与 api.js 的地址；INTERNAL_URL：DS 容器回调/拉取文件用的本服务地址
+    onlyoffice_public_url: str = field(default_factory=lambda: _env("ONLYOFFICE_DOCUMENT_SERVER_PUBLIC_URL").rstrip("/"))
+    onlyoffice_backend_internal_url: str = field(default_factory=lambda: _env("ONLYOFFICE_BACKEND_INTERNAL_URL", default="http://host.docker.internal:8000").rstrip("/"))
+    onlyoffice_jwt_secret: str = field(default_factory=lambda: _env("ONLYOFFICE_JWT_SECRET", default="bidvault-onlyoffice-dev-secret"))
+
+    @property
+    def onlyoffice_enabled(self) -> bool:
+        return bool(self.onlyoffice_public_url)
 
     @property
     def db_path(self) -> Path:

@@ -12,7 +12,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import make_engine
-from .routers import backup, detect, documents, materials, paths, people, preview, projects, search
+from .routers import (
+    backup,
+    detect,
+    documents,
+    materials,
+    onlyoffice,
+    paths,
+    people,
+    preview,
+    projects,
+    search,
+)
 from .services.archive.watcher import WatchService
 from .services.backup import apply_pending_restore, start_backup_scheduler
 from .workers.queue import start_workers, stop_workers
@@ -67,6 +78,8 @@ app.include_router(search.router)
 app.include_router(people.router)
 app.include_router(preview.router)
 app.include_router(detect.router)
+app.include_router(onlyoffice.router)
+onlyoffice.register_document_routes(documents.router)
 
 
 @app.get("/api/health")

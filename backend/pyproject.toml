@@ -5,6 +5,7 @@ description = "标库 BidVault v2 后端（单机版）"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
+    "pyjwt>=2.8",
     "uvicorn[standard]>=0.30",
     "sqlalchemy>=2.0",
     "python-dotenv>=1.0",

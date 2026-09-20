@@ -238,7 +238,11 @@ class ContentIn(BaseModel):
 
 @router.put("/{doc_id}/content")
 def save_content(doc_id: str, body: ContentIn, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """工作台正文编辑保存：更新正文并重建检索索引（原件文件不动）。"""
+    """工作台正文编辑保存：更新正文并重建检索索引（原件文件不动）。
+
+    [legacy] ONLYOFFICE 集成后，正式编辑入口为原始文档页签；
+    本接口保留兼容既有调用，待 ONLYOFFICE 验收与迁移完成后下线。
+    """
     from ..services.ingest.pipeline import _write_index, purge_document_index
 
     doc = session.get(Document, doc_id)
@@ -254,7 +258,10 @@ def save_content(doc_id: str, body: ContentIn, session: Session = Depends(get_se
 
 @router.get("/{doc_id}/content.docx")
 def content_docx(doc_id: str, session: Session = Depends(get_session)) -> Response:
-    """成品稿导出：编辑后正文用 python-docx 生成 Word 下载（原件保留不动）。"""
+    """成品稿导出：编辑后正文用 python-docx 生成 Word 下载（原件保留不动）。
+
+    [legacy] 同上，待 ONLYOFFICE 集成验收后评估下线。
+    """
     from io import BytesIO
     from urllib.parse import quote
 

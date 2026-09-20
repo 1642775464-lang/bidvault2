@@ -371,6 +371,11 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .af-radios button.on{background:var(--accent-bg);border-color:var(--accent);color:var(--accent-deep);font-weight:600}
 .metrics .metric.warn{border-color:var(--risk);background:var(--risk-bg)}
 .disk-warn{color:var(--risk);font-weight:600}
+.doctabs{display:flex;gap:4px;padding:10px 16px 0;flex:none;border-bottom:1px solid var(--line-soft)}
+.doctabs button{border:1px solid var(--line-soft);border-bottom:none;background:#f4f6fa;color:var(--sub);font-size:12.5px;font-weight:600;padding:7px 16px;border-radius:8px 8px 0 0;cursor:pointer}
+.doctabs button.on{background:#fff;color:var(--accent-deep);border-color:var(--line)}
+.oo-stage{flex:1;min-height:0;display:flex;flex-direction:column;background:#f4f6fa}
+.oo-holder{flex:1;min-height:0}
 .chip-proj{font-size:11px;color:var(--accent-deep);background:var(--accent-bg);border:1px solid var(--accent-line);border-radius:4px;padding:1px 7px;white-space:nowrap}
 .chip-unbind{font-size:11px;color:var(--dim);border:1px dashed var(--line);border-radius:4px;padding:1px 7px;white-space:nowrap}
 .chip-src{font-size:10.5px;color:var(--dim);background:#f4f7fb;border-radius:4px;padding:1px 6px;white-space:nowrap}

@@ -26,6 +26,56 @@ const bindNewName = ref("");
 const bindNewInd = ref(INDUSTRIES[0]);
 const bindNewErr = ref(false);
 const projects = ref<{ id: string; name: string }[]>([]);
+/* 原始文档（ONLYOFFICE）/ 拆解与AI分析 双页签 */
+const docTab = ref<"original" | "analysis">("original");
+const ooState = ref<"idle" | "loading" | "ready" | "error" | "unconfigured" | "nosource">("idle");
+const ooError = ref("");
+const ooHolder = ref<HTMLElement | null>(null);
+let ooEditor: { destroyEditor: () => void } | null = null;
+let ooScriptPromise: Promise<void> | null = null;
+
+function loadOnlyofficeScript(scriptUrl: string): Promise<void> {
+  if (ooScriptPromise) return ooScriptPromise;
+  ooScriptPromise = new Promise((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = scriptUrl;
+    el.onload = () => resolve();
+    el.onerror = () => reject(new Error("api.js 加载失败"));
+    document.head.appendChild(el);
+  });
+  return ooScriptPromise;
+}
+
+async function initOnlyoffice(): Promise<void> {
+  const d = sel.value;
+  if (!d) return;
+  ooState.value = "loading";
+  ooError.value = "";
+  try {
+    const cfg = await api.editorConfig(d.id);
+    await loadOnlyofficeScript(cfg.scriptUrl);
+    const DocsAPI = (window as unknown as { DocsAPI: { DocEditor: new (id: string, c: unknown) => { destroyEditor: () => void } } }).DocsAPI;
+    if (!DocsAPI) throw new Error("DocsAPI 未就绪");
+    await nextTick();
+    if (!ooHolder.value) return;
+    ooEditor?.destroyEditor();
+    ooEditor = new DocsAPI.DocEditor(ooHolder.value.id, cfg.config);
+    ooState.value = "ready";
+  } catch (e) {
+    ooState.value = "error";
+    ooError.value = e instanceof Error ? e.message : "加载失败";
+  }
+}
+
+watch([selId, docTab], ([, tab]) => {
+  if (tab === "original") void initOnlyoffice();
+  else {
+    ooEditor?.destroyEditor();
+    ooEditor = null;
+    ooState.value = "idle";
+  }
+});
+
 const statusF = ref<"all" | "2" | "1" | "0">("all");
 const extF = ref("all");
 const projF = ref("all");
@@ -371,6 +421,20 @@ onMounted(async () => {
             </span>
           </div>
           <div class="xp-body" style="display: flex; flex-direction: column; overflow: hidden; padding: 0">
+            <div class="doctabs">
+              <button :class="{ on: docTab === 'original' }" @click="docTab = 'original'">原始文档</button>
+              <button :class="{ on: docTab === 'analysis' }" @click="docTab = 'analysis'">拆解与AI分析</button>
+            </div>
+            <template v-if="docTab === 'original'">
+              <div class="oo-stage">
+                <div v-if="ooState === 'unconfigured'" class="empty-state"><b>ONLYOFFICE 未配置</b>设置 ONLYOFFICE_DOCUMENT_SERVER_PUBLIC_URL 后可在线查看与编辑原始文档</div>
+                <div v-else-if="ooState === 'nosource'" class="empty-state"><b>该文档没有原始文件</b>仅拆解结果可查看（扫描件/转换件）</div>
+                <div v-else-if="ooState === 'loading'" class="empty-state"><b>编辑器加载中…</b>{{ sel.filename }}</div>
+                <div v-else-if="ooState === 'error'" class="empty-state"><b>编辑器加载失败</b>{{ ooError }}</div>
+                <div v-show="ooState === 'ready'" ref="ooHolder" class="oo-holder"></div>
+              </div>
+            </template>
+            <template v-else>
             <template v-if="grouped.length">
               <div class="wordbar">
                 <span class="wname">{{ sel.filename }}</span>
@@ -429,6 +493,7 @@ onMounted(async () => {
               <span style="font-size:12px">{{ sel.kind === "tender" ? "解析前附表 / 评标办法 / 格式清单 / 章节目录…" : "解析资格文件 / 财务 / 业绩 / 团队简历…" }}</span>
             </div>
             <div v-else class="xempty"><b>未抽取到结构</b><p>本文档已拆解，但没有匹配到结构项。可尝试重新拆解或人工核对原文。</p></div>
+            </template>
           </div>
         </template>
         <div v-else class="xempty"><b>选择左侧文档</b></div>
