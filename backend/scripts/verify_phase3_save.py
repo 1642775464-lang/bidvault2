@@ -9,8 +9,7 @@ MARK = "阶段三验收标记XYZ"
 
 
 def db():
-    s = sqlite3.connect("../data/db/bidvault.sqlite3", timeout=15)
-    return s
+    return sqlite3.connect("../data/db/bidvault.sqlite3", timeout=15)
 
 
 with sync_playwright() as pw:
@@ -80,19 +79,12 @@ with sync_playwright() as pw:
     vh = s.execute("SELECT file_hash FROM document_versions WHERE id=?", (new_ver[1],)).fetchone()[0]
     s.close()
     expected_key = f"{DOC}-v{new_ver[0]}-{vh[:12]}"
-    got_key = ""
-    t0 = time.time()
-    while time.time() - t0 < 30:
-        for f in page.frames:
-            if "8080" in (f.url or "") and "editor" in (f.url or ""):
-                got_key = f.url
-        r = frame
-        break
     # 直接比对 editor-config 返回的 key
+    import json
     import urllib.request
 
     with urllib.request.urlopen(f"http://127.0.0.1:8000/api/documents/{DOC}/editor-config", timeout=15) as r:
-        cfg = json.loads(r.read()) if (json := __import__("json")) else None
+        cfg = json.load(r)
     got_key = cfg["config"]["document"]["key"]
     print(f"[证据C] 重开后 key={got_key}")
     print(f"[证据C] 预期 key={expected_key}")
