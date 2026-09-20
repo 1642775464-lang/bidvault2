@@ -116,7 +116,7 @@ onMounted(() => {
         <button v-for="s in sections" :key="s" class="sitem" :class="{ on: section === s }" @click="switchSection(s)">
           {{ s }}
           <span v-if="s === '模型服务'" class="dot" :class="{ warn: health && !health.glm_configured }" />
-          <span v-else-if="s === '数据安全'" class="dot" />
+          <span v-else-if="s === '数据安全'" class="dot" :class="{ warn: health?.disk?.warn }" />
         </button>
       </aside>
 
@@ -132,6 +132,7 @@ onMounted(() => {
               <div class="metric"><b>{{ health.counts.materials }}</b><span>素材总数</span></div>
               <div class="metric"><b>{{ health.counts.watch_paths }}</b><span>监视目录</span></div>
               <div class="metric"><b>{{ health.counts.audit_logs }}</b><span>审计记录</span></div>
+              <div class="metric" :class="{ warn: health.disk?.warn }"><b>{{ health.disk?.free_gb ?? "—" }}</b><span>磁盘剩余 GB{{ health.disk?.warn ? " · 水位告警" : "" }}</span></div>
             </div>
             <div class="tblbox">
               <table>
@@ -182,6 +183,7 @@ onMounted(() => {
                   <tr><td>数据存储</td><td>全程本机磁盘（原件 / 抽取结果 / 页图缓存 / 备份）</td></tr>
                   <tr><td>在线调用审计</td><td>{{ health?.counts.audit_logs ?? "—" }} 条留痕</td></tr>
                   <tr><td>自动备份</td><td>{{ backupSchedule || "每日 02:00 自动备份" }} · 滚动保留 {{ backupKeep }} 份</td></tr>
+                  <tr><td>磁盘空间</td><td :class="health?.disk?.warn ? 'disk-warn' : ''">剩余 {{ health?.disk?.free_gb ?? "—" }} GB / 共 {{ health?.disk?.total_gb ?? "—" }} GB · 已用 {{ health?.disk?.used_pct ?? "—" }}%{{ health?.disk?.warn ? "（低于安全水位，请清理或迁移）" : "" }}</td></tr>
                 </tbody>
               </table>
             </div>

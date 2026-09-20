@@ -3,6 +3,7 @@ import type {
   DocItem,
   ExtractResp,
   Health,
+  HistCase,
   Material,
   PersonCard,
   Project,
@@ -82,8 +83,8 @@ export const api = {
       }),
     );
   },
-  async archiveOp(id: string, op: "archive" | "unarchive"): Promise<{ ok: boolean }> {
-    return handle(fetch(`/api/projects/${id}/${op}`, { method: "POST" }));
+  async archiveOp(id: string, op: "archive" | "unarchive", body?: { result: string; result_note?: string; result_amount?: string }): Promise<{ ok: boolean }> {
+    return handle(fetch(`/api/projects/${id}/${op}`, { method: "POST", body: body ? JSON.stringify(body) : undefined }));
   },
 
   /* ---- 文档库 ---- */
@@ -224,6 +225,9 @@ export const api = {
   },
 
   /* ---- 监视路径 ---- */
+  async cases(projectId: string): Promise<{ items: HistCase[]; total: number }> {
+    return handle(fetch(`/api/projects/cases${qs({ project_id: projectId })}`));
+  },
   async paths(): Promise<{ items: WatchPathT[] }> {
     return handle(fetch("/api/paths"));
   },

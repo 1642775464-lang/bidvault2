@@ -5,7 +5,7 @@ import { INDUSTRIES, closeUpload, refreshCore, store, toast } from "../store";
 
 const emit = defineEmits<{ uploaded: [] }>();
 
-const kind = ref<"tender" | "bid">("tender");
+const kind = ref<"tender" | "bid" | "notice">("tender");
 const files = ref<File[]>([]);
 const bind = ref<"none" | "existing" | "new">("none");
 const projSel = ref("");
@@ -85,7 +85,7 @@ async function save(): Promise<void> {
     const r = await api.upload(files.value, kind.value, projectId, true);
     closeUpload();
     toast(
-      `已上传 ${r.created.length} 份${kind.value === "tender" ? "招标文件" : "投标文件"}` +
+      `已上传 ${r.created.length} 份${kind.value === "tender" ? "招标文件" : kind.value === "notice" ? "招标公告" : "投标文件"}` +
         (projectId ? "，已加入拆解队列" : "，未绑定项目"),
     );
     await refreshCore();
@@ -108,6 +108,7 @@ async function save(): Promise<void> {
           <div class="rb">
             <button type="button" :class="{ on: kind === 'tender' }" @click="kind = 'tender'">招标文件</button>
             <button type="button" :class="{ on: kind === 'bid' }" @click="kind = 'bid'">投标文件</button>
+            <button type="button" :class="{ on: kind === 'notice' }" @click="kind = 'notice'">招标公告</button>
           </div>
         </div>
         <div class="f">

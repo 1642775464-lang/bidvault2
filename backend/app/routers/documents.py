@@ -42,7 +42,7 @@ def list_docs(
     from ..models import Document
 
     query = session.query(Document)
-    if kind and kind in ("tender", "bid"):
+    if kind and kind in ("tender", "bid", "notice"):
         query = query.filter(Document.kind == kind)
     if project_id == "none":
         query = query.filter(Document.project_id.is_(None))
@@ -307,8 +307,8 @@ async def upload(
     project_id: str | None = Form(None),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    if kind not in ("tender", "bid"):
-        raise HTTPException(400, "kind 须为 tender/bid")
+    if kind not in ("tender", "bid", "notice"):
+        raise HTTPException(400, "kind 须为 tender/bid/notice")
     allowed = {".docx", ".pdf", ".txt", ".xlsx", ".xls", ".csv", ".jpg", ".jpeg", ".png", ".zip"}
     for f in files:
         ext = Path(f.filename or "").suffix.lower()

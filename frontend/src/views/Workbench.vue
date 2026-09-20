@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
-import type { Material, PersonCard, Project, RiskItemT } from "../api/types";
+import type { Material, PersonCard, Project, RiskItemT , HistCase } from "../api/types";
 import {
   RISK_TYPES,
   askConfirm,
@@ -357,35 +357,33 @@ function idxLabel(): string {
 }
 
 /* ---------------- 评分对照 / 案例 / 人员 ---------------- */
-const caseMats = ref<Material[]>([]);
+const cases = ref<HistCase[]>([]);
 const peopleCards = ref<PersonCard[]>([]);
 
 async function loadPanels(): Promise<void> {
-  caseMats.value = [];
+  cases.value = [];
   peopleCards.value = [];
   if (!cur.value) return;
   try {
-    const mats = await api.materials();
-    const mine = mats.items.filter((m) => m.project_id === cur.value?.id);
-    caseMats.value = mine.filter((m) => m.cat === "业绩案例");
-    if (cur.value) {
-      const pp = await api.people(cur.value.id);
-      peopleCards.value = pp.items;
-    }
+    const cc = await api.cases(cur.value.id);
+    cases.value = cc.items;
+    const pp = await api.people(cur.value.id);
+    peopleCards.value = pp.items;
   } catch {
     /* 空态 */
   }
 }
 
+const sortedCases = computed(() =>
+  cases.value.slice().sort((a, b) =>
+    casesSort.value === "match"
+      ? b.match - a.match
+      : (b.open_at ?? "").localeCompare(a.open_at ?? ""),
+  ),
+);
+
 watch(() => store.activeProjectId, loadPanels);
 watch(tenderDoc, loadPanels);
-
-function matMatch(m: Material): number {
-  let n = 60;
-  if (m.project_id === store.activeProjectId) n += 20;
-  n += Math.min(18, (m.rows?.length ?? 0) * 4 + (m.tags?.length ?? 0) * 3);
-  return Math.min(97, n);
-}
 
 function goLib(): void {
   navTo("lib");
@@ -706,22 +704,25 @@ onMounted(async () => {
               </span>
             </div>
             <div class="caselist">
-              <article v-for="m in caseMats" :key="m.id" class="case-card">
+              <article v-for="cs in sortedCases" :key="cs.id" class="case-card">
                 <div class="case-head">
-                  <span class="case-match" :class="matMatch(m) >= 90 ? 'm-hi' : matMatch(m) >= 80 ? 'm-mid' : 'm-lo'">{{ matMatch(m) }}%</span>
-                  <h4>{{ m.title }}</h4>
+                  <span class="case-match" :class="cs.match >= 90 ? 'm-hi' : cs.match >= 70 ? 'm-mid' : 'm-lo'">{{ cs.match }}%</span>
+                  <h4>{{ cs.name }}</h4>
                 </div>
-                <p v-if="m.rows && m.rows.length" class="case-meta">
-                  {{ m.rows.slice(0, 2).map((r) => r[0] + " " + r[1]).join(" · ") }}
+                <p class="case-meta">
+                  {{ [cs.cust ? "客户 " + cs.cust : "", cs.industry ?? "", cs.amount ? "中标额 " + cs.amount : ""].filter(Boolean).join(" · ") || "—" }}
                 </p>
-                <p v-else-if="m.text" class="case-meta">{{ m.text.slice(0, 60) }}…</p>
-                <div class="case-tags"><span v-for="t in m.tags" :key="t">{{ t }}</span></div>
-                <p class="case-why">来自{{ m.doc_name ? "《" + m.doc_name + "》" : "手动上传素材" }} · 引用 ×{{ m.used }}</p>
+                <div class="case-tags">
+                  <span v-if="cs.open_at">开标 {{ cs.open_at }}</span>
+                  <span v-if="cs.platform">{{ cs.platform }}</span>
+                  <span v-if="cs.note">{{ cs.note }}</span>
+                </div>
+                <p class="case-why">客户历史合作项目 · 已归档中标</p>
                 <div class="rc-actions">
-                  <button class="act pri" @click="navTo('mats')">查看素材</button>
+                  <button class="act pri" @click="navTo('lib')">查看项目</button>
                 </div>
               </article>
-              <div v-if="!caseMats.length" class="empty-state"><b>暂无业绩案例素材</b>在文档库拆解投标文件或手动上传后，这里将推荐同类案例</div>
+              <div v-if="!sortedCases.length" class="empty-state"><b>暂无历史合作案例</b>项目归档并登记「中标」结果后，将按行业/客户/名称匹配度自动推荐到这里</div>
             </div>
           </div>
 

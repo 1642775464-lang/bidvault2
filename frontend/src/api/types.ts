@@ -1,4 +1,4 @@
-export type DocKind = "tender" | "bid";
+export type DocKind = "tender" | "bid" | "notice";
 
 export interface Project {
   id: string;
@@ -155,6 +155,12 @@ export interface Health {
     watch_paths: number;
     audit_logs: number;
   };
+  disk?: {
+    free_gb: number;
+    total_gb: number;
+    used_pct: number;
+    warn: boolean;
+  };
 }
 
 export interface ProjectMeta {
@@ -172,3 +178,15 @@ export const MATERIAL_CATS = [
   "技术方案",
   "其他",
 ] as const;
+
+export interface HistCase {
+  id: string;
+  name: string;
+  cust: string | null;
+  industry: string | null;
+  open_at: string | null;
+  platform: string | null;
+  amount: string | null;
+  note: string | null;
+  match: number;
+}

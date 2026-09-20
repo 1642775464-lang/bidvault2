@@ -106,6 +106,44 @@ def create_project(body: ProjectIn, session: Session = Depends(get_session)) -> 
     return {"id": p.id, "code": p.code}
 
 
+@router.get("/cases")
+def list_cases(project_id: str | None = None, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """客户历史合作案例：已归档且登记「中标」的项目，按真实匹配度推荐。"""
+    cur = session.get(Project, project_id) if project_id else None
+    q = session.query(Project).filter(Project.is_archived == 1, Project.result == "中标")
+    if cur is not None:
+        q = q.filter(Project.id != cur.id)
+    items: list[dict[str, Any]] = [
+        {
+            "id": p.id, "name": p.name, "cust": p.cust, "industry": p.industry,
+            "open_at": p.open_at, "platform": p.platform,
+            "amount": p.result_amount, "note": p.result_note,
+            "match": _case_match(cur, p),
+        }
+        for p in q.all()
+    ]
+    items.sort(key=lambda x: (-x["match"], x["open_at"] or ""))
+    return {"items": items, "total": len(items)}
+
+
+def _case_match(cur: Project | None, p: Project) -> int:
+    """匹配度：同行业 +45，同客户 +30，项目名二字组重叠至多 +25。"""
+    if cur is None:
+        return 60
+    score = 0
+    if cur.industry and p.industry and cur.industry == p.industry:
+        score += 45
+    if cur.cust and p.cust and cur.cust == p.cust:
+        score += 30
+    if cur.name and p.name:
+        a_grams = {cur.name[i:i + 2] for i in range(len(cur.name) - 1)}
+        b_grams = {p.name[i:i + 2] for i in range(len(p.name) - 1)}
+        common = a_grams & b_grams
+        if common:
+            score += min(25, int(50 * len(common) / max(1, min(len(cur.name), len(p.name)) - 1)))
+    return max(5, min(99, score))
+
+
 @router.get("/{project_id}")
 def get_project(project_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
     p = session.get(Project, project_id)
@@ -155,13 +193,27 @@ def set_stage(project_id: str, body: StageIn, session: Session = Depends(get_ses
     return {"ok": True, "stage": p.stage}
 
 
+class ArchiveIn(BaseModel):
+    result: str = "中标"
+    result_note: str | None = None
+    result_amount: str | None = None
+
+
 @router.post("/{project_id}/archive")
-def archive(project_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+def archive(project_id: str, body: ArchiveIn | None = None, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """归档项目，可同时登记中标结果（归档且中标的项目进入案例库）。"""
     p = session.get(Project, project_id)
     if p is None:
         raise HTTPException(404, "项目不存在")
+    if body is not None:
+        if body.result not in ("中标", "未中标"):
+            raise HTTPException(400, "result 须为 中标/未中标")
+        p.result = body.result
+        p.result_note = (body.result_note or "").strip() or None
+        p.result_amount = (body.result_amount or "").strip() or None
     p.is_archived = 1
     session.commit()
+    audit("project_archived", detail=f"{p.name} · {p.result or '未登记结果'}")
     return {"ok": True}
 
 

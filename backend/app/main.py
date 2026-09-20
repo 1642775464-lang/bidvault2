@@ -84,12 +84,23 @@ def health() -> dict[str, Any]:
             "watch_paths": conn.scalar(select(func.count()).select_from(WatchPath)),
             "audit_logs": conn.scalar(select(func.count()).select_from(AuditLog)),
         }
+    import shutil
+
+    usage = shutil.disk_usage(s.data_dir)
+    free_gb = round(usage.free / 1073741824, 1)
+    used_pct = round(usage.used / usage.total * 100, 1)
     return {
         "status": "ok",
         "glm_configured": bool(s.zhipu_api_key),
         "scan_interval": s.scan_interval_seconds,
         "data_dir": str(s.data_dir),
         "counts": counts,
+        "disk": {
+            "free_gb": free_gb,
+            "total_gb": round(usage.total / 1073741824, 1),
+            "used_pct": used_pct,
+            "warn": free_gb < 10 or used_pct >= 80,
+        },
     }
 
 

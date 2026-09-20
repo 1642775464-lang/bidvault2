@@ -279,5 +279,32 @@ step("备份列表", r.status_code == 200 and len(r.json()["items"]) >= 1 and r.
 r = c.get(f"{base}/detect/{pid}/risks")
 step("缺项风险带引用", all(x.get("quote") for x in r.json()["items"]), str([x["title"] for x in r.json()["items"]][:2]))
 
+# 27 第3期 招标公告独立类型
+r = c.post(
+    f"{base}/documents/upload",
+    files=[("files", ("招标公告_HTC-HW-2026-0891.txt", "智慧园区数据中心项目招标公告（公开招标）".encode(), "text/plain"))],
+    data={"kind": "notice", "project_id": pid, "is_secret": "false"},
+)
+step("公告上传", r.status_code == 200 and len(r.json().get("created", [])) == 1, str(r.text[:60]))
+r = c.get(f"{base}/documents", params={"kind": "notice"})
+step("公告筛选", r.status_code == 200 and r.json()["total"] >= 1, f"total={r.json()['total']}")
+
+# 28 第3期 客户历史合作案例（归档登记中标 → 案例推荐）
+r = c.post(f"{base}/projects", json={"name": "智慧园区二期数据中心项目", "role": "主标", "industry": "数据中心 / ICT", "cust": "南青云网络技术有限公司"})
+pid2 = r.json()["id"]
+r = c.post(f"{base}/projects/{pid}/archive", json={"result": "中标", "result_note": "第三次合作", "result_amount": "1,280 万元"})
+step("归档登记中标", r.status_code == 200 and r.json().get("ok"))
+r = c.get(f"{base}/projects/cases", params={"project_id": pid2})
+c0 = r.json()["items"][0] if r.json()["items"] else {}
+step("案例推荐真实化", r.status_code == 200 and len(r.json()["items"]) >= 1 and c0.get("match", 0) >= 75 and c0.get("amount") == "1,280 万元",
+     f"match={c0.get('match')} name={c0.get('name', '')[:12]}")
+r = c.get(f"{base}/projects/cases", params={"project_id": pid})
+step("案例排除当前项目", all(x["id"] != pid for x in r.json()["items"]))
+
+# 29 第3期 磁盘空间水位
+r = c.get(f"{base}/health")
+disk = r.json().get("disk") or {}
+step("磁盘水位", r.status_code == 200 and disk.get("free_gb", 0) > 0 and "warn" in disk, str(disk))
+
 print(f"\n冒烟结果：{ok} 过 / {fail} 败")
 raise SystemExit(1 if fail else 0)

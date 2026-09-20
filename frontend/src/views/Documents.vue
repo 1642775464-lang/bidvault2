@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import type { DocItem, ExtractGroup } from "../api/types";
 import { CATS, INDUSTRIES, fmtSize, openUpload, refreshCore, store, toast } from "../store";
 
-const kindF = ref<"all" | "tender" | "bid">("all");
+const kindF = ref<"all" | "tender" | "bid" | "notice">("all");
 const search = ref("");
 const selId = ref("");
 const docs = ref<DocItem[]>([]);
@@ -286,8 +286,8 @@ onMounted(async () => {
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></svg>
         <input v-model="search" type="text" placeholder="搜索文档 / 项目">
       </div>
-      <button v-for="k in ['all', 'tender', 'bid'] as const" :key="k" class="f-chip" :class="{ on: kindF === k }" @click="kindF = k">
-        {{ k === "all" ? "全部" : k === "tender" ? "招标文件" : "投标文件" }}
+      <button v-for="k in ['all', 'tender', 'bid', 'notice'] as const" :key="k" class="f-chip" :class="{ on: kindF === k }" @click="kindF = k">
+        {{ k === "all" ? "全部" : k === "tender" ? "招标文件" : k === "bid" ? "投标文件" : "招标公告" }}
       </button>
       <span class="bx"><select v-model="statusF">
         <option value="all">全部状态</option>
@@ -342,7 +342,7 @@ onMounted(async () => {
               <div class="m">{{ fmtSize(sel.size) }} · 上传 {{ (sel.created_at ?? "").slice(0, 10) }} · 来源：{{ srcLabel(sel) }}</div>
             </span>
             <span class="sp">
-              <span class="kchip" :class="sel.kind === 'tender' ? 'k-tender' : 'k-bid'">{{ sel.kind === "tender" ? "招标文件" : "投标文件" }}</span>
+              <span class="kchip" :class="sel.kind === 'tender' ? 'k-tender' : sel.kind === 'notice' ? 'k-notice' : 'k-bid'">{{ sel.kind === "tender" ? "招标文件" : sel.kind === "notice" ? "招标公告" : "投标文件" }}</span>
               <span v-if="sel.needs_review" class="chip-miss">OCR 待复核 · 置信度 {{ ((sel.ocr_conf ?? 0) * 100).toFixed(0) }}%</span>
               <span v-else-if="sel.ocr_conf != null" class="chip-src">OCR 置信度 {{ ((sel.ocr_conf ?? 0) * 100).toFixed(0) }}%</span>
               <span v-if="sel.project_id" class="chip-proj">{{ projChipName(sel) }}</span>

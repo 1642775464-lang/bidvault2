@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { api } from "../api/client";
-import type { Project } from "../api/types";
+import type { HistCase, Project } from "../api/types";
 import {
   STAGES,
   closeDrawer,
@@ -26,6 +26,12 @@ watch(
     try {
       const full = await api.project(id);
       docs.value = full.documents ?? [];
+      try {
+        const hc = await api.cases(id);
+        histCases.value = hc.items.filter((x) => x.cust && x.cust === full.cust);
+      } catch {
+        histCases.value = [];
+      }
     } catch {
       docs.value = [];
     }
@@ -34,6 +40,54 @@ watch(
 );
 
 const tenderDoc = computed(() => docs.value?.find((d) => d.kind === "tender") ?? null);
+const noticeDoc = computed(() => docs.value?.find((d) => d.kind === "notice") ?? null);
+const histCases = ref<HistCase[]>([]);
+
+/* 归档登记 */
+const archOpen = ref(false);
+const archResult = ref<"中标" | "未中标">("中标");
+const archNote = ref("");
+const archAmount = ref("");
+
+async function submitArchive(): Promise<void> {
+  const cur = p.value;
+  if (!cur) return;
+  try {
+    await api.archiveOp(cur.id, "archive", {
+      result: archResult.value,
+      result_note: archNote.value.trim() || undefined,
+      result_amount: archAmount.value.trim() || undefined,
+    });
+    toast(`「${cur.name}」已归档（${archResult.value}）`);
+    archOpen.value = false;
+    const i = store.projects.findIndex((x) => x.id === cur.id);
+    if (i >= 0)
+      store.projects[i] = {
+        ...store.projects[i],
+        is_archived: true,
+        result: archResult.value,
+        result_note: archNote.value.trim() || null,
+        result_amount: archAmount.value.trim() || null,
+      } as Project;
+    closeDrawer();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "归档失败");
+  }
+}
+
+async function unarchiveProject(): Promise<void> {
+  const cur = p.value;
+  if (!cur) return;
+  try {
+    await api.archiveOp(cur.id, "unarchive");
+    toast(`「${cur.name}」已恢复为进行中`);
+    const i = store.projects.findIndex((x) => x.id === cur.id);
+    if (i >= 0) store.projects[i] = { ...store.projects[i], is_archived: false };
+    closeDrawer();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "操作失败");
+  }
+}
 
 async function setStage(delta: number): Promise<void> {
   const cur = p.value;
@@ -131,13 +185,28 @@ function goWork(): void {
           <div class="docs">
             <span v-if="tenderDoc" class="file-chip">📄 {{ tenderDoc.filename }}<span class="sz">{{ Math.round((tenderDoc.size || 0) / 1024) }} KB</span></span>
             <span v-else class="file-chip todo">招标文件待上传</span>
-            <span class="file-chip todo">招标公告待上传</span>
+            <span v-if="noticeDoc" class="file-chip">📄 {{ noticeDoc.filename }}<span class="sz">{{ Math.round((noticeDoc.size || 0) / 1024) }} KB</span></span>
+            <span v-else class="file-chip todo">招标公告待上传</span>
           </div>
         </div>
 
         <div class="dr-sec">
           <div class="lab">客户历史合作项目</div>
-          <div class="hist-empty">暂无该客户的历史合作记录</div>
+          <div v-if="histCases.length" class="hist-list">
+            <div v-for="h in histCases" :key="h.id" class="hist-item">
+              <b>{{ h.name }}</b>
+              <span>{{ [h.amount ? "中标额 " + h.amount : "", h.open_at ? h.open_at.slice(0, 10) : ""].filter(Boolean).join(" · ") || "—" }}</span>
+            </div>
+          </div>
+          <div v-else class="hist-empty">暂无该客户的历史合作记录</div>
+        </div>
+
+        <div v-if="p.is_archived" class="dr-sec">
+          <div class="lab">归档状态</div>
+          <div class="arch-row">
+            <span class="chip-result" :class="p.result === '中标' ? 'res-win' : 'res-lose'">{{ p.result || "未登记结果" }}</span>
+            <button class="act" @click="unarchiveProject">恢复为进行中</button>
+          </div>
         </div>
       </div>
       <div class="dr-foot">
@@ -147,6 +216,25 @@ function goWork(): void {
         <button v-if="tenderDoc && docs.some((d) => d.kind === 'bid')" class="act" @click="goWork()">去工作台检测</button>
         <button v-else class="act" title="需先上传招标文件与投标文件" @click="toast('该项目还需补齐招标文件 / 投标文件，先「上传资料」')">去工作台检测</button>
         <button class="act pri" @click="openProjectModal(p.id)">编辑项目</button>
+        <button v-if="!p.is_archived" class="act" @click="archOpen = !archOpen">{{ archOpen ? "收起归档登记" : "归档登记" }}</button>
+      </div>
+      <div v-if="archOpen && !p.is_archived" class="arch-form">
+        <div class="af-row">
+          <label class="fl">项目结果</label>
+          <span class="af-radios">
+            <button type="button" :class="{ on: archResult === '中标' }" @click="archResult = '中标'">中标</button>
+            <button type="button" :class="{ on: archResult === '未中标' }" @click="archResult = '未中标'">未中标</button>
+          </span>
+        </div>
+        <div class="af-row">
+          <label class="fl">金额</label>
+          <input v-model="archAmount" type="text" placeholder="如 1,280 万元">
+        </div>
+        <div class="af-row">
+          <label class="fl">备注</label>
+          <input v-model="archNote" type="text" placeholder="如 第三次合作">
+        </div>
+        <button class="act pri" @click="submitArchive">确认归档</button>
       </div>
     </aside>
   </template>

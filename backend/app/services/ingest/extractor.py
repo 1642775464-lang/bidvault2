@@ -96,6 +96,9 @@ def _table_to_rows(rows: list[list[str]]) -> list[list[str]]:
 def extract_structured(
     text: str, kind: str, doc_tables: list[Any] | None = None,
 ) -> list[ExtractedGroup]:
+    if kind not in ("tender", "bid"):
+        return []  # 招标公告等类型不参与三项/两项结构拆解
+
     """抽取 = 按标题锚点定位章节区间，区间内容原样复制（表格还原表格、段落还原段落）。"""
     lines = text.splitlines()
     tables = doc_tables or []
