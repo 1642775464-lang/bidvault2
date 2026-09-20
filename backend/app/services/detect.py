@@ -147,7 +147,10 @@ def detect_project(session: Session, project_id: str) -> DetectResult:
         req_qual = m.group(1).strip() if m else ""
 
     findings: list[Finding] = []
-    for bid in bids:
+    # 全文缺项/响应类规则只对主投标件生效（正文最长的那份），
+    # 营业执照/资质证书等扫描附件不承担格式完整性，避免刷假缺失。
+    main_bid = max(bids, key=lambda b: len(b.content_text or ""))
+    for bid in [main_bid]:
         text = bid.content_text or ""
         bid_items = _tender_items(session, bid.id)
 

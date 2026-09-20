@@ -28,7 +28,7 @@ BID_ITEMS: list[dict[str, str]] = [
      "anchors": "项目团队成员及相关人员简历|项目团队成员"},
 ]
 
-_CHAPTER_RE = re.compile(r"^\s*第[一二三四五六七八九十百零]+章")
+_CHAPTER_RE = re.compile(r"^\s*第[0-9一二三四五六七八九十百零]+[章节部分篇]")
 
 
 @dataclass
@@ -44,10 +44,21 @@ def _norm(s: str) -> str:
     return re.sub(r"[\s\u3000]+", "", s)
 
 
-def _find_anchor_line(lines: list[str], anchors: list[str]) -> int | None:
-    """锚点行号：仅命中独立标题行（归一化后整行=锚点，或锚点+≤2字且不以句读结尾）。
+_TITLE_PREFIX_RE = re.compile(
+    r"^(?:第[0-9一二三四五六七八九十百零]+[章节部分篇]"
+    r"|[0-9]+(?:[.、][0-9]+)*[.、]?"
+    r"|[一二三四五六七八九十]+[、.]"
+    r"|[（(][一二三四五六七八九十]+[）)]"
+    r"|附件[0-9一二三四五六七八九十]+[:：]?)"
+)
 
-    正文里的「见/按XX前附表」引用句以标点结尾或含引用动词，天然被排除。
+
+def _find_anchor_line(lines: list[str], anchors: list[str]) -> int | None:
+    """锚点行号：仅命中独立标题行。标题允许带章节号前缀（第一章/1.2/一、/附件1），
+    去前缀后整行须与锚点全等（或锚点+≤2字尾且不以句读结尾）。
+
+    正文里的「见/按XX前附表」引用句以标点结尾或含引用动词，天然被排除；
+    目录行带页码尾，去前缀后也不可能与锚点全等。
     """
     anchors_n = [_norm(a) for a in anchors]
     for an in anchors_n:
@@ -55,11 +66,18 @@ def _find_anchor_line(lines: list[str], anchors: list[str]) -> int | None:
             st = _norm(ln)
             if len(st) < len(an):
                 continue
-            if st == an:
+            core = st
+            m = _TITLE_PREFIX_RE.match(st)
+            if m:
+                core = st[m.end():]
+            if len(core) < len(an):
+                continue
+            if core == an:
                 return i
-            tail = st[len(an):]
-            if st.startswith(an) and len(tail) <= 2 and not re.search(r"[；。，、：,]", tail):
-                return i
+            if core.startswith(an):
+                tail = core[len(an):]
+                if len(tail) <= 2 and not re.search(r"[；。，、：,（(]", tail):
+                    return i
     return None
 
 

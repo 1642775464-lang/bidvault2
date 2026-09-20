@@ -27,7 +27,7 @@ TENDER = (
     "投标截止时间：2026-09-30 09:30\n"
     "第二章 评标办法前附表\n"
     "评标办法：综合评估法，技术分 60 分，商务分 20 分，价格分 20 分\n"
-    "第三章 格式清单\n"
+    "第三章 投标文件格式\n"
     "投标函、开标一览表、法定代表人身份证明、授权委托书\n"
 )
 BID = (
@@ -198,11 +198,11 @@ r = c.get(f"{base}/files/{imgmats[0]['file_name']}")
 step("证据图片直读", r.status_code == 200 and r.headers["content-type"].startswith("image/"))
 
 
-# 17 M4 废标检测：投标样例缺授权委托 → 规则触发
+# 17 M4 废标检测：主投标件缺保证金/有效期响应 → 规则触发
 r = c.post(f"{base}/detect/{pid}")
 body = r.json()
 titles = " ".join(x["title"] for x in body["items"])
-step("废标检测触发", r.status_code == 200 and "资质等级" in titles and body["risk_index"] >= 50,
+step("废标检测触发", r.status_code == 200 and "资质等级" in titles and body["risk_index"] > 0,
      f"index={body['risk_index']} items={[x['title'] for x in body['items']][:3]}")
 
 # 18 已处理闭环
