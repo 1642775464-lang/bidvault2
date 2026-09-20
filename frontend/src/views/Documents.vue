@@ -31,6 +31,7 @@ const docTab = ref<"original" | "analysis">("original");
 const ooState = ref<"idle" | "loading" | "ready" | "error" | "unconfigured" | "nosource">("idle");
 const ooError = ref("");
 const ooHolder = ref<HTMLElement | null>(null);
+const ooMode = ref<"view" | "edit">("view");
 let ooEditor: { destroyEditor: () => void } | null = null;
 let ooScriptPromise: Promise<void> | null = null;
 
@@ -53,6 +54,7 @@ async function initOnlyoffice(): Promise<void> {
   ooError.value = "";
   try {
     const cfg = await api.editorConfig(d.id);
+    ooMode.value = cfg.mode === "edit" ? "edit" : "view";
     await loadOnlyofficeScript(cfg.scriptUrl);
     const DocsAPI = (window as unknown as { DocsAPI: { DocEditor: new (id: string, c: unknown) => { destroyEditor: () => void } } }).DocsAPI;
     if (!DocsAPI) throw new Error("DocsAPI 未就绪");
@@ -431,6 +433,7 @@ onMounted(async () => {
                 <div v-else-if="ooState === 'nosource'" class="empty-state"><b>该文档没有原始文件</b>仅拆解结果可查看（扫描件/转换件）</div>
                 <div v-else-if="ooState === 'loading'" class="empty-state"><b>编辑器加载中…</b>{{ sel.filename }}</div>
                 <div v-else-if="ooState === 'error'" class="empty-state"><b>编辑器加载失败</b>{{ ooError }}</div>
+                <div v-if="ooState === 'ready' && ooMode === 'edit'" class="oo-warn">开发模式：当前修改不会保存（保存链路阶段三接入后开放正式编辑）</div>
                 <div v-show="ooState === 'ready'" ref="ooHolder" class="oo-holder"></div>
               </div>
             </template>

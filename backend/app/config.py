@@ -30,6 +30,8 @@ class Settings:
     onlyoffice_public_url: str = field(default_factory=lambda: _env("ONLYOFFICE_DOCUMENT_SERVER_PUBLIC_URL").rstrip("/"))
     onlyoffice_backend_internal_url: str = field(default_factory=lambda: _env("ONLYOFFICE_BACKEND_INTERNAL_URL", default="http://host.docker.internal:8000").rstrip("/"))
     onlyoffice_jwt_secret: str = field(default_factory=lambda: _env("ONLYOFFICE_JWT_SECRET", default="bidvault-onlyoffice-dev-secret"))
+    # 阶段三 callback 落地前默认只读；置 1 仅限开发模式（页面会明确提示“修改不会保存”）
+    onlyoffice_edit_enabled: bool = field(default_factory=lambda: _env("ONLYOFFICE_EDIT_ENABLED", default="0") == "1")
 
     @property
     def onlyoffice_enabled(self) -> bool:

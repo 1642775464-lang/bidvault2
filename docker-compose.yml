@@ -18,6 +18,9 @@ services:
     volumes:
       - ds_logs:/var/log/onlyoffice
       - ds_data:/var/www/onlyoffice/Data
+      # 中文字体：民机文档使用宋体/黑体/仿宋/Times New Roman/仿宋_GB2312 等，
+      # DS 镜像无中文字体，挂载宿主机字体避免 fallback 导致分页/表格漂移
+      - C:/Windows/Fonts:/usr/share/fonts/windows:ro
 
 volumes:
   ds_logs:

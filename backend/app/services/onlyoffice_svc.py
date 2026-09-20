@@ -57,13 +57,16 @@ def verify_file_token(document_id: str, token: str) -> bool:
     return hmac.compare_digest(sig, expect)
 
 
-def build_editor_config(document_id: str, filename: str, data: bytes, *, mode: str = "edit") -> dict[str, Any]:
+def build_editor_config(document_id: str, filename: str, data: bytes, *, mode: str | None = None) -> dict[str, Any]:
     """ONLYOFFICE Document Editor 配置（JWT 签名后的完整载荷）。
 
     document.url 必须是 Document Server 容器可达的地址（ONLYOFFICE_BACKEND_INTERNAL_URL），
     不能是 127.0.0.1；浏览器加载 api.js 用 PUBLIC_URL，两者职责分离。
     """
     s = get_settings()
+    if mode is None:
+        mode = "edit" if s.onlyoffice_edit_enabled else "view"
+    edit = mode == "edit"
     key = document_key(document_id, data)
     doc_url = f"{s.onlyoffice_backend_internal_url}/api/onlyoffice/files/{document_id}?token={sign_file_token(document_id)}"
     config: dict[str, Any] = {
@@ -73,7 +76,8 @@ def build_editor_config(document_id: str, filename: str, data: bytes, *, mode: s
             "key": key,
             "title": filename,
             "url": doc_url,
-            "permissions": {"edit": True, "download": True, "print": True, "comment": True, "review": True},
+            "permissions": {"edit": edit, "download": True, "print": True,
+                            "comment": edit, "review": edit},
         },
         "editorConfig": {
             "callbackUrl": f"{s.onlyoffice_backend_internal_url}/api/onlyoffice/callback/{document_id}",

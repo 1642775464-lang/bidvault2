@@ -65,6 +65,7 @@ def register_document_routes(documents_router: APIRouter) -> None:
         return {
             "scriptUrl": f"{s.onlyoffice_public_url}/web-apps/apps/api/documents/api.js",
             "config": config,
+            "mode": config["editorConfig"]["mode"],
             "enabled": True,
         }
 
