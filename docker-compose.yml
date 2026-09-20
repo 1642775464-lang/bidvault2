@@ -4,7 +4,8 @@
 # DS 回调/拉取文件：http://host.docker.internal:8000（ONLYOFFICE_BACKEND_INTERNAL_URL）
 services:
   documentserver:
-    image: onlyoffice/documentserver:latest
+    # 版本固定：DS 9.4.0（阶段二验收通过的版本，勿随意升级）
+    image: onlyoffice/documentserver@sha256:3ab6ebc7c605e5a32b7ae3ff19daed4925090245acc8100ce2230bd766c88212
     container_name: bidvault-ds
     restart: unless-stopped
     ports:

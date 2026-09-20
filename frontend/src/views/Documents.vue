@@ -59,9 +59,9 @@ async function initOnlyoffice(): Promise<void> {
     const DocsAPI = (window as unknown as { DocsAPI: { DocEditor: new (id: string, c: unknown) => { destroyEditor: () => void } } }).DocsAPI;
     if (!DocsAPI) throw new Error("DocsAPI 未就绪");
     await nextTick();
-    if (!ooHolder.value) return;
+    if (!document.getElementById("onlyoffice-holder")) return;
     ooEditor?.destroyEditor();
-    ooEditor = new DocsAPI.DocEditor(ooHolder.value.id, cfg.config);
+    ooEditor = new DocsAPI.DocEditor("onlyoffice-holder", cfg.config);
     ooState.value = "ready";
   } catch (e) {
     ooState.value = "error";
@@ -434,7 +434,7 @@ onMounted(async () => {
                 <div v-else-if="ooState === 'loading'" class="empty-state"><b>编辑器加载中…</b>{{ sel.filename }}</div>
                 <div v-else-if="ooState === 'error'" class="empty-state"><b>编辑器加载失败</b>{{ ooError }}</div>
                 <div v-if="ooState === 'ready' && ooMode === 'edit'" class="oo-warn">开发模式：当前修改不会保存（保存链路阶段三接入后开放正式编辑）</div>
-                <div v-show="ooState === 'ready'" ref="ooHolder" class="oo-holder"></div>
+                <div v-show="ooState === 'ready'" id="onlyoffice-holder" ref="ooHolder" class="oo-holder"></div>
               </div>
             </template>
             <template v-else>
