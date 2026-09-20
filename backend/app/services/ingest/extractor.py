@@ -138,7 +138,7 @@ def _copy_region(
 ) -> list[list[str]]:
     """区间 [lo, hi) 按文档顺序原样复制：表格=全列行，段落=单列行，行号交织保序。"""
     tbs = sorted(
-        (tb for ti, tb in enumerate(tables) if lo <= tb.start_line < hi and ti not in used_tables),
+        (tb for tb in tables if lo <= tb.start_line < hi and id(tb) not in used_tables),
         key=lambda tb: tb.start_line,
     )
     for tb in tbs:

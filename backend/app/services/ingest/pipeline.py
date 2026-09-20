@@ -80,13 +80,12 @@ def process_document(session: Session, doc: Document) -> IngestResult:
 
 
 def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> tuple[int, int]:
-    """拆解抽取：规则锚点 + GLM-4-Flash 大模型合并 → 结构项+行落库 → 素材入库（去重）。"""
-    from ..llm_extract import llm_available, llm_extract
-    from .extractor import ExtractedGroup, extract_structured
+    """拆解抽取：规则锚点区间原样复制 → 结构项+行落库 → 素材入库（去重）。"""
+    from .extractor import extract_structured
 
     text = doc.content_text or ""
     groups = extract_structured(text, doc.kind, parsed.doc_tables if parsed else None)
-    # 过滤空值行（LLM 有时按 schema 占位输出空字段）；行内列数可变 1~N
+    # 过滤全空行；行内列数可变 1~N
     for g in groups:
         g.rows = [r for r in g.rows if any(c.strip() for c in r)]
     groups = [g for g in groups if g.rows]
@@ -98,31 +97,16 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
     session.query(ExtractItem).filter(ExtractItem.doc_id == doc.id).delete()
     session.commit()
 
-    # LLM 增强：模型抽取与规则结果合并（同组同名以 LLM 为准，其余追加）
-    llm_made = 0
-    if llm_available() and len(text.strip()) >= 200:
-        llm_items = llm_extract(text, doc.kind)
-        if llm_items:
-            by_key = {(g.group_name, g.name): g for g in groups}
-            for llm_item in llm_items:
-                key = (str(llm_item.get("group")), str(llm_item.get("name")))
-                # 模型偶尔把章号当结构项名（name="第一章"），丢弃
-                if re.match(r"^第[一二三四五六七八九十百零]+章$", key[1]):
-                    continue
-                rows = [
-                    [str(c).strip() for c in r]
-                    for r in llm_item.get("rows") or []
-                    if isinstance(r, (list, tuple)) and len(r) >= 2 and r[0].strip() and r[1].strip()
-                ]
-                if key in by_key:
-                    seen = {"|".join(c[:40] for c in r) for r in by_key[key].rows}
-                    for r in rows:
-                        if "|".join(c[:40] for c in r) not in seen:
-                            by_key[key].rows.append(r)
-                else:
-                    groups.append(ExtractedGroup(group_name=key[0], name=key[1], sum="大模型抽取", rows=rows))
-                    llm_made += 1
-            audit("llm_extract_merged", doc_id=doc.id, detail=f"LLM 结构项 {llm_made} · 合并后 {len(groups)}")
+    # ============================================================
+    # IMPORTANT
+    #
+    # 原始 Word 拆解必须严格保持源文档结构（原样复制制，见 PRD v1.3）。
+    #
+    # LLM 不允许添加、删除、合并、重排 g.rows——此前在此处合并 LLM 抽取行，
+    # 会把「招标人：XXX」改写成两列行，导致正文段落被渲染成表格，已禁用。
+    #
+    # 如果未来需要 LLM 做语义分类，应写入独立字段，不能修改原始 rows。
+    # ============================================================
 
     existing = {m.title: m for m in session.query(Material).filter(
         Material.doc_name == doc.filename).all()}
@@ -134,24 +118,39 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
         )
         session.add(item)
         session.flush()
-        # 表格全列行：cells_json 存整行全列（页面表格还原用）；field/value 存合成值（兼容检索/检测）
+        # cells_json 存整行原始全列（含空单元格，页面按列数还原段落/表格）；
+        # field/value 存合成值，仅服务于历史检索与检测兼容，不影响正文是否入库。
         for ri, r in enumerate(g.rows):
-            cells = [str(c).strip() for c in r]
-            cells = [c for c in cells if c]
-            if not cells:
+            if not isinstance(r, (list, tuple)):
                 continue
-            if len(cells) == 1:
-                # 单列行（正文段落）：拆「字段：值」，拆不开则整行作值
-                m = re.match(r"^([^：:]{2,20})[:：]\s*(.+)$", cells[0])
-                fname, fval = (m.group(1).strip(), m.group(2).strip()) if m else ("", cells[0])
+            original_cells = [str(c).strip() for c in r]
+            if not any(original_cells):
+                continue
+            effective_cells = [c for c in original_cells if c]
+            if not effective_cells:
+                continue
+            if len(original_cells) == 1:
+                # Word 正文 paragraph：field/value 仅作检索兼容，正文本身必须入库
+                text_value = original_cells[0]
+                m = re.match(r"^([^：:]{2,40})[:：]\s*(.+)$", text_value)
+                if m:
+                    fname = m.group(1).strip()
+                    fval = m.group(2).strip()
+                else:
+                    fname = "正文"
+                    fval = text_value
             else:
-                fname = " ".join(cells[:-1])
-                fval = cells[-1]
-            if not fname:
-                continue
+                # Word 表格 row
+                non_empty_cells = [c for c in original_cells if c]
+                if len(non_empty_cells) == 1:
+                    fname = "表格内容"
+                    fval = non_empty_cells[0]
+                else:
+                    fname = " ".join(non_empty_cells[:-1])
+                    fval = non_empty_cells[-1]
             session.add(ExtractRow(
                 item_id=item.id, field=fname[:120], value=fval[:2000], seq=ri,
-                cells_json=json.dumps([str(c) for c in r], ensure_ascii=False),
+                cells_json=json.dumps(original_cells, ensure_ascii=False),
             ))
 
         title = g.name if len(g.name) <= 24 else g.name[:22] + "…"
@@ -162,11 +161,11 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
             mat.rows_json = new_rows or mat.rows_json
             mat.text = (g.sum or mat.text) if not g.rows else None
             if g.rows:
-                mat.type = "表格"
+                mat.type = _detect_rows_material_type(g.rows)
         else:
             mat = Material(
                 title=title,
-                type="表格" if g.rows else "文本",
+                type=_detect_rows_material_type(g.rows),
                 cat=_guess_cat(g.name),
                 src="文档库拆解",
                 doc_name=doc.filename,
@@ -180,6 +179,12 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
             made += 1
     session.commit()
     return len(groups), made
+
+
+def _detect_rows_material_type(rows: list[list[str]]) -> str:
+    """素材类型最小修正：存在多列行（真实表格行）才算「表格」，纯单列行是「文本」。"""
+    has_table = any(isinstance(r, (list, tuple)) and len(r) > 1 for r in rows)
+    return "表格" if has_table else "文本"
 
 
 def _guess_cat(name: str) -> str:

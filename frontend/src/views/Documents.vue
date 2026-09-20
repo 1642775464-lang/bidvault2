@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { DocItem, ExtractGroup } from "../api/types";
 import { CATS, INDUSTRIES, fmtSize, openUpload, refreshCore, store, toast } from "../store";
+import { rowBlocks } from "../utils/documentBlocks";
 
 const kindF = ref<"all" | "tender" | "bid" | "notice">("all");
 const search = ref("");
@@ -112,26 +113,6 @@ const wordCount = ref(0);
 const dirty = ref(false);
 const savingDoc = ref(false);
 const pendingSaves: Promise<unknown>[] = [];
-
-interface RowBlock {
-  type: "table" | "para";
-  rows: string[][];
-}
-
-/** 表格行分组：连续数据行合为一张完整表格（长文本行也在表内，单元格自动撑高）。 */
-function rowBlocks(rows: string[][]): RowBlock[] {
-  const blocks: RowBlock[] = [];
-  for (const r of rows) {
-    const cells = r.map((c) => c.trim());
-    const last = blocks[blocks.length - 1];
-    if (last && last.type === "table") {
-      last.rows.push(cells);
-    } else {
-      blocks.push({ type: "table", rows: [cells] });
-    }
-  }
-  return blocks;
-}
 
 function recount(): void {
   if (docPage.value) {

@@ -117,11 +117,14 @@ r = c.get(f"{base}/search", params={"q": "数据中心"})
 hits = r.json()["hits"]
 step("全文检索", r.status_code == 200 and len(hits) > 0, f"hits={len(hits)} top={hits[0]['filename'] if hits else '-'}")
 
-# 6 大模型抽取合并（重新拆解，走 LLM + 规则）
+# 6 重新拆解（原样复制制：LLM 不参与结构拆解，重拆幂等）
 r = c.post(f"{base}/documents/{bid_id}/extract")
 ex = c.get(f"{base}/documents/{bid_id}/extract").json()
 n_items = sum(len(g["items"]) for g in ex["groups"])
-step("LLM 增强拆解", r.status_code == 200 and n_items >= 1, f"items={n_items}")
+r = c.post(f"{base}/documents/{bid_id}/extract")
+ex2 = c.get(f"{base}/documents/{bid_id}/extract").json()
+n_items2 = sum(len(g["items"]) for g in ex2["groups"])
+step("重新拆解稳定", r.status_code == 200 and n_items >= 1 and n_items == n_items2, f"items={n_items}")
 
 # 7 正文预览
 r = c.get(f"{base}/documents/{bid_id}/content")

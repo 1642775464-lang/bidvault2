@@ -198,7 +198,8 @@ class TestDetect:
 
 
 class TestLlmExtract:
-    def test_llm_merged_into_extract(self, client, monkeypatch):
+    def test_llm_rows_not_merged_into_extract(self, client, monkeypatch):
+        """原样复制制：LLM 输出不得进入拆解 rows（即使 LLM 可用也不合并）。"""
         import app.services.llm_extract as le
 
         monkeypatch.setattr(le, "llm_available", lambda: True)
@@ -220,8 +221,9 @@ class TestLlmExtract:
         ex = client.get(f"/api/documents/{bid_doc['id']}/extract").json()
         all_rows = [row for g in ex["groups"] for it in g["items"] for row in it["rows"]]
         names = [it["name"] for g in ex["groups"] for it in g["items"]]
-        assert ["大模型补充字段", "LLM 识别值"] in all_rows, "LLM 字段未合并"
-        assert "大模型新发现结构项" in names, "LLM 新结构项未追加"
+        assert "大模型新发现结构项" not in names, "LLM 新结构项被合并进拆解结果"
+        assert ["大模型补充字段", "LLM 识别值"] not in all_rows, "LLM 行被合并进拆解结果"
+        assert ["字段甲", "值乙"] not in all_rows, "LLM 行被合并进拆解结果"
 
     def test_llm_failure_falls_back(self, client, monkeypatch):
         import app.services.llm_extract as le

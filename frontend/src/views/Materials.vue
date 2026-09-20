@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { Material } from "../api/types";
 import { CATS, navTo, refreshCore, store, toast } from "../store";
 import PagePreview from "../components/PagePreview.vue";
+import { rowBlocks } from "../utils/documentBlocks";
 
 const search = ref("");
 const cat = ref("all");
@@ -129,9 +130,19 @@ async function saveInline(): Promise<void> {
       .map((x) => x.trim())
       .filter(Boolean);
     const rows: string[][] = [];
-    root.querySelectorAll<HTMLTableElement>("table.realtable tr").forEach((tr) => {
-      const cells = Array.from(tr.querySelectorAll("td")).map((td) => (td.innerText || "").replace(/ /g, " ").trim());
-      if (cells.some((c) => c)) rows.push(cells);
+    root.querySelectorAll("table.realtable, .wp-p[data-kind=body]").forEach((el) => {
+      if (el.tagName === "TABLE") {
+        const tbl = el as HTMLTableElement;
+        tbl.querySelectorAll("tr").forEach((tr) => {
+          const cells = Array.from(tr.querySelectorAll("td")).map((td) =>
+            (td.innerText || "").replace(/\u00a0/g, " ").trim(),
+          );
+          if (cells.some((c) => c)) rows.push(cells);
+        });
+      } else {
+        const line = ((el as HTMLElement).innerText || "").replace(/\u00a0/g, " ").trim();
+        if (line) rows.push([line]);
+      }
     });
     const textLines: string[] = [];
     root.querySelectorAll<HTMLElement>(".wp-p[data-kind=text]").forEach((el) => {
@@ -168,10 +179,6 @@ async function saveInline(): Promise<void> {
   } finally {
     saving.value = false;
   }
-}
-
-function matBlocks(rows: string[][]): { type: "table"; rows: string[][] }[] {
-  return [{ type: "table", rows }];
 }
 
 async function analyze(): Promise<void> {
@@ -400,13 +407,13 @@ onMounted(async () => {
 
                 <template v-if="sel.type === '表格' && sel.rows">
                   <div class="wp-sec" contenteditable="false">结构化内容</div>
-                  <template v-for="(blk, bi) in matBlocks(sel.rows)" :key="'b' + bi">
+                  <template v-for="(blk, bi) in rowBlocks(sel.rows)" :key="'b' + bi">
                     <table v-if="blk.type === 'table'" class="realtable" contenteditable="true">
                       <tr v-for="(r, ri) in blk.rows" :key="ri">
                         <td v-for="(c, ci) in r" :key="ci" contenteditable="true">{{ c }}</td>
                       </tr>
                     </table>
-                    <p v-else class="wp-p" contenteditable="true" style="text-indent:2em">{{ blk.rows[0][0] }}</p>
+                    <p v-else class="wp-p" data-kind="body" contenteditable="true" style="text-indent:2em">{{ blk.rows[0][0] }}</p>
                   </template>
                 </template>
 
