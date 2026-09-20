@@ -183,12 +183,12 @@ export const api = {
   async deleteMaterial(id: string): Promise<{ ok: boolean }> {
     return handle(fetch(`/api/materials/${id}`, { method: "DELETE" }));
   },
-  async useMaterial(id: string, where: string): Promise<{ ok: boolean; used: number }> {
+  async useMaterial(id: string, projectId: string): Promise<{ ok: boolean; used: number }> {
     return handle(
       fetch(`/api/materials/${id}/use`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ where }),
+        body: JSON.stringify({ project_id: projectId }),
       }),
     );
   },

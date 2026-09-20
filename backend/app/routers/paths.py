@@ -1,11 +1,11 @@
-"""P1.1 归档路由：路径管理+扫描。"""
+"""P1.1 归档路由：路径管理+扫描。增删路径后通知 watcher 即时重载。"""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,13 @@ router = APIRouter(prefix="/api/paths", tags=["归档路径"])
 
 class PathIn(BaseModel):
     path: str
+
+
+def _restart_watcher(request: Request) -> None:
+    """路径变更后重载 watchdog 监听（P0-10）。"""
+    watcher = getattr(request.app.state, "watcher", None)
+    if watcher is not None:
+        watcher.restart()
 
 
 @router.get("")
@@ -35,7 +42,7 @@ def list_paths(session: Session = Depends(get_session)) -> dict[str, Any]:
 
 
 @router.post("")
-def add_path(body: PathIn, session: Session = Depends(get_session)) -> dict[str, Any]:
+def add_path(body: PathIn, request: Request, session: Session = Depends(get_session)) -> dict[str, Any]:
     p = body.path.strip()
     if not p or not Path(p).is_dir():
         raise HTTPException(400, f"路径不存在或不可访问：{p}")
@@ -45,16 +52,18 @@ def add_path(body: PathIn, session: Session = Depends(get_session)) -> dict[str,
     wp = WatchPath(path=p)
     session.add(wp)
     session.commit()
+    _restart_watcher(request)
     return {"id": wp.id, "existed": False}
 
 
 @router.delete("/{path_id}")
-def remove_path(path_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+def remove_path(path_id: str, request: Request, session: Session = Depends(get_session)) -> dict[str, Any]:
     wp = session.get(WatchPath, path_id)
     if wp is None:
         raise HTTPException(404, "路径不存在")
     session.delete(wp)
     session.commit()
+    _restart_watcher(request)
     return {"ok": True}
 
 

@@ -206,7 +206,7 @@ async function saveUse(): Promise<void> {
     return;
   }
   try {
-    await api.useMaterial(m.id, "素材库引用");
+    await api.useMaterial(m.id, useProj.value);
     toast("「" + m.title + "」已引用到「" + (store.projects.find((p) => p.id === useProj.value)?.name ?? "") + "」");
     useOpen.value = false;
     await load();

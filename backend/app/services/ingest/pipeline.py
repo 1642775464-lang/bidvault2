@@ -53,6 +53,7 @@ def process_document(session: Session, doc: Document) -> IngestResult:
             audit("ocr_done", doc_id=doc.id,
                   detail=f"pages {len(parsed.page_conf)} · conf {doc.ocr_conf} · review {doc.needs_review}")
 
+        purge_document_index(session, doc.id)
         n = _write_index(session, doc.id, parsed.pages)
 
         extracted, made = extract_and_harvest(session, doc, parsed)
@@ -259,5 +260,9 @@ def requeue_failed(session: Session, doc_id: str) -> bool:
 
 def purge_document_index(session: Session, doc_id: str) -> None:
     conn = session.connection().connection
+    conn.execute(
+        "DELETE FROM chunks_vec WHERE chunk_id IN (SELECT chunk_id FROM chunks WHERE document_id = ?)",
+        (doc_id,),
+    )
     conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
     session.commit()

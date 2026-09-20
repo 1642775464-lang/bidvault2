@@ -202,13 +202,13 @@ step("证据图片直读", r.status_code == 200 and r.headers["content-type"].st
 r = c.post(f"{base}/detect/{pid}")
 body = r.json()
 titles = " ".join(x["title"] for x in body["items"])
-step("废标检测触发", r.status_code == 200 and "资质等级" in titles and len(body["items"]) >= 1,
+step("废标检测触发", r.status_code == 200 and "资质等级" in titles and body["risk_index"] >= 50,
      f"index={body['risk_index']} items={[x['title'] for x in body['items']][:3]}")
 
 # 18 已处理闭环
 rid = body["items"][0]["id"]
 r = c.patch(f"{base}/detect/risks/{rid}/done", json={"done": True})
-step("风险处理闭环", r.json()["ok"] and r.json()["risk_index"] > body["risk_index"])
+step("风险处理闭环", r.json()["ok"] and r.json()["risk_index"] < body["risk_index"])  # 处理后指数下降（新语义：越高越危险）
 
 # 19 检测报告 Excel
 r = c.get(f"{base}/detect/{pid}/report.xlsx")

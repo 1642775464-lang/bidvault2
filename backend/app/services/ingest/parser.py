@@ -119,7 +119,7 @@ def parse_txt(data: bytes) -> ParsedDoc:
 
 def parse_table(data: bytes, ext: str) -> ParsedDoc:
     lines: list[str] = []
-    if ext in (".xlsx", ".xls"):
+    if ext in ("xlsx", "xls"):
         from openpyxl import load_workbook
 
         wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
@@ -176,6 +176,27 @@ class OCREngine:
             )
         return self._ocr
 
+    def ocr_image(self, data: bytes) -> ParsedDoc:
+        """单张图片 OCR（JPG/PNG 上传链路）。"""
+        import cv2
+        import numpy as np
+
+        ocr = self._load()
+        arr = np.frombuffer(data, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            return ParsedDoc(text="", pages=[""], page_conf=[0.0])
+        result = ocr.predict(img)
+        texts: list[str] = []
+        scores: list[float] = []
+        for res in result:
+            texts.extend(str(t) for t in res.get("rec_texts", []))
+            scores.extend(float(s) for s in res.get("rec_scores", []))
+        return ParsedDoc(
+            text="\n".join(texts), pages=["\n".join(texts)],
+            page_conf=[round(sum(scores) / len(scores), 4) if scores else 0.0],
+        )
+
     def ocr_pdf(self, data: bytes) -> ParsedDoc:
         import fitz
         import numpy as np
@@ -208,6 +229,8 @@ def parse_any(data: bytes, file_type: str) -> ParsedDoc:
             return parse_pdf(data)
         return OCREngine.get().ocr_pdf(data)
     if file_type == "scan":
+        if data[:4] == b"\x89PNG" or data[:2] == b"\xff\xd8":
+            return OCREngine.get().ocr_image(data)
         return OCREngine.get().ocr_pdf(data)
     if file_type == "txt":
         return parse_txt(data)

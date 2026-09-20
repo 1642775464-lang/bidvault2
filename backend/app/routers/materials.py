@@ -132,6 +132,7 @@ def use_material(material_id: str, body: RefIn, session: Session = Depends(get_s
     if existing is None:
         session.add(MaterialRef(material_id=m.id, project_id=body.project_id))
         m.used += 1
+    m.project_id = body.project_id
     session.commit()
     audit("material_used", detail=f"{m.title} → {p.name}")
     return {"ok": True, "used": m.used}

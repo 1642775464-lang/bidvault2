@@ -226,6 +226,11 @@ async def upload(
 ) -> dict[str, Any]:
     if kind not in ("tender", "bid"):
         raise HTTPException(400, "kind 须为 tender/bid")
+    allowed = {".docx", ".pdf", ".txt", ".xlsx", ".xls", ".csv", ".jpg", ".jpeg", ".png", ".zip"}
+    for f in files:
+        ext = Path(f.filename or "").suffix.lower()
+        if ext not in allowed:
+            raise HTTPException(415, f"不支持的文件类型：{f.filename}（允许：docx/pdf/txt/xlsx/xls/csv/jpg/png/zip）")
     settings = get_settings()
     created: list[dict[str, Any]] = []
     for f in files:

@@ -103,7 +103,7 @@ def scan_watch_path(session: Session, wp: WatchPath, *, trigger: str = "manual")
             _ingest_entry(session, p, result)
 
     report = ScanReport(
-        path_id=wp.id, path=wp.path, trigger=trigger,
+        path=wp.path, trigger=trigger,
         added=result.added, updated=result.updated,
         skipped=result.skipped, failed=result.failed,
         detail_json=json.dumps(result.errors, ensure_ascii=False) if result.errors else None,

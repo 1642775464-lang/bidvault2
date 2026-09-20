@@ -132,7 +132,7 @@ class TestDetect:
         r = client.post(f"/api/detect/{pid}")
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["risk_index"] >= 90, body["items"]
+        assert body["risk_index"] <= 20, body["items"]
         # 正副本人工核对提示必然存在
         assert any(x["sev"] == "hint" for x in body["items"])
 
@@ -147,7 +147,7 @@ class TestDetect:
         assert "有效期" in titles
         assert "资质等级" in titles or "资质" in titles
         # 指数低 = 高风险
-        assert body["risk_index"] <= 76
+        assert body["risk_index"] >= 50
         # 每项都有定位与依据
         for x in body["items"]:
             assert x["req"], x["title"]
@@ -171,7 +171,7 @@ class TestDetect:
         risk_id = body["items"][0]["id"]
         r = client.patch(f"/api/detect/risks/{risk_id}/done", json={"done": True})
         assert r.json()["ok"] is True
-        assert r.json()["risk_index"] > idx0  # 处理后指数回升
+        assert r.json()["risk_index"] < idx0  # 处理后指数下降（更安全）
 
         risks = client.get(f"/api/detect/{pid}/risks").json()
         assert risks["has_result"] is True

@@ -383,7 +383,7 @@ async function doExport(fmt?: string): Promise<void> {
       toast("没有可导出的投标文件");
       return;
     }
-    window.open(`/api/documents//download`);
+    window.open(`/api/documents/${bidDocs.value[0]?.id ?? ""}/download`);
     toast("已导出 Word（投标文件原件）");
     return;
   }

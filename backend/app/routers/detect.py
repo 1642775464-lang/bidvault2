@@ -56,13 +56,23 @@ def run_detect(project_id: str, session: Session = Depends(get_session)) -> dict
 
 @router.get("/{project_id}/risks")
 def list_risks(project_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    from ..models import AuditLog
+
     items = session.query(RiskItem).filter(RiskItem.project_id == project_id).order_by(RiskItem.created_at).all()
     names = _doc_names(session)
-    latest = items[-1].created_at.isoformat() if items else None
+    # has_result：有风险行 OR 有检测运行审计（无风险时 RiskItem 为空也要显示"未发现风险"）
+    last_run = (
+        session.query(AuditLog.ts)
+        .filter(AuditLog.action == "detect_run", AuditLog.detail.like(f"%{project_id}%"))
+        .order_by(AuditLog.ts.desc())
+        .first()
+    )
+    has_result = bool(items) or last_run is not None
+    latest = str(last_run[0]) if last_run else (items[-1].created_at.isoformat() if items else None)
     return {
         "risk_index": risk_index_of(items),
         "detected_at": latest,
-        "has_result": bool(items),
+        "has_result": has_result,
         "items": [_risk_dict(r, names) for r in items],
     }
 

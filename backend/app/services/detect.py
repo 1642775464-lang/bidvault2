@@ -297,8 +297,9 @@ def _save(session: Session, project_id: str, result: DetectResult) -> None:
 
 
 def risk_index_of(items: list[RiskItem]) -> int:
+    """废标风险指数：0 安全 · 100 极高（未处理项计分，越高越危险）。"""
     s = 0
     for r in items:
         if not r.done:
-            s += 6 if r.sev == "fatal" else 3
-    return max(0, 100 - s)
+            s += 15 if r.sev == "fatal" else (8 if r.sev == "risk" else 3)
+    return min(100, s)
