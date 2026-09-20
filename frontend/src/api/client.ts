@@ -1,5 +1,6 @@
 import type {
   DetectResp,
+  ExtractRowV2,
   DocItem,
   ExtractResp,
   Health,
@@ -161,7 +162,7 @@ export const api = {
   async runExtract(docId: string): Promise<{ status: number; extracted: number; materials: number }> {
     return handle(fetch(`/api/documents/${docId}/extract`, { method: "POST" }));
   },
-  async updateExtractItem(docId: string, itemId: string, rows: string[][]): Promise<{ ok: boolean }> {
+  async updateExtractItem(docId: string, itemId: string, rows: ExtractRowV2[]): Promise<{ ok: boolean }> {
     return handle(
       fetch(`/api/documents/${docId}/extract/${itemId}`, {
         method: "PUT",

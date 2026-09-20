@@ -16,12 +16,17 @@ os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "0")
 
 @dataclass
 class TableBlock:
-    """docx 表格结构化块：rows 行列文本 + 在正文行流中的行号范围 + 高亮颜色（有标注文档时）。"""
+    """docx 表格结构化块：rows 行列文本 + 在正文行流中的行号范围 + 高亮颜色（有标注文档时）。
+
+    model 为 TableModel V2（OOXML 网格直读：colSpan/rowSpan/logicalCol/列宽），
+    仅 docx 且解析成功时存在；其余来源（xlsx/pdf）只有 rows。
+    """
 
     rows: list[list[str]]
     hl: str = ""  # yellow | cyan | gray | ""（众数高亮色，仅标注过的文档有）
     start_line: int = 0  # 表格首行在正文 lines 中的位置
     end_line: int = 0  # 表格末行位置（含）
+    model: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -30,6 +35,185 @@ class ParsedDoc:
     pages: list[str]  # 每页文本（page_no = 下标+1）；docx/表格整篇一页
     page_conf: list[float] = dataclasses_field(default_factory=list)  # OCR 页均置信度；非 OCR 为空
     doc_tables: list[TableBlock] = dataclasses_field(default_factory=list)  # docx 专属
+
+
+_W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def _w(tag: str) -> str:
+    return _W_NS + tag
+
+
+def _tc_text(tc: Any) -> str:
+    parts: list[str] = []
+    for p in tc.findall(_w("p")):
+        t = "".join(node.text or "" for node in p.iter(_w("t")))
+        if t.strip():
+            parts.append(t.strip())
+    return " ".join(parts).strip().replace("\n", " ")
+
+
+def parse_table_model(tbl_el: Any) -> dict[str, Any]:
+    """w:tbl 元素 → TableModel V2（OOXML 网格直读，禁止 row.cells 展开）。
+
+    - gridSpan → colSpan（不展开成重复格）；空 cell 一律保留（text=""）
+    - vMerge restart=起点累计 rowSpan；continue 标 merged + mergeParentId，text 置空不复制
+    - tblGrid/gridCol → columnWidthsTwips；tcW 仅接受 dxa（pct/auto 不误读为 twips）
+    - gridBefore/gridAfter 计入逻辑列占位（当前文档未出现，防御性支持）
+    """
+    grid = tbl_el.find(_w("tblGrid"))
+    col_widths = [int(g.get(_w("w"), "0") or 0) for g in grid.findall(_w("gridCol"))] if grid is not None else []
+
+    raw_rows: list[dict[str, Any]] = []
+    for ri, tr in enumerate(tbl_el.findall(_w("tr"))):
+        trpr = tr.find(_w("trPr"))
+        grid_before = 0
+        if trpr is not None:
+            gb = trpr.find(_w("gridBefore"))
+            if gb is not None:
+                grid_before = max(0, int(gb.get(_w("val"), "0") or 0))
+        cursor = grid_before
+        cells: list[dict[str, Any]] = []
+        for tc in tr.findall(_w("tc")):
+            col_span, vmerge, width_tw = 1, None, None
+            tcpr = tc.find(_w("tcPr"))
+            if tcpr is not None:
+                gs = tcpr.find(_w("gridSpan"))
+                if gs is not None:
+                    col_span = max(1, int(gs.get(_w("val"), "1") or 1))
+                vm = tcpr.find(_w("vMerge"))
+                if vm is not None:
+                    vmerge = vm.get(_w("val")) or "continue"  # 无 val 属性 = continue
+                tcw = tcpr.find(_w("tcW"))
+                if tcw is not None:
+                    wtype = tcw.get(_w("type")) or "auto"
+                    if wtype == "dxa":
+                        try:
+                            width_tw = int(float(tcw.get(_w("w"), "0") or 0))
+                        except ValueError:
+                            width_tw = None
+                    # pct / auto：不误读为 twips，宽度留空走 tblGrid
+            cells.append({
+                "text": _tc_text(tc), "logical": cursor, "col_span": col_span,
+                "vmerge": vmerge, "width": width_tw, "ri": ri,
+            })
+            cursor += col_span
+        ga = trpr.find(_w("gridAfter")) if trpr is not None else None
+        grid_after = max(0, int(ga.get(_w("val"), "0") or 0)) if ga is not None else 0
+        raw_rows.append({"cells": cells, "grid_before": grid_before, "grid_after": grid_after})
+
+    if not col_widths:
+        column_count = max(
+            (sum(c["col_span"] for c in r["cells"]) + r["grid_before"] + r["grid_after"] for r in raw_rows),
+            default=0,
+        )
+        col_widths = [0] * column_count
+    column_count = len(col_widths)
+
+    # vMerge 配对：逐逻辑列跟踪 open 起点；restart 记 origin，continue 挂 parent
+    open_v: dict[int, dict[str, Any]] = {}
+    for r in raw_rows:
+        for c in r["cells"]:
+            cols = range(c["logical"], c["logical"] + c["col_span"])
+            if c["vmerge"] == "restart":
+                c["row_span"] = 1
+                for col in cols:
+                    open_v[col] = c
+            elif c["vmerge"] == "continue":
+                origin = next((open_v[col] for col in cols if col in open_v), None)
+                if origin is not None:
+                    c["merged"] = True
+                    c["merge_parent"] = origin
+                    c["text"] = ""  # continuation 不复制原格内容
+                    c["col_span"] = origin["col_span"]
+                    c["logical"] = origin["logical"]
+                    origin["row_span"] = origin.get("row_span", 1) + 1
+                else:
+                    c["vmerge"] = None  # 异常：无起点的 continue 按普通格处理
+            else:
+                for col in cols:
+                    open_v.pop(col, None)
+
+    rows_out: list[dict[str, Any]] = []
+    for ri, r in enumerate(raw_rows):
+        cells_out: list[dict[str, Any]] = []
+        for c in r["cells"]:
+            cell: dict[str, Any] = {
+                "id": f"r{ri}c{c['logical']}",
+                "text": c["text"],
+                "logicalCol": c["logical"],
+                "colSpan": c["col_span"],
+                "rowSpan": c.get("row_span", 1),
+            }
+            if c.get("merged"):
+                cell["merged"] = True
+                cell["mergeParentId"] = f"r{c['merge_parent']['ri']}c{c['merge_parent']['logical']}"
+            if c.get("width"):
+                cell["widthTwips"] = c["width"]
+            cells_out.append(cell)
+        rows_out.append({"cells": cells_out})
+
+    return {
+        "type": "table",
+        "schemaVersion": 2,
+        "columnCount": column_count,
+        "columnWidthsTwips": col_widths,
+        "rows": rows_out,
+    }
+
+
+def validate_table_model(model: dict[str, Any]) -> list[str]:
+    """表格完整性校验器：第一层 sum(colSpan) 快断言，第二层逻辑列 occupancy 精确断言。
+
+    occupancy 口径镜像 HTML 渲染：merged continuation 不占位（渲染不生成 td），
+    非合并格的 rowSpan>1 向下逐行承载占用。
+    """
+    warns: list[str] = []
+    n = model.get("columnCount", 0)
+    for ri, row in enumerate(model.get("rows", [])):
+        total = sum(c.get("colSpan", 1) for c in row["cells"] if not c.get("merged"))
+        if total + _carried_width(model, ri) != n:
+            warns.append(f"row {ri}: span sum {total} != columnCount {n}")
+    carried: dict[int, int] = {}  # 逻辑列 → 上方 rowspan 剩余行数
+    for ri, row in enumerate(model.get("rows", [])):
+        occupancy: dict[int, int] = {}
+        for c in row["cells"]:
+            if c.get("merged"):
+                continue  # 渲染时不生成 td，由上方 rowspan 承载
+            for col in range(c["logicalCol"], c["logicalCol"] + c.get("colSpan", 1)):
+                occupancy[col] = occupancy.get(col, 0) + 1
+        for col in list(carried):
+            occupancy[col] = occupancy.get(col, 0) + 1
+            carried[col] -= 1
+            if carried[col] <= 0:
+                del carried[col]
+        missing = [col for col in range(n) if occupancy.get(col, 0) == 0]
+        dup = [col for col, cnt in occupancy.items() if cnt > 1]
+        if missing:
+            warns.append(f"row {ri}: logical columns {missing[:8]} not covered")
+        if dup:
+            warns.append(f"row {ri}: logical columns {dup[:8]} covered more than once")
+        for c in row["cells"]:
+            if not c.get("merged") and c.get("rowSpan", 1) > 1:
+                for col in range(c["logicalCol"], c["logicalCol"] + c.get("colSpan", 1)):
+                    carried[col] = c["rowSpan"] - 1
+    return warns
+
+
+def _carried_width(model: dict[str, Any], upto_row: int) -> int:
+    """第 upto_row 行之前尚未结束的 rowspan 所覆盖的列数（快断言用）。"""
+    carried: dict[int, int] = {}
+    for ri, row in enumerate(model.get("rows", [])):
+        if ri >= upto_row:
+            break
+        for c in row["cells"]:
+            if c.get("merged"):
+                continue
+            if c.get("rowSpan", 1) > 1:
+                for col in range(c["logicalCol"], c["logicalCol"] + c.get("colSpan", 1)):
+                    carried[col] = ri + c["rowSpan"]  # 结束行号（含）
+        carried = {col: end for col, end in carried.items() if end > upto_row}
+    return len(carried)
 
 
 def parse_docx(data: bytes) -> ParsedDoc:
@@ -69,7 +253,8 @@ def parse_docx(data: bytes) -> ParsedDoc:
         elif child.tag.endswith("}tbl"):
             t = Table(child, doc)
             hl_counter: Counter[str] = Counter()
-            table = TableBlock(rows=[], start_line=len(lines))
+            model = parse_table_model(child)
+            table = TableBlock(rows=[], start_line=len(lines), model=model)
             for row in t.rows:
                 cells: list[str] = []
                 for c in row.cells:

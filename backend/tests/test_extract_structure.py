@@ -123,10 +123,12 @@ def test_case2_colon_paragraph_stays_single_column(client):
 def test_case3_real_table_kept(client):
     doc_id = _upload_struct_doc(client)
     rows = _rows(client, doc_id)
+    tbl_rows = [r for r in rows if isinstance(r, dict) and r.get("type") == "table"]
+    assert len(tbl_rows) >= 2, "三列表格行数不足"
+    assert tbl_rows[0]["columnCount"] == 3
+    texts = [[c["text"] for c in r["cells"]] for r in tbl_rows]
     for row in TABLE_CELLS:
-        assert row in rows, f"表格行失真：{rows}"
-    multi = [r for r in rows if len(r) == 3]
-    assert len(multi) >= 2, "三列表格行数不足"
+        assert row in texts, f"表格行失真：{texts}"
 
 
 def test_case4_para_table_para_order(client):
@@ -135,7 +137,7 @@ def test_case4_para_table_para_order(client):
     i_anchor = rows.index(["投标人须知前附表"])
     i_colon = rows.index(["1.1.2 招标人：见投标人须知前附表。"])
     i_plain = rows.index(["本项目位于北京市朝阳区。"])
-    i_tbl = rows.index(TABLE_CELLS[0])
+    i_tbl = next(i for i, r in enumerate(rows) if isinstance(r, dict))
     i_tail = rows.index([TAIL_PARA])
     assert i_anchor < i_colon < i_plain < i_tbl < i_tail, f"顺序错乱：{rows}"
 

@@ -102,6 +102,7 @@ def extract_structured(
     """抽取 = 按标题锚点定位章节区间，区间内容原样复制（表格还原表格、段落还原段落）。"""
     lines = text.splitlines()
     tables = doc_tables or []
+    tid_of = {id(tb): i + 1 for i, tb in enumerate(tables)}  # 表格编号（V2 行对象携带）
     if kind == "tender":
         specs = [(it["name"], it["anchors"].split("|"), it.get("sum", "")) for it in TENDER_ITEMS]
     else:
@@ -128,15 +129,17 @@ def extract_structured(
             out.append(ExtractedGroup(group_name=name, name=name, sum=_sum, rows=[]))
             continue
         hi = next((b for b in ordered if b > ai), len(lines))
-        rows = _copy_region(lines, tables, ai, hi, used_tables)
-        out.append(ExtractedGroup(group_name=name, name=name, sum=_sum, rows=rows[:500]))
+        rows = _copy_region(lines, tables, ai, hi, used_tables, tid_of)
+        out.append(ExtractedGroup(group_name=name, name=name, sum=_sum, rows=rows[:800]))
     return out
 
 
 def _copy_region(
     lines: list[str], tables: list[Any], lo: int, hi: int, used_tables: set[int],
-) -> list[list[str]]:
-    """区间 [lo, hi) 按文档顺序原样复制：表格=全列行，段落=单列行，行号交织保序。"""
+    tid_of: dict[int, int] | None = None,
+) -> list[Any]:
+    """区间 [lo, hi) 按文档顺序原样复制：段落=单列行；docx 表格=V2 行对象（保留合并结构）。"""
+    tid_of = tid_of or {}
     tbs = sorted(
         (tb for tb in tables if lo <= tb.start_line < hi and id(tb) not in used_tables),
         key=lambda tb: tb.start_line,
@@ -149,7 +152,7 @@ def _copy_region(
     def in_table(i: int) -> bool:
         return any(sp[0] <= i <= sp[1] for sp in spans)
 
-    events: list[tuple[int, list[str]]] = []
+    events: list[tuple[int, Any]] = []
     for i in range(lo, min(hi, len(lines))):
         if in_table(i) or _CHAPTER_RE.match(_norm(lines[i])):
             continue
@@ -157,7 +160,20 @@ def _copy_region(
         if st:
             events.append((i, [st]))
     for tb in tbs:
-        table_rows = _table_to_rows(tb.rows)
-        events.extend((tb.start_line + k, r) for k, r in enumerate(table_rows))
+        model = getattr(tb, "model", None)
+        if model:
+            # V2：每个表格行一个对象（自带表头信息），空行/合并结构原样保留
+            for k, trow in enumerate(model["rows"]):
+                events.append((tb.start_line + k, {
+                    "type": "table",
+                    "schemaVersion": 2,
+                    "tid": tid_of.get(id(tb), 0),
+                    "columnCount": model["columnCount"],
+                    "columnWidthsTwips": model["columnWidthsTwips"],
+                    "cells": trow["cells"],
+                }))
+        else:
+            table_rows = _table_to_rows(tb.rows)
+            events.extend((tb.start_line + k, r) for k, r in enumerate(table_rows))
     events.sort(key=lambda x: x[0])
     return [r for _, r in events]

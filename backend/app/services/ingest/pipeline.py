@@ -85,9 +85,14 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
 
     text = doc.content_text or ""
     groups = extract_structured(text, doc.kind, parsed.doc_tables if parsed else None)
-    # 过滤全空行；行内列数可变 1~N
+    # 过滤全空段落行；V2 表格行（dict）一律保留——表格内空行/合并结构不得删除
+    def _row_keep(r: Any) -> bool:
+        if isinstance(r, dict):
+            return True
+        return any(str(c).strip() for c in r)
+
     for g in groups:
-        g.rows = [r for r in g.rows if any(c.strip() for c in r)]
+        g.rows = [r for r in g.rows if _row_keep(r)]
     groups = [g for g in groups if g.rows]
 
     # 重新拆解：先清空旧结构项与行（素材由标题去重自行保护）
@@ -121,6 +126,20 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
         # cells_json 存整行原始全列（含空单元格，页面按列数还原段落/表格）；
         # field/value 存合成值，仅服务于历史检索与检测兼容，不影响正文是否入库。
         for ri, r in enumerate(g.rows):
+            if isinstance(r, dict):
+                # V2 表格行：空行/合并结构原样保留；field/value 仅作检索检测兼容
+                texts = [
+                    str(c.get("text", "")).strip()
+                    for c in r.get("cells", []) if not c.get("merged")
+                ]
+                texts = [t for t in texts if t]
+                fname = " ".join(texts[:-1]) if len(texts) > 1 else (texts[0] if texts else "表格内容")
+                fval = texts[-1] if texts else ""
+                session.add(ExtractRow(
+                    item_id=item.id, field=fname[:120] or "表格内容", value=fval[:2000], seq=ri,
+                    cells_json=json.dumps(r, ensure_ascii=False),
+                ))
+                continue
             if not isinstance(r, (list, tuple)):
                 continue
             original_cells = [str(c).strip() for c in r]
@@ -181,9 +200,13 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
     return len(groups), made
 
 
-def _detect_rows_material_type(rows: list[list[str]]) -> str:
-    """素材类型最小修正：存在多列行（真实表格行）才算「表格」，纯单列行是「文本」。"""
-    has_table = any(isinstance(r, (list, tuple)) and len(r) > 1 for r in rows)
+def _detect_rows_material_type(rows: list[Any]) -> str:
+    """素材类型最小修正：存在 V2 表格行或多列行才算「表格」，纯单列行是「文本」。"""
+    has_table = any(
+        (isinstance(r, dict) and r.get("type") == "table")
+        or (isinstance(r, (list, tuple)) and len(r) > 1)
+        for r in rows
+    )
     return "表格" if has_table else "文本"
 
 

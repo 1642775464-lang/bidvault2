@@ -54,11 +54,33 @@ export interface PersonCard {
   status: "ok" | "warn";
 }
 
+export interface TableCellV2 {
+  id: string;
+  text: string;
+  logicalCol: number;
+  colSpan: number;
+  rowSpan: number;
+  merged?: boolean;
+  mergeParentId?: string;
+  widthTwips?: number;
+}
+
+export interface TableBlockV2 {
+  type: "table";
+  schemaVersion: number;
+  tid: number;
+  columnCount: number;
+  columnWidthsTwips: number[];
+  cells: TableCellV2[];
+}
+
+export type ExtractRowV2 = string[] | TableBlockV2;
+
 export interface ExtractItemT {
   id: string;
   name: string;
   sum: string | null;
-  rows: string[][];
+  rows: ExtractRowV2[];
 }
 
 export interface ExtractGroup {
@@ -81,7 +103,7 @@ export interface Material {
   project_id: string | null;
   project_name: string | null;
   tags: string[];
-  rows: string[][] | null;
+  rows: ExtractRowV2[] | null;
   text: string | null;
   file_name: string | null;
   file_size: string | null;

@@ -4,7 +4,8 @@ import { api } from "../api/client";
 import type { Material } from "../api/types";
 import { CATS, navTo, refreshCore, store, toast } from "../store";
 import PagePreview from "../components/PagePreview.vue";
-import { rowBlocks } from "../utils/documentBlocks";
+import { rowBlocks, isTableBlockV2, twipsToPx } from "../utils/documentBlocks";
+import type { ExtractRowV2 } from "../api/types";
 
 const search = ref("");
 const cat = ref("all");
@@ -130,10 +131,15 @@ async function saveInline(): Promise<void> {
       .map((x) => x.trim())
       .filter(Boolean);
     const rows: string[][] = [];
+    const v2Map = new Map<number, HTMLTableElement>();
     root.querySelectorAll("table.realtable, .wp-p[data-kind=body]").forEach((el) => {
+      const tid = (el as HTMLElement).getAttribute?.("data-tid");
+      if (el.tagName === "TABLE" && tid) {
+        v2Map.set(Number(tid), el as HTMLTableElement);
+        return;
+      }
       if (el.tagName === "TABLE") {
-        const tbl = el as HTMLTableElement;
-        tbl.querySelectorAll("tr").forEach((tr) => {
+        el.querySelectorAll("tr").forEach((tr) => {
           const cells = Array.from(tr.querySelectorAll("td")).map((td) =>
             (td.innerText || "").replace(/\u00a0/g, " ").trim(),
           );
@@ -161,7 +167,36 @@ async function saveInline(): Promise<void> {
         saving.value = false;
         return;
       }
-      body.rows = rows;
+      // 以素材骨架为基准：V2 表格行按 cell.id 回填，legacy 行按 DOM 顺序取回
+      const skeleton = (sel.value.rows ?? []) as ExtractRowV2[];
+      const newRows: ExtractRowV2[] = [];
+      let li = 0;
+      for (const r of skeleton) {
+        if (isTableBlockV2(r)) {
+          const el = v2Map.get(r.tid);
+          newRows.push(
+            !el
+              ? r
+              : {
+                  ...r,
+                  cells: r.cells.map((c) =>
+                    c.merged
+                      ? c
+                      : { ...c, text: ((el.querySelector(`td[data-cell-id="${c.id}"]`) as HTMLElement | null)?.innerText || "").replace(/\u00a0/g, " ").trim() },
+                  ),
+                },
+          );
+        } else {
+          newRows.push(rows[li++] ?? r);
+        }
+      }
+      while (li < rows.length) newRows.push(rows[li++]);
+      if (!newRows.length) {
+        toast("表格素材至少保留一行内容");
+        saving.value = false;
+        return;
+      }
+      body.rows = newRows;
       body.text = null;
     } else if (sel.value.type === "文本") {
       body.text = textLines.length ? textLines.join("\n") : null;
@@ -411,6 +446,16 @@ onMounted(async () => {
                     <table v-if="blk.type === 'table'" class="realtable" contenteditable="true">
                       <tr v-for="(r, ri) in blk.rows" :key="ri">
                         <td v-for="(c, ci) in r" :key="ci" contenteditable="true">{{ c }}</td>
+                      </tr>
+                    </table>
+                    <table v-else-if="blk.type === 'tableV2'" class="realtable" :data-tid="blk.v2!.tid" contenteditable="true">
+                      <colgroup>
+                        <col v-for="(w, wi) in blk.v2!.columnWidthsTwips" :key="wi" :style="w > 0 ? { width: twipsToPx(w) + 'px' } : undefined">
+                      </colgroup>
+                      <tr v-for="(row, ri) in blk.v2!.rows" :key="ri">
+                        <template v-for="c in row.cells" :key="c.id">
+                          <td v-if="!c.merged" :data-cell-id="c.id" :colspan="c.colSpan > 1 ? c.colSpan : undefined" :rowspan="c.rowSpan > 1 ? c.rowSpan : undefined" contenteditable="true">{{ c.text }}</td>
+                        </template>
                       </tr>
                     </table>
                     <p v-else class="wp-p" data-kind="body" contenteditable="true" style="text-indent:2em">{{ blk.rows[0][0] }}</p>

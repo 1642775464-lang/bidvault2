@@ -97,11 +97,14 @@ def get_extract(doc_id: str, session: Session = Depends(get_session)) -> dict[st
             .order_by(ExtractRow.seq)
             .all()
         )
-        out_rows: list[list[str]] = []
+        out_rows: list[Any] = []  # 段落行=list[str]；V2 表格行=dict
         for r in rows:
             if r.cells_json:
                 try:
                     cells = json.loads(r.cells_json)
+                    if isinstance(cells, dict) and cells.get("type") == "table":
+                        out_rows.append(cells)  # V2 表格行对象原样透传
+                        continue
                     if isinstance(cells, list) and cells:
                         out_rows.append([str(c) for c in cells])
                         continue
@@ -165,7 +168,7 @@ def bind_project(doc_id: str, body: BindIn, session: Session = Depends(get_sessi
 
 
 class RowsIn(BaseModel):
-    rows: list[list[str]]
+    rows: list[Any]  # 段落行=字符串数组；V2 表格行=对象（type=table）
 
 
 @router.put("/{doc_id}/extract/{item_id}")
@@ -177,17 +180,31 @@ def update_extract_item(doc_id: str, item_id: str, body: RowsIn, session: Sessio
     if item is None or item.doc_id != doc_id:
         raise HTTPException(404, "结构项不存在")
     session.query(ExtractRow).filter(ExtractRow.item_id == item.id).delete()
-    for ri, pair in enumerate(body.rows):
-        if not isinstance(pair, list) or not pair:
+    for ri, row in enumerate(body.rows):
+        if isinstance(row, dict):
+            # V2 表格行：按 cell.id 回填后的对象原样存储（只允许 text 变化，结构不漂移）
+            texts = [
+                str(c.get("text", "")).strip()
+                for c in row.get("cells", []) if not c.get("merged")
+            ]
+            texts = [t for t in texts if t]
+            fname = " ".join(texts[:-1]) if len(texts) > 1 else (texts[0] if texts else "表格内容")
+            value = texts[-1] if texts else ""
+            session.add(ExtractRow(
+                item_id=item.id, field=fname[:120] or "表格内容", value=value[:2000], seq=ri,
+                cells_json=json.dumps(row, ensure_ascii=False),
+            ))
             continue
-        cells = [str(c).strip() for c in pair]
+        if not isinstance(row, list) or not row:
+            continue
+        cells = [str(c).strip() for c in row]
         field = cells[0][:120]
         if not field:
             continue
         value = cells[-1][:2000] if len(cells) > 1 else ""
         session.add(ExtractRow(
             item_id=item.id, field=field, value=value, seq=ri,
-            cells_json=json.dumps([str(c) for c in pair], ensure_ascii=False),
+            cells_json=json.dumps([str(c) for c in row], ensure_ascii=False),
         ))
     item.sum = f"{len(body.rows)} 字段" if body.rows else item.sum
     session.commit()

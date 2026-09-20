@@ -33,10 +33,19 @@ with sync_playwright() as pw:
             const t = (td.innerText || '').trim();
             if (t === '1. 总则' || t === '1.1 招标项目概况') { plainInTd = true; break; }
         }
-        return { paras: ps, tables: tbls, targetLoc: target, plainInTd };
+        const v2Tables = document.querySelectorAll('.wordpage table[data-tid]').length;
+        const cellIdTds = document.querySelectorAll('.wordpage td[data-cell-id]').length;
+        const colspan8 = document.querySelectorAll('.wordpage td[colspan="8"]').length;
+        let mergedText = 0;
+        for (const td of document.querySelectorAll('.wordpage td')) {
+            if ((td.innerText || '').trim() === '产品明细报价' && td.colSpan === 8) mergedText++;
+        }
+        return { paras: ps, tables: tbls, targetLoc: target, plainInTd, v2Tables, cellIdTds, colspan8, mergedText };
     }"""
     )
     print("DOM 验证：", stats)
-    ok = stats["paras"] > 0 and stats["tables"] > 0 and stats["targetLoc"] == "p.wp-p" and not stats["plainInTd"]
-    print("结论：", "PASS——正文为段落、表格为表格" if ok else "FAIL")
+    ok = (stats["paras"] > 0 and stats["tables"] > 0 and stats["targetLoc"] == "p.wp-p"
+          and not stats["plainInTd"] and stats["v2Tables"] > 0 and stats["cellIdTds"] > 0
+          and stats["colspan8"] >= 1 and stats["mergedText"] == 1)
+    print("结论：", "PASS——正文段落化 + V2 合并表格结构化" if ok else "FAIL")
     b.close()

@@ -3,7 +3,8 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { DocItem, ExtractGroup } from "../api/types";
 import { CATS, INDUSTRIES, fmtSize, openUpload, refreshCore, store, toast } from "../store";
-import { rowBlocks } from "../utils/documentBlocks";
+import { isTableBlockV2, rowBlocks, twipsToPx } from "../utils/documentBlocks";
+import type { ExtractRowV2 } from "../api/types";
 
 const kindF = ref<"all" | "tender" | "bid" | "notice">("all");
 const search = ref("");
@@ -133,28 +134,63 @@ async function saveDoc(): Promise<void> {
   savingDoc.value = true;
   try {
     let n = 0;
-    // 按 DOM 顺序聚合每个结构项的行：表格行=全列，段落行=单列
-    const byId: Record<string, string[][]> = {};
+    // DOM 顺序收集三类片段：段落文本 / legacy 表格行 / V2 表格（带 tid）
+    type Piece = { kind: "rows"; rows: string[][] } | { kind: "v2"; tid: number; el: HTMLTableElement };
+    const byId: Record<string, Piece[]> = {};
     docPage.value.querySelectorAll<HTMLElement>("[data-item]").forEach((el) => {
       const id = el.getAttribute("data-item") || "";
-      if (el.tagName === "TABLE") {
+      const tid = el.getAttribute("data-tid");
+      if (el.tagName === "TABLE" && tid) {
+        (byId[id] ??= []).push({ kind: "v2", tid: Number(tid), el: el as HTMLTableElement });
+      } else if (el.tagName === "TABLE") {
+        const rows: string[][] = [];
         el.querySelectorAll("tr").forEach((tr) => {
           const cells = Array.from(tr.querySelectorAll("td,th")).map((td) =>
             ((td as HTMLElement).innerText || "").replace(/\u00a0/g, " ").trim(),
           );
-          (byId[id] ??= []).push(cells);
+          if (cells.some((c) => c)) rows.push(cells);
         });
+        (byId[id] ??= []).push({ kind: "rows", rows });
       } else {
         const line = (el.innerText || "").replace(/\u00a0/g, " ").trim();
-        if (line) (byId[id] ??= []).push([line]);
+        (byId[id] ??= []).push({ kind: "rows", rows: [[line]] });
       }
     });
-    for (const [id, rows] of Object.entries(byId)) {
+    for (const [id, pieces] of Object.entries(byId)) {
       const it = extract.value.flatMap((g) => g.items).find((x) => x.id === id);
       if (!it) continue;
-      if (JSON.stringify(rows) === JSON.stringify(it.rows)) continue;
-      await api.updateExtractItem(sel.value!.id, id, rows).then(() => {
-        it.rows = rows;
+      // 以拆解骨架为基准：V2 行按 cell.id 从 DOM 回填文本（结构绝不重推），legacy 行按 DOM 顺序取回
+      const textQueue: string[][] = [];
+      const v2Map = new Map<number, HTMLTableElement>();
+      for (const p of pieces) {
+        if (p.kind === "v2") v2Map.set(p.tid, p.el);
+        else p.rows.forEach((r) => textQueue.push(r));
+      }
+      const newRows: ExtractRowV2[] = [];
+      let li = 0;
+      for (const r of it.rows) {
+        if (isTableBlockV2(r)) {
+          const el = v2Map.get(r.tid);
+          if (!el) {
+            newRows.push(r);
+            continue;
+          }
+          newRows.push({
+            ...r,
+            cells: r.cells.map((c) =>
+              c.merged
+                ? c
+                : { ...c, text: ((el.querySelector(`td[data-cell-id="${c.id}"]`) as HTMLElement | null)?.innerText || "").replace(/\u00a0/g, " ").trim() },
+            ),
+          });
+        } else {
+          newRows.push(textQueue[li++] ?? r);
+        }
+      }
+      while (li < textQueue.length) newRows.push(textQueue[li++]);
+      if (JSON.stringify(newRows) === JSON.stringify(it.rows)) continue;
+      await api.updateExtractItem(sel.value!.id, id, newRows).then(() => {
+        it.rows = newRows;
         n++;
       });
     }
@@ -358,6 +394,16 @@ onMounted(async () => {
                           <table v-if="blk.type === 'table'" class="realtable" :data-item="it.id" :data-block="bi">
                             <tr v-for="(r, ri) in blk.rows" :key="ri">
                               <td v-for="(c, ci) in r" :key="ci" contenteditable="true" @input="onDocInput">{{ c }}</td>
+                            </tr>
+                          </table>
+                          <table v-else-if="blk.type === 'tableV2'" class="realtable" :data-item="it.id" :data-block="bi" :data-tid="blk.v2!.tid">
+                            <colgroup>
+                              <col v-for="(w, wi) in blk.v2!.columnWidthsTwips" :key="wi" :style="w > 0 ? { width: twipsToPx(w) + 'px' } : undefined">
+                            </colgroup>
+                            <tr v-for="(row, ri) in blk.v2!.rows" :key="ri">
+                              <template v-for="c in row.cells" :key="c.id">
+                                <td v-if="!c.merged" :data-cell-id="c.id" :colspan="c.colSpan > 1 ? c.colSpan : undefined" :rowspan="c.rowSpan > 1 ? c.rowSpan : undefined" contenteditable="true" @input="onDocInput">{{ c.text }}</td>
+                              </template>
                             </tr>
                           </table>
                           <p v-else class="wp-p" :data-item="it.id" :data-block="bi" contenteditable="true" @input="onDocInput">{{ blk.rows[0][0] }}</p>

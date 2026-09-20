@@ -78,10 +78,18 @@ def collect_people(session: Session, project_id: str) -> list[PersonCard]:
     )
     for m in mats:
         src = m.doc_name or "手动上传"
-        rows: list[list[str]] = json.loads(m.rows_json) if m.rows_json else []
+        rows: list[Any] = json.loads(m.rows_json) if m.rows_json else []
         for r in rows:
-            head = r[0] if len(r) > 0 else ""
-            val = r[1] if len(r) > 1 else (r[0] if r else "")
+            if isinstance(r, dict):
+                # V2 表格行：取可见格文本做同人解析
+                texts = [str(c.get("text", "")).strip() for c in r.get("cells", []) if not c.get("merged")]
+                texts = [t for t in texts if t]
+                if not texts:
+                    continue
+                head, val = texts[0], (" ".join(texts[1:]) if len(texts) > 1 else texts[0])
+            else:
+                head = r[0] if len(r) > 0 else ""
+                val = r[1] if len(r) > 1 else (r[0] if r else "")
             sp = _split_person(head) or _split_person(val)
             if sp:
                 upsert(sp[0], sp[1], " ".join(_certs_of(val)) or val, src)
