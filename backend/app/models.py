@@ -250,6 +250,32 @@ class Tag(Base):
 
 
 BUILTIN_INDUSTRIES = ("数据中心 / ICT", "物流仓储", "医疗卫生", "政务 / 公共服务", "能源与双碳")
+class DetectRule(Base):
+    """检测规则（F3.4）：可启用/停用、改说明，全部变更留痕。"""
+
+    __tablename__ = "detect_rules"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    sev: Mapped[str] = mapped_column(String(10))
+    type: Mapped[str] = mapped_column(String(10))
+    desc: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class DetectRuleVersion(Base):
+    """检测规则变更留痕：每次启停/修改存一条快照。"""
+
+    __tablename__ = "detect_rule_versions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    rule_id: Mapped[str] = mapped_column(String(32), index=True)
+    note: Mapped[str] = mapped_column(String(300))
+    snapshot_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 BUILTIN_PLATFORMS = ("上海市公共资源交易平台", "中招联合招标采购平台", "优质采购云平台", "政府采购云平台", "企业自建招标平台")
 STAGES = ("技术标制作", "商务标制作", "合标", "打印盖章", "上传")
 MATERIAL_CATS = ("资质文件", "财务状况", "业绩案例", "人员团队", "技术方案", "商务模板", "投标格式")

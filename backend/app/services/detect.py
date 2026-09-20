@@ -117,6 +117,30 @@ def _grade(text: str) -> str | None:
     return None
 
 
+def ensure_rules(session: Session) -> None:
+    """内置规则入库（幂等）：缺哪条补哪条，启用状态以库为准。"""
+    from ..models import DetectRule
+
+    existing = {r.id for r in session.query(DetectRule).all()}
+    changed = False
+    for r in BUILTIN_RULES:
+        if r["id"] not in existing:
+            session.add(DetectRule(
+                id=r["id"], name=r["name"], sev=r["sev"], type=r["type"],
+                desc=r["desc"], enabled=True,
+            ))
+            changed = True
+    if changed:
+        session.commit()
+
+
+def _rule_enabled(session: Session, rule_id: str) -> bool:
+    from ..models import DetectRule
+
+    row = session.get(DetectRule, rule_id)
+    return bool(row.enabled) if row else True
+
+
 def detect_project(session: Session, project_id: str) -> DetectResult:
     """执行检测：招标基准 × 投标响应。缺件抛 ValueError。"""
     tender = (
@@ -136,6 +160,7 @@ def detect_project(session: Session, project_id: str) -> DetectResult:
         msg = "缺投标文件或未拆解"
         raise ValueError(msg)
 
+    ensure_rules(session)
     t_items = _tender_items(session, tender.id)
     req_validity = _tender_value(t_items, "须知前附表", "投标有效期")
     req_bond = _tender_value(t_items, "须知前附表", "投标保证金")
@@ -155,34 +180,42 @@ def detect_project(session: Session, project_id: str) -> DetectResult:
         bid_items = _tender_items(session, bid.id)
 
         # 1 法定代表人身份证明（投标拆解为业绩/团队两项，改全文关键词判断）
-        if "法定代表人" not in text or "身份证明" not in text:
+        if _rule_enabled(session, "legal_rep") and ("法定代表人" not in text or "身份证明" not in text):
+            t_quote = _sentence_with(tender.content_text or "", "身份证明")
             findings.append(Finding(
                 sev="fatal", type="缺项", title="法定代表人身份证明缺失",
                 meta=f"投标文件《{bid.filename}》全文未找到法定代表人身份证明相关内容",
                 req="招标要求投标文件含法定代表人身份证明（资格审查必备件）",
+                quote=t_quote,
                 advice="补编法定代表人身份证明（按招标格式），盖章后插入资格审查文件章节。",
                 fix="填入模板", doc_id=bid.id,
+                page_no=_find_page(session, tender.id, "身份证明"),
             ))
         # 2 授权委托书
-        if "授权委托书" not in text and "委托代理人" not in text:
+        if _rule_enabled(session, "authorization") and "授权委托书" not in text and "委托代理人" not in text:
+            t_quote = _sentence_with(tender.content_text or "", "授权委托书")
             findings.append(Finding(
                 sev="fatal", type="缺项", title="授权委托书缺失",
                 meta=f"投标文件《{bid.filename}》全文未找到授权委托书相关内容",
                 req="招标要求投标文件含法定代表人授权委托书（格式清单必备项）",
+                quote=t_quote,
                 advice="补编授权委托书，明确委托代理人与权限，法定代表人签字并盖章。",
                 fix="填入模板", doc_id=bid.id,
+                page_no=_find_page(session, tender.id, "授权委托书"),
             ))
         # 3 保证金响应
-        if req_bond and "保证金" not in text:
+        if _rule_enabled(session, "bond") and req_bond and "保证金" not in text:
             findings.append(Finding(
                 sev="fatal", type="未响应", title="投标保证金未响应",
                 meta=f"招标要求「{req_bond}」，《{bid.filename}》全文未提及保证金",
                 req=f"招标文件投标人须知前附表：投标保证金 {req_bond}",
+                quote=_sentence_with(tender.content_text or "", "投标保证金"),
                 advice="按招标要求缴纳保证金并在投标文件中附缴纳凭证或保函复印件。",
-                fix="补充保证金", doc_id=bid.id, page_no=None,
+                fix="补充保证金", doc_id=bid.id,
+                page_no=_find_page(session, tender.id, "投标保证金"),
             ))
         # 4 投标有效期比对
-        if req_validity:
+        if req_validity and _rule_enabled(session, "validity"):
             req_days = _days(req_validity)
             bid_quote = _sentence_with(text, "有效期")
             bid_days = _days(bid_quote) if bid_quote else None
@@ -191,8 +224,10 @@ def detect_project(session: Session, project_id: str) -> DetectResult:
                     sev="fatal", type="未响应", title="投标有效期未响应",
                     meta=f"招标要求「{req_validity}」，《{bid.filename}》未提及投标有效期",
                     req=f"招标要求：投标有效期 {req_validity}",
+                    quote=_sentence_with(tender.content_text or "", "投标有效期"),
                     advice="在投标函中明确承诺满足招标要求的投标有效期。",
                     fix="补充有效期承诺", doc_id=bid.id,
+                    page_no=_find_page(session, tender.id, "投标有效期"),
                 ))
             elif req_days and bid_days and bid_days < req_days:
                 findings.append(Finding(
@@ -205,7 +240,7 @@ def detect_project(session: Session, project_id: str) -> DetectResult:
                     page_no=_find_page(session, bid.id, "有效期"),
                 ))
         # 5 资质等级
-        if req_qual:
+        if req_qual and _rule_enabled(session, "qualification"):
             req_grade = _grade(req_qual)
             qual_val = ""
             for name, rows in bid_items.items():
@@ -227,28 +262,34 @@ def detect_project(session: Session, project_id: str) -> DetectResult:
                     sev="risk", type="缺证", title="资质等级未在基本情况表标注",
                     meta=f"招标要求资质「{req_qual}」，《{bid.filename}》基本情况表无资质等级行",
                     req=f"招标要求资质：{req_qual}",
+                    quote=_sentence_with(tender.content_text or "", "资质"),
                     advice="在基本情况表补填资质等级并附证书扫描件。",
                     fix="补填资质", doc_id=bid.id,
+                    page_no=_find_page(session, tender.id, "资质"),
                 ))
         # 6 业绩
         if any("业绩" in name for name in bid_items):
             pass  # 有业绩结构项即视为响应
-        elif re.search(r"业绩", json.dumps(t_items, ensure_ascii=False)):
+        elif _rule_enabled(session, "performance") and re.search(r"业绩", json.dumps(t_items, ensure_ascii=False)):
             findings.append(Finding(
                 sev="risk", type="缺证", title="类似项目业绩表缺失",
                 meta=f"《{bid.filename}》未拆解出业绩表，招标文件含业绩要求",
                 req="招标文件含类似业绩要求，投标须附业绩表及证明",
+                quote=_sentence_with(tender.content_text or "", "业绩"),
                 advice="补编近年完成的类似项目情况表，附合同/验收证明页码索引。",
                 fix="补业绩表", doc_id=bid.id,
+                page_no=_find_page(session, tender.id, "业绩"),
             ))
         # 7 正副本提示
-        if req_copies:
+        if req_copies and _rule_enabled(session, "copies"):
             findings.append(Finding(
                 sev="hint", type="缺证", title="正副本份数需人工核对",
                 meta=f"招标要求「{req_copies}」——文本检测无法确认纸质份数",
                 req=f"招标要求：正副本份数 {req_copies}",
+                quote=_sentence_with(tender.content_text or "", "正副本"),
                 advice="打印装订前核对正副本份数与要求一致，逐份盖章。",
                 fix="人工核对", doc_id=bid.id,
+                page_no=_find_page(session, tender.id, "正副本"),
             ))
 
     score_rows = _score_compare(session, bids, t_items)

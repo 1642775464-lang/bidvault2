@@ -24,10 +24,18 @@ const bindNewName = ref("");
 const bindNewInd = ref(INDUSTRIES[0]);
 const bindNewErr = ref(false);
 const projects = ref<{ id: string; name: string }[]>([]);
+const statusF = ref<"all" | "2" | "1" | "0">("all");
+const extF = ref("all");
+const projF = ref("all");
 
 async function load(): Promise<void> {
   try {
-    const r = await api.documents({});
+    const params: Record<string, string> = {};
+    if (kindF.value !== "all") params.kind = kindF.value;
+    if (statusF.value !== "all") params.status = statusF.value;
+    if (extF.value !== "all") params.file_type = extF.value;
+    if (projF.value !== "all") params.project_id = projF.value;
+    const r = await api.documents(params);
     docs.value = r.items;
   } catch (e) {
     toast(e instanceof Error ? e.message : "加载失败");
@@ -36,7 +44,6 @@ async function load(): Promise<void> {
 
 const filtered = computed(() =>
   docs.value.slice().sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? "")).filter((d) => {
-    if (kindF.value !== "all" && d.kind !== kindF.value) return false;
     const q = search.value.trim().toLowerCase();
     if (!q) return true;
     const pid = d.project_id ?? "";
@@ -47,7 +54,11 @@ const filtered = computed(() =>
 
 const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / PAGE_SIZE)));
 const pagedDocs = computed(() => filtered.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE));
-watch([kindF, search], () => {
+watch([kindF, statusF, extF, projF], () => {
+  page.value = 1;
+  void load();
+});
+watch(search, () => {
   page.value = 1;
 });
 
@@ -278,6 +289,24 @@ onMounted(async () => {
       <button v-for="k in ['all', 'tender', 'bid'] as const" :key="k" class="f-chip" :class="{ on: kindF === k }" @click="kindF = k">
         {{ k === "all" ? "全部" : k === "tender" ? "招标文件" : "投标文件" }}
       </button>
+      <span class="bx"><select v-model="statusF">
+        <option value="all">全部状态</option>
+        <option value="2">已拆解</option>
+        <option value="1">拆解中</option>
+        <option value="0">未拆解</option>
+      </select></span>
+      <span class="bx"><select v-model="extF">
+        <option value="all">全部格式</option>
+        <option value="docx">Word</option>
+        <option value="pdf">PDF</option>
+        <option value="xlsx">Excel</option>
+        <option value="img">图片</option>
+      </select></span>
+      <span class="bx"><select v-model="projF">
+        <option value="all">全部项目</option>
+        <option value="none">未绑定</option>
+        <option v-for="p in store.projects" :key="p.id" :value="p.id">{{ p.name }}</option>
+      </select></span>
       <button class="mini-btn" @click="openUpload(null, 'tender')">上传文档</button>
     </div>
 

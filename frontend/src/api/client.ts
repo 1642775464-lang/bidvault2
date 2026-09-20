@@ -87,7 +87,7 @@ export const api = {
   },
 
   /* ---- 文档库 ---- */
-  async documents(params: { kind?: string; project_id?: string; q?: string } = {}): Promise<{ total: number; items: DocItem[] }> {
+  async documents(params: { kind?: string; project_id?: string; q?: string; status?: string; file_type?: string } = {}): Promise<{ total: number; items: DocItem[] }> {
     return handle(fetch(`/api/documents${qs(params)}`));
   },
   async upload(files: File[], kind: string, projectId: string | null, isSecret: boolean): Promise<{ created: DocItem[]; queued: number }> {
@@ -130,8 +130,32 @@ export const api = {
   detectReportUrl(projectId: string): string {
     return `/api/detect/${projectId}/report.xlsx`;
   },
-  async detectRules(): Promise<{ rules: { id: string; name: string; sev: string; type: string; desc: string }[] }> {
+  async patchDetectRule(ruleId: string, body: { enabled?: boolean; desc?: string }): Promise<{ ok: boolean }> {
+    return handle(
+      fetch(`/api/detect/rules/${ruleId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  },
+  async detectRuleHistory(limit = 30): Promise<{ items: { rule_id: string; rule_name: string; note: string; created_at: string | null }[] }> {
+    return handle(fetch(`/api/detect/rules/history${qs({ limit })}`));
+  },
+  async detectRules(): Promise<{ rules: { id: string; name: string; sev: string; type: string; desc: string; enabled: boolean }[] }> {
     return handle(fetch("/api/detect/rules"));
+  },
+  async saveContent(docId: string, text: string): Promise<{ ok: boolean }> {
+    return handle(
+      fetch(`/api/documents/${docId}/content`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      }),
+    );
+  },
+  contentDocxUrl(docId: string): string {
+    return `/api/documents/${docId}/content.docx`;
   },
   async runExtract(docId: string): Promise<{ status: number; extracted: number; materials: number }> {
     return handle(fetch(`/api/documents/${docId}/extract`, { method: "POST" }));
@@ -156,6 +180,12 @@ export const api = {
   },
 
   /* ---- 素材库 ---- */
+  async uploadMaterial(file: File, cat: string): Promise<{ ok: boolean; id: string; type: string; cat: string }> {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("cat", cat);
+    return handle(fetch("/api/materials/upload", { method: "POST", body: fd }));
+  },
   async materials(cat = "", q = ""): Promise<{ total: number; items: Material[] }> {
     return handle(fetch(`/api/materials${qs({ cat, q })}`));
   },
@@ -211,6 +241,15 @@ export const api = {
   },
   async scanNow(id: string): Promise<unknown> {
     return handle(fetch(`/api/paths/${id}/scan`, { method: "POST" }));
+  },
+  async backups(): Promise<{ items: { name: string; label: string; size_mb: number }[]; keep: number; schedule: string }> {
+    return handle(fetch("/api/backup"));
+  },
+  async backupNow(): Promise<{ name: string; size_mb: number }> {
+    return handle(fetch("/api/backup", { method: "POST" }));
+  },
+  async backupRestore(name: string): Promise<{ ok: boolean; restart_required: boolean }> {
+    return handle(fetch(`/api/backup/${name}/restore`, { method: "POST" }));
   },
   async scanReports(limit = 20): Promise<{ items: ScanReportT[] }> {
     return handle(fetch(`/api/paths/reports${qs({ limit })}`));

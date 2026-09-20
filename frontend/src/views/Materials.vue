@@ -22,6 +22,7 @@ const eCat = ref(CATS[0]);
 const eType = ref("表格");
 const eTags = ref("");
 const eContent = ref("");
+const eFile = ref<File | null>(null);
 const eTitleErr = ref(false);
 
 const typeIconPath: Record<string, string> = {
@@ -185,8 +186,12 @@ async function analyze(): Promise<void> {
 }
 
 function goSource(m: Material): void {
+  if (!m.doc_name && m.file_name) {
+    window.open(`/api/files/${m.file_name}`);
+    return;
+  }
   if (!m.doc_name) {
-    toast("上传记录在后续版本开放");
+    toast("该素材没有来源文件");
     return;
   }
   navTo("docs");
@@ -241,9 +246,21 @@ function openCreate(): void {
   eType.value = "表格";
   eTags.value = "";
   eContent.value = "";
+  eFile.value = null;
   editOpen.value = true;
 }
 async function saveCreate(): Promise<void> {
+  if (eFile.value) {
+    try {
+      const r = await api.uploadMaterial(eFile.value, eCat.value);
+      toast(`素材「${eFile.value.name}」已上传（${r.type}）`);
+      editOpen.value = false;
+      await load();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "上传失败");
+    }
+    return;
+  }
   const title = eTitle.value.trim();
   if (!title) {
     eTitleErr.value = true;
@@ -451,6 +468,13 @@ onMounted(async () => {
               <label class="fl">素材分类</label>
               <select v-model="eCat"><option v-for="c in CATS" :key="c">{{ c }}</option></select>
             </div>
+          </div>
+          <div class="frow">
+            <div class="f">
+              <label class="fl">附件文件</label>
+              <input type="file" accept=".jpg,.jpeg,.png,.pdf,.docx,.xlsx,.xls,.csv,.txt,.zip" @change="eFile = ($event.target as HTMLInputElement).files?.[0] ?? null">
+            </div>
+            <div class="f"><label class="fl">&nbsp;</label><span v-if="eFile" class="chip-tag">{{ eFile.name }}</span></div>
           </div>
           <div class="frow">
             <div class="f">

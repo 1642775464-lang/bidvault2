@@ -12,8 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import make_engine
-from .routers import detect, documents, materials, paths, people, preview, projects, search
+from .routers import backup, detect, documents, materials, paths, people, preview, projects, search
 from .services.archive.watcher import WatchService
+from .services.backup import apply_pending_restore, start_backup_scheduler
 from .workers.queue import start_workers, stop_workers
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -24,9 +25,12 @@ _watcher: WatchService | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _watcher
+    if apply_pending_restore():
+        logging.getLogger(__name__).info("pending restore applied")
     make_engine()
     settings = get_settings()
     start_workers(interval_seconds=settings.scan_interval_seconds)
+    start_backup_scheduler()
     _watcher = WatchService()
     _watcher.restart()
     app.state.watcher = _watcher
@@ -56,6 +60,7 @@ app.add_middleware(
 )
 app.include_router(projects.router)
 app.include_router(paths.router)
+app.include_router(backup.router)
 app.include_router(documents.router)
 app.include_router(materials.router)
 app.include_router(search.router)

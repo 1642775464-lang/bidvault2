@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import json
+import uuid
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..config import get_settings
 from ..db import get_session
 from ..models import MATERIAL_CATS, Material, MaterialRef, Project
 from ..services.audit import audit
+from ..services.images import guess_cat
 
 router = APIRouter(prefix="/api/materials", tags=["F2.6 素材库"])
 
@@ -60,6 +64,55 @@ def list_materials(
 @router.get("/meta")
 def meta() -> dict[str, Any]:
     return {"cats": list(MATERIAL_CATS), "types": ["表格", "文本", "图片", "附件"]}
+
+
+@router.post("/upload")
+async def upload_material(
+    file: UploadFile = File(...),
+    project_id: str = Form(""),
+    cat: str = Form(""),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    """素材真实上传：图片走 OCR 识别文本，其余类型作为附件存档。"""
+    filename = file.filename or "unnamed"
+    suffix = Path(filename).suffix.lower()
+    allowed = {".jpg", ".jpeg", ".png", ".pdf", ".docx", ".xlsx", ".xls", ".csv", ".txt", ".zip"}
+    if suffix not in allowed:
+        raise HTTPException(415, f"不支持的素材类型：{filename}")
+    data = await file.read()
+    if len(data) > 50 * 1024 * 1024:
+        raise HTTPException(413, f"{filename} 超过 50MB 限制")
+    settings = get_settings()
+    stored = uuid.uuid4().hex + suffix
+    (settings.files_dir / stored).write_bytes(data)
+
+    mtype = "附件"
+    text: str | None = None
+    context = filename
+    if suffix in (".jpg", ".jpeg", ".png"):
+        mtype = "图片"
+        try:
+            from ..services.ingest.parser import OCREngine
+
+            parsed = OCREngine.get().ocr_image(data)
+            text = parsed.text
+            context = f"{filename} {text}"
+        except Exception:
+            text = ""
+    mat = Material(
+        title=Path(filename).stem[:300],
+        type=mtype,
+        cat=cat if cat in MATERIAL_CATS else guess_cat(context),
+        src="手动上传",
+        project_id=project_id or None,
+        text=text,
+        file_name=stored,
+        file_size=f"{len(data) / 1024:.0f} KB",
+    )
+    session.add(mat)
+    session.commit()
+    audit("material_uploaded", detail=f"{filename} · {mtype}")
+    return {"ok": True, "id": mat.id, "type": mtype, "cat": mat.cat}
 
 
 @router.post("")

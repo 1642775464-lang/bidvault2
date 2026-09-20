@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,8 @@ router = APIRouter(prefix="/api/documents", tags=["F1 文档库"])
 
 _MAX_SIZE = 200 * 1024 * 1024
 
+_CHAPTER_TITLE = re.compile(r"^第[0-9一二三四五六七八九十百零]+[章节部分篇]")
+
 
 class UploadIn(BaseModel):
     doc_ids: list[str] = []
@@ -32,6 +35,8 @@ def list_docs(
     kind: str | None = None,
     project_id: str | None = None,
     q: str | None = None,
+    status: int | None = None,
+    file_type: str | None = None,
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     from ..models import Document
@@ -39,8 +44,16 @@ def list_docs(
     query = session.query(Document)
     if kind and kind in ("tender", "bid"):
         query = query.filter(Document.kind == kind)
-    if project_id:
+    if project_id == "none":
+        query = query.filter(Document.project_id.is_(None))
+    elif project_id:
         query = query.filter(Document.project_id == project_id)
+    if status is not None:
+        query = query.filter(Document.status == status)
+    if file_type == "img":
+        query = query.filter(Document.file_type.in_(("jpg", "jpeg", "png", "scan")))
+    elif file_type:
+        query = query.filter(Document.file_type == file_type)
     if q:
         query = query.filter(Document.filename.contains(q))
     rows = query.order_by(Document.created_at.desc()).all()
@@ -184,19 +197,89 @@ def update_extract_item(doc_id: str, item_id: str, body: RowsIn, session: Sessio
 
 @router.get("/{doc_id}/content")
 def doc_content(doc_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """正文预览（按切片序拼接，工作台编辑区用）。"""
+    """正文预览：以 content_text 为准（编辑后的正文），无则回退切片拼接。"""
     from ..models import Chunk
 
     doc = session.get(Document, doc_id)
     if doc is None:
         raise HTTPException(404, "文档不存在")
-    rows = (
-        session.query(Chunk)
-        .filter(Chunk.document_id == doc_id)
-        .order_by(Chunk.chunk_index)
-        .all()
+    text = (doc.content_text or "").strip()
+    if not text:
+        rows = (
+            session.query(Chunk)
+            .filter(Chunk.document_id == doc_id)
+            .order_by(Chunk.chunk_index)
+            .all()
+        )
+        text = "\n".join(r.content for r in rows)
+    return {"filename": doc.filename, "text": text[:60000]}
+
+
+class ContentIn(BaseModel):
+    text: str
+
+
+@router.put("/{doc_id}/content")
+def save_content(doc_id: str, body: ContentIn, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """工作台正文编辑保存：更新正文并重建检索索引（原件文件不动）。"""
+    from ..services.ingest.pipeline import _write_index, purge_document_index
+
+    doc = session.get(Document, doc_id)
+    if doc is None:
+        raise HTTPException(404, "文档不存在")
+    doc.content_text = body.text
+    purge_document_index(session, doc_id)
+    _write_index(session, doc_id, [body.text])
+    session.commit()
+    audit("content_saved", doc_id=doc.id, detail=f"{len(body.text)} 字")
+    return {"ok": True, "chars": len(body.text)}
+
+
+@router.get("/{doc_id}/content.docx")
+def content_docx(doc_id: str, session: Session = Depends(get_session)) -> Response:
+    """成品稿导出：编辑后正文用 python-docx 生成 Word 下载（原件保留不动）。"""
+    from io import BytesIO
+    from urllib.parse import quote
+
+    from docx import Document as Docx
+    from docx.shared import Pt
+
+    from ..models import Chunk
+
+    doc = session.get(Document, doc_id)
+    if doc is None:
+        raise HTTPException(404, "文档不存在")
+    text = (doc.content_text or "").strip()
+    if not text:
+        rows = (
+            session.query(Chunk)
+            .filter(Chunk.document_id == doc_id)
+            .order_by(Chunk.chunk_index)
+            .all()
+        )
+        text = "\n".join(r.content for r in rows)
+    d = Docx()
+    for line in text.splitlines():
+        ln = line.strip()
+        if not ln:
+            continue
+        p = d.add_paragraph()
+        if _CHAPTER_TITLE.match(ln):
+            run = p.add_run(ln)
+            run.bold = True
+            run.font.size = Pt(14)
+        else:
+            run = p.add_run(ln)
+            run.font.size = Pt(12)
+    buf = BytesIO()
+    d.save(buf)
+    fname = f"编辑稿_{doc.filename}" if doc.filename.endswith(".docx") else f"编辑稿_{doc.filename}.docx"
+    audit("doc_exported", doc_id=doc.id, detail=fname)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"},
     )
-    return {"filename": doc.filename, "text": "\n".join(r.content for r in rows)[:60000]}
 
 
 @router.get("/{doc_id}/download")

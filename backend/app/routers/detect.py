@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,15 +14,79 @@ from sqlalchemy.orm import Session
 from ..db import get_session
 from ..models import Document, RiskItem
 from ..services.audit import audit
-from ..services.detect import BUILTIN_RULES, detect_project, risk_index_of
+from ..services.detect import BUILTIN_RULES, detect_project, ensure_rules, risk_index_of
 
 router = APIRouter(prefix="/api/detect", tags=["F3 废标检测"])
 
 
 @router.get("/rules")
-def list_rules() -> dict[str, Any]:
-    """内置检测规则清单（F3.4 设置页展示）。"""
-    return {"rules": BUILTIN_RULES}
+def list_rules(session: Session = Depends(get_session)) -> dict[str, Any]:
+    """检测规则清单（库为准、内置顺序），含启用状态。"""
+    from ..models import DetectRule
+
+    ensure_rules(session)
+    rows = {r.id: r for r in session.query(DetectRule).all()}
+    rules = [
+        {
+            "id": r["id"], "name": r["name"], "sev": r["sev"], "type": r["type"],
+            "desc": rows[r["id"]].desc if r["id"] in rows else r["desc"],
+            "enabled": rows[r["id"]].enabled if r["id"] in rows else True,
+        }
+        for r in BUILTIN_RULES
+    ]
+    return {"rules": rules}
+
+
+class RulePatchIn(BaseModel):
+    enabled: bool | None = None
+    desc: str | None = None
+
+
+@router.patch("/rules/{rule_id}")
+def patch_rule(rule_id: str, body: RulePatchIn, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """规则维护：启停/改说明，每次变更写入留痕表。"""
+    from ..models import DetectRule, DetectRuleVersion
+
+    row = session.get(DetectRule, rule_id)
+    if row is None:
+        raise HTTPException(404, "规则不存在")
+    changes: list[str] = []
+    if body.enabled is not None and body.enabled != row.enabled:
+        row.enabled = body.enabled
+        changes.append("启用" if body.enabled else "停用")
+    if body.desc is not None and body.desc.strip() and body.desc.strip() != row.desc:
+        row.desc = body.desc.strip()
+        changes.append("说明修改")
+    if not changes:
+        return {"ok": True, "changed": False}
+    session.add(DetectRuleVersion(
+        rule_id=rule_id,
+        note="；".join(changes),
+        snapshot_json=json.dumps(
+            {"name": row.name, "sev": row.sev, "type": row.type, "desc": row.desc, "enabled": row.enabled},
+            ensure_ascii=False,
+        ),
+    ))
+    session.commit()
+    audit("detect_rule_updated", detail=f"{rule_id} · {'；'.join(changes)}")
+    return {"ok": True, "changed": True}
+
+
+@router.get("/rules/history")
+def rule_history(limit: int = 30, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """规则变更留痕。"""
+    from ..models import DetectRuleVersion
+
+    rows = session.query(DetectRuleVersion).order_by(DetectRuleVersion.created_at.desc()).limit(limit).all()
+    names = {r["id"]: r["name"] for r in BUILTIN_RULES}
+    return {"items": [
+        {
+            "rule_id": v.rule_id, "rule_name": names.get(v.rule_id, v.rule_id),
+            "note": v.note,
+            "created_at": v.created_at.isoformat() if v.created_at else None,
+        }
+        for v in rows
+    ]}
 
 
 def _doc_names(session: Session) -> dict[str, str]:

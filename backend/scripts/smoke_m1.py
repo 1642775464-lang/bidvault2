@@ -229,5 +229,55 @@ step("生产模式托管", r.status_code == 200 and 'id="app"' in r.text)
 r = httpx.get("http://127.0.0.1:8000/some/route")
 step("SPA fallback", r.status_code == 200 and 'id="app"' in r.text)
 
+# 22 第2期 组合筛选
+r = c.get(f"{base}/documents", params={"kind": "bid", "status": "2"})
+step("组合筛选 kind+status", r.status_code == 200 and r.json()["total"] >= 1, f"total={r.json()['total']}")
+png2 = _random_png(120, 90)
+r = c.post(f"{base}/documents/upload", files=[("files", ("资质证书_扫描.png", png2, "image/png"))], data={"kind": "bid", "project_id": pid, "is_secret": "true"})
+step("图片文档上传", r.status_code == 200 and len(r.json().get("created", [])) == 1)
+r = c.get(f"{base}/documents", params={"file_type": "img"})
+step("组合筛选 图片类型", r.status_code == 200 and r.json()["total"] >= 1, f"total={r.json()['total']}")
+r = c.get(f"{base}/documents", params={"project_id": "none"})
+step("组合筛选 未绑定", r.status_code == 200 and r.json()["total"] == 0, f"total={r.json()['total']}")
+
+# 23 第2期 素材真实上传（图片 OCR）
+png1 = _random_png(200, 120)
+r = c.post(f"{base}/materials/upload", files=[("file", ("营业执照_新.png", png1, "image/png"))], data={"cat": "资质文件"})
+up_ok = r.status_code == 200 and r.json().get("type") == "图片"
+step("素材图片上传", up_ok, str(r.json()) if up_ok else r.text[:80])
+r = c.get(f"{base}/materials")
+step("上传素材入库", any("营业执照_新" in m["title"] for m in r.json()["items"]))
+
+# 24 第2期 正文编辑保存 + 成品稿导出
+edited = BID + chr(10) + "本人承诺：本投标文件所有内容真实有效。" + chr(10)
+r = c.put(f"{base}/documents/{bid_id}/content", json={"text": edited})
+step("正文编辑保存", r.status_code == 200 and r.json().get("ok"), str(r.text[:60]))
+r = c.get(f"{base}/documents/{bid_id}/content")
+step("编辑后预览", "真实有效" in r.json()["text"])
+r = c.get(f"{base}/documents/{bid_id}/content.docx")
+step("成品稿导出", r.status_code == 200 and len(r.content) > 4000)
+c.put(f"{base}/documents/{bid_id}/content", json={"text": BID})
+
+# 25 第2期 检测规则维护 + 留痕
+r = c.get(f"{base}/detect/rules")
+rules0 = r.json()["rules"]
+step("规则清单含状态", r.status_code == 200 and all("enabled" in x for x in rules0))
+r = c.patch(f"{base}/detect/rules/copies", json={"enabled": False})
+step("规则停用", r.status_code == 200 and r.json().get("changed"))
+r = c.get(f"{base}/detect/rules")
+step("停用生效", next(x["enabled"] for x in r.json()["rules"] if x["id"] == "copies") is False)
+c.patch(f"{base}/detect/rules/copies", json={"enabled": True})
+r = c.get(f"{base}/detect/rules/history")
+step("规则留痕", r.status_code == 200 and len(r.json()["items"]) >= 1, f"n={len(r.json()['items'])}")
+
+# 26 第2期 备份与还原
+r = c.post(f"{base}/backup")
+bk_ok = r.status_code == 200 and "name" in r.json()
+step("手动备份", bk_ok, str(r.json()) if bk_ok else r.text[:60])
+r = c.get(f"{base}/backup")
+step("备份列表", r.status_code == 200 and len(r.json()["items"]) >= 1 and r.json()["keep"] == 7)
+r = c.get(f"{base}/detect/{pid}/risks")
+step("缺项风险带引用", all(x.get("quote") for x in r.json()["items"]), str([x["title"] for x in r.json()["items"]][:2]))
+
 print(f"\n冒烟结果：{ok} 过 / {fail} 败")
 raise SystemExit(1 if fail else 0)
