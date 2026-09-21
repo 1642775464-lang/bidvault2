@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import os
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
@@ -263,12 +264,18 @@ def parse_docx(data: bytes) -> ParsedDoc:
                     if h:
                         hl_counter[h] += 1
                 table.rows.append(cells)
-                flat = [c for c in cells if c]
-                if flat:
-                    lines.append(" | ".join(flat))
+                # 行号账本 invariant：每个物理 <w:tr> 无条件占一个行号槽（空行也占位），
+                # 保证 end_line - start_line + 1 == model 行数；
+                # 否则 V2 空行保留后，表尾行号会与表后段落行号碰撞导致顺序交错。
+                lines.append(" | ".join(c for c in cells if c))
             if hl_counter:
                 table.hl = hl_counter.most_common(1)[0][0]
             table.end_line = len(lines) - 1
+            if table.model is not None and table.end_line - table.start_line + 1 != len(table.model["rows"]):
+                logging.warning(
+                    "table slot invariant violated: span=%d model_rows=%d",
+                    table.end_line - table.start_line + 1, len(table.model["rows"]),
+                )
             doc_tables.append(table)
     whole = "\n".join(lines)
     return ParsedDoc(text=whole, pages=[whole], doc_tables=doc_tables)
