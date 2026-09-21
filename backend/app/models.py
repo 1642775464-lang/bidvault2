@@ -201,6 +201,11 @@ class Material(Base):
     file_size: Mapped[str | None] = mapped_column(String(30), default=None)
     source_page: Mapped[int | None] = mapped_column(Integer, default=None)  # 图片证据来源页码
     used: Mapped[int] = mapped_column(Integer, default=0)
+    # 阶段六B-1b：Material 独立 DOCX（OfficeDocument type=material）
+    office_document_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    source_document_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    source_document_version_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    source_locator_json: Mapped[str | None] = mapped_column(Text, default=None)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
     __table_args__ = (Index("ix_mat_cat", "cat", "updated_at"),)

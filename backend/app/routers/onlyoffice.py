@@ -21,9 +21,10 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_session
-from ..models import Document, DocumentVersion
+from ..models import Document, DocumentVersion, OfficeDocument, OfficeDocumentVersion
 from ..services import onlyoffice_svc
 from ..services.audit import audit
+from ..services.office_document_svc import OfficeDocumentService
 
 router = APIRouter(prefix="/api/onlyoffice", tags=["ONLYOFFICE 集成"])
 
@@ -265,6 +266,76 @@ def callback(doc_id: str, body: dict[str, Any]) -> dict[str, Any]:
             ).start()
             _callback_log[doc_id] = "正在处理保存…"
     return {"error": 0}
+
+
+# ---------------- B-1b：通用 OfficeDocument 只读入口（material 用；编辑 callback 属 B-2） ----------------
+
+office_router = APIRouter(prefix="/api/office-documents", tags=["ONLYOFFICE 集成"])
+
+
+@office_router.get("/{oid}/editor-config")
+def office_document_editor_config(oid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """通用 editor-config：按 OfficeDocument 组装。
+
+    B-1b 阶段 material 一律 mode=view（无 callback，保存链路 B-2 接入）。
+    """
+    s = get_settings()
+    if not s.onlyoffice_enabled:
+        raise HTTPException(503, "ONLYOFFICE 未配置")
+    od = session.get(OfficeDocument, oid)
+    if od is None:
+        raise HTTPException(404, "OfficeDocument 不存在")
+    v = (
+        session.get(OfficeDocumentVersion, od.current_version_id)
+        if od.current_version_id
+        else None
+    )
+    if v is None:
+        raise HTTPException(409, "该 Office 文件尚无版本")
+    path = s.files_dir / v.file_path
+    if not path.is_file():
+        raise HTTPException(404, "版本文件已丢失")
+    data = path.read_bytes()
+    key = f"{od.id}-v{v.version}-{v.file_hash[:12]}"
+    token = OfficeDocumentService.generate_file_token(od.id, vid=v.id)
+    config = onlyoffice_svc.build_editor_config(od.id, od.title or od.id, data, mode="view", key=key)
+    config["document"]["url"] = (
+        f"{s.onlyoffice_backend_internal_url}/api/office-documents/{od.id}/files?token={token}"
+    )
+    config["token"] = svc_jwt(config)
+    return {
+        "scriptUrl": f"{s.onlyoffice_public_url}/web-apps/apps/api/documents/api.js",
+        "config": config,
+        "mode": "view",
+        "version": v.version,
+        "enabled": True,
+    }
+
+
+def svc_jwt(payload: dict[str, Any]) -> str:
+    import jwt
+
+    return jwt.encode(payload, get_settings().onlyoffice_jwt_secret, algorithm="HS256")
+
+
+@office_router.get("/{oid}/files")
+def office_document_file(oid: str, token: str, session: Session = Depends(get_session)) -> FileResponse:
+    """通用文件读取：token（含 vid）校验后返回对应版本文件。"""
+    ok, vid = onlyoffice_svc.verify_file_token(oid, token)
+    if not ok:
+        raise HTTPException(403, "文件访问凭证无效或已过期")
+    od = session.get(OfficeDocument, oid)
+    if od is None:
+        raise HTTPException(404, "OfficeDocument 不存在")
+    v = session.get(OfficeDocumentVersion, vid) if vid else (
+        session.get(OfficeDocumentVersion, od.current_version_id) if od.current_version_id else None
+    )
+    if v is None:
+        raise HTTPException(404, "版本不存在")
+    path = get_settings().files_dir / v.file_path
+    if not path.is_file():
+        raise HTTPException(404, "版本文件已丢失")
+    return FileResponse(path, filename=od.title or od.id, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
 @router.get("/files/{doc_id}")

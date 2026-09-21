@@ -94,6 +94,13 @@ def process_document(session: Session, doc: Document, *, version_id: str | None 
                 logger.warning("image extraction failed: %s", doc.filename, exc_info=True)
         doc.status = 2
         session.commit()
+        # 原始上传即 v1（正式版本链起点；存量文档由 editor-config/callback 惰性补档）
+        try:
+            from ...services.onlyoffice_svc import ensure_version
+
+            ensure_version(session, doc)
+        except Exception:
+            logger.warning("ensure_version failed: %s", doc.filename, exc_info=True)
         audit("doc_extracted", doc_id=doc.id, detail=f"结构项 {extracted} · 素材 {made + img_made}")
         return IngestResult(doc.id, 2, n, extracted, made + img_made)
     except Exception as exc:
