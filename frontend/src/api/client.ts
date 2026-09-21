@@ -162,6 +162,9 @@ export const api = {
   async officeCallbackState(oid: string): Promise<{ doc_id: string; state: string }> {
     return handle(fetch(`/api/office-documents/${oid}/callback-state`));
   },
+  async officeVersions(oid: string): Promise<{ items: { id: string; version: number; source: string; created_at: string | null; is_current: boolean; size: number | null; comment: string | null; restored_from_version_id: string | null; editor_user: string | null; file_hash: string }[] }> {
+    return handle(fetch(`/api/office-documents/${oid}/versions`));
+  },
   async onlyofficeVersions(docId: string): Promise<{
     items: {
       id: string; version: number; file_hash: string; source: string;

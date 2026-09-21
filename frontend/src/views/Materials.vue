@@ -28,6 +28,8 @@ const eFile = ref<File | null>(null);
 /* B-2：已 Word 化素材双视图 */
 const matTab = ref<"word" | "ai">("word");
 const matVerOpen = ref(false);
+const matVerState = ref<"loading" | "error" | "empty" | "ready">("loading");
+const matVerError = ref("");
 const matVerList = ref<{ id: string; version: number; source: string; created_at: string | null; is_current: boolean; size: number | null; comment: string | null; restored_from_version_id: string | null }[]>([]);
 const matViewingVid = ref<string | null>(null);
 const matViewingVer = ref<number | null>(null);
@@ -126,7 +128,7 @@ async function pollMatVersion(): Promise<void> {
   const m = sel.value;
   if (!m?.office_document_id || matSyncing.value) return;
   try {
-    const items = (await api.onlyofficeVersions(m.office_document_id)).items;
+    const items = (await api.officeVersions(m.office_document_id)).items;
     const cur = items.find((v) => v.is_current)?.version ?? null;
     if (matKnownVer.value === null) {
       matKnownVer.value = cur;
@@ -177,10 +179,19 @@ const sourceStale = ref(false);
 
 async function loadMatVersions(): Promise<void> {
   const m = sel.value;
-  if (!m?.office_document_id) return;
+  if (!m?.office_document_id) {
+    matVerState.value = "error";
+    matVerError.value = "素材未关联 Word 文件";
+    return;
+  }
+  matVerState.value = "loading";
+  matVerError.value = "";
   try {
-    matVerList.value = (await api.onlyofficeVersions(m.office_document_id)).items;
-  } catch {
+    matVerList.value = (await api.officeVersions(m.office_document_id)).items;
+    matVerState.value = matVerList.value.length ? "ready" : "empty";
+  } catch (e) {
+    matVerState.value = "error";
+    matVerError.value = e instanceof Error ? e.message : "加载失败";
     matVerList.value = [];
   }
   // 来源新版本提示：与素材自身版本列表互不影响（source 尚未迁通用层，走 source 端点）
@@ -859,7 +870,9 @@ onMounted(async () => {
               </template>
             </div>
           </div>
-          <div v-if="!matVerList.length" class="empty-state"><b>暂无历史版本</b></div>
+          <div v-if="matVerState === 'loading'" class="empty-state"><b>正在加载历史版本…</b></div>
+          <div v-else-if="matVerState === 'error'" class="empty-state"><b>历史版本加载失败：{{ matVerError }}</b><button class="mini-btn" @click="loadMatVersions()">重试</button></div>
+          <div v-else-if="matVerState === 'empty'" class="empty-state"><b>暂无历史版本</b></div>
         </div>
         <div class="m-foot">
           <button class="btn-ghost" @click="matVerOpen = false">关闭</button>
