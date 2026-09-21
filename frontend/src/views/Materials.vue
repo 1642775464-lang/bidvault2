@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { Material } from "../api/types";
 import { CATS, navTo, refreshCore, store, toast } from "../store";
@@ -117,6 +117,52 @@ const wordCount = ref(0);
 const dirty = ref(false);
 const saving = ref(false);
 const isWordMat = computed(() => !!sel.value?.office_document_id);
+/* B-2：正式版本变化 → AI数据同步中 → processor 完成信号 → 自动重载（无猜测延迟） */
+const matSyncing = ref(false);
+const matKnownVer = ref<number | null>(null);
+let matPollTimer: ReturnType<typeof setInterval> | null = null;
+
+async function pollMatVersion(): Promise<void> {
+  const m = sel.value;
+  if (!m?.office_document_id || matSyncing.value) return;
+  try {
+    const items = (await api.onlyofficeVersions(m.office_document_id)).items;
+    const cur = items.find((v) => v.is_current)?.version ?? null;
+    if (matKnownVer.value === null) {
+      matKnownVer.value = cur;
+      return;
+    }
+    if (cur == null || cur <= matKnownVer.value) return;
+    matSyncing.value = true;
+    matKnownVer.value = cur;
+    // 完成信号：callback-state 出现 processor 结果（事件信号，非猜测延迟）
+    for (let i = 0; i < 90; i++) {
+      try {
+        const st = (await api.officeCallbackState(m.office_document_id)).state;
+        if (st.includes("processor=") || st.includes("保存处理失败")) break;
+      } catch {
+        /* 轮询失败继续 */
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    await load();
+    matSyncing.value = false;
+  } catch {
+    /* 轮询失败下轮重试 */
+  }
+}
+
+function startMatPoll(): void {
+  if (matPollTimer) clearInterval(matPollTimer);
+  void pollMatVersion();
+  matPollTimer = setInterval(() => void pollMatVersion(), 15000);
+}
+
+function stopMatPoll(): void {
+  if (matPollTimer) clearInterval(matPollTimer);
+  matPollTimer = null;
+}
+
 const sourceInfo = computed(() => {
   const m = sel.value;
   if (!m?.source_locator_json) return null;
@@ -182,6 +228,7 @@ async function initMatOffice(vid?: string): Promise<void> {
 
 function switchMatTab(t: "word" | "ai"): void {
   matTab.value = t;
+  if (t === "ai") void pollMatVersion();
   if (t === "word") void initMatOffice(matViewingVid.value ?? undefined);
   else {
     matOoEditor?.destroyEditor();
@@ -237,7 +284,18 @@ watch(() => sel.value?.id, () => {
   matViewingVid.value = null;
   matViewingVer.value = null;
   matVerOpen.value = false;
-  if (isWordMat.value) void nextTick(() => initMatOffice());
+  matKnownVer.value = null;
+  if (isWordMat.value) {
+    void nextTick(() => initMatOffice());
+    startMatPoll();
+  } else {
+    stopMatPoll();
+  }
+});
+
+onUnmounted(() => {
+  stopMatPoll();
+  matOoEditor?.destroyEditor();
 });
 
 function recount(): void {
@@ -559,6 +617,7 @@ onMounted(async () => {
               <div class="doctabs" style="padding:10px 16px 0">
                 <button :class="{ on: matTab === 'word' }" @click="switchMatTab('word')">Word正文</button>
                 <button :class="{ on: matTab === 'ai' }" @click="switchMatTab('ai')">AI / 结构化数据</button>
+                <span v-if="matSyncing" class="syncbadge">AI数据同步中…</span>
                 <span class="verbadge">{{ matViewingVid ? `查看历史 v${matViewingVer}` : "" }}</span>
                 <button class="verbtn" @click="matVerOpen = true; loadMatVersions()">历史版本</button>
                 <button class="verbtn" @click="openSourceDoc()">查看来源</button>

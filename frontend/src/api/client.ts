@@ -159,6 +159,9 @@ export const api = {
       }),
     );
   },
+  async officeCallbackState(oid: string): Promise<{ doc_id: string; state: string }> {
+    return handle(fetch(`/api/office-documents/${oid}/callback-state`));
+  },
   async onlyofficeVersions(docId: string): Promise<{
     items: {
       id: string; version: number; file_hash: string; source: string;
