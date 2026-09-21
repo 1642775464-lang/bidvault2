@@ -287,3 +287,4 @@ def restore_version(session: Any, doc: Any, target: Any, *, editor_user: str | N
     doc.size = src.stat().st_size
     session.commit()
     return v
+

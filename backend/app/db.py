@@ -101,6 +101,7 @@ def _migrate(conn: Any) -> None:
         "ALTER TABLE document_versions ADD COLUMN restored_from_version_id TEXT",
         "ALTER TABLE document_versions ADD COLUMN comment TEXT",
         "ALTER TABLE materials ADD COLUMN office_document_id TEXT",
+        "ALTER TABLE documents ADD COLUMN office_document_id TEXT",
         "ALTER TABLE materials ADD COLUMN source_document_id TEXT",
         "ALTER TABLE materials ADD COLUMN source_document_version_id TEXT",
         "ALTER TABLE materials ADD COLUMN source_locator_json TEXT",

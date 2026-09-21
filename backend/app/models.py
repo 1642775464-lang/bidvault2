@@ -66,7 +66,8 @@ class Document(Base):
     stored_name: Mapped[str | None] = mapped_column(String(64), default=None)
     source: Mapped[str] = mapped_column(String(10), default="upload")  # upload | path
     origin_path: Mapped[str | None] = mapped_column(String(1000), unique=True)
-    current_version_id: Mapped[str | None] = mapped_column(String(32), default=None)  # 当前正式版本
+    current_version_id: Mapped[str | None] = mapped_column(String(32), default=None)  # deprecated 兼容字段（B-1c 后真源在 OfficeDocument.current_version_id，新代码禁读）
+    office_document_id: Mapped[str | None] = mapped_column(String(32), index=True, default=None)  # B-1c：Office 主身份
     kind: Mapped[str] = mapped_column(String(10), default="tender")  # tender | bid
     file_type: Mapped[str] = mapped_column(String(8), default="docx")  # docx|pdf|txt|xlsx|xls|csv|scan
     size: Mapped[int] = mapped_column(Integer, default=0)

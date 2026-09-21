@@ -39,12 +39,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if apply_pending_restore():
         logging.getLogger(__name__).info("pending restore applied")
     make_engine()
-    try:  # B-2：post-save 持久幂等 + 素材处理器注册
+    try:  # B-2/B-1c：post-save 持久幂等 + 处理器注册 + source 文档身份迁移
+        from sqlalchemy.orm import Session
+
         from .db import get_engine
         from .services.material_processor import MaterialDocumentProcessor
         from .services.office_document_svc import register_processor, use_persistent_runs
+        from .services.source_migration import backfill_source_office_documents
 
         use_persistent_runs(get_engine())
+        with Session(bind=get_engine()) as _s:
+            backfill_source_office_documents(_s)
         register_processor(MaterialDocumentProcessor())
     except Exception:
         logging.getLogger(__name__).warning("processor registry init skipped")

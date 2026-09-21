@@ -163,3 +163,50 @@ def test_existing_document_chain_untouched(db_session):
     assert n == 0 or n >= 0  # 表存在即可；source 数据不经新表
     dv_cols = {r[1] for r in s.execute(text("PRAGMA table_info(document_versions)"))}
     assert "office_document_id" not in dv_cols, "旧 document_versions 表不得被修改"
+
+
+def test_source_backfill_idempotent(tmp_path, monkeypatch):
+    """B-1c-1：source 回填——每 Document 建 OfficeDocument(type=source)+同 id 版本复制，幂等。"""
+    os.environ["DATA_DIR"] = str(tmp_path / "bf")
+    from sqlalchemy import text
+
+    import app.config as cfg
+    import app.db as appdb
+
+    monkeypatch.setattr(cfg, "_SETTINGS", None)
+    monkeypatch.setattr(appdb, "_Engine", None)
+    monkeypatch.setattr(appdb, "_SessionLocal", None)
+    engine = make_engine(cfg.get_settings().db_path)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    s = factory()
+    try:
+        s.execute(text(
+            "INSERT INTO documents (id, filename, kind, file_type, stored_name, source, size, mtime, status, is_secret, bid_type, needs_review, current_version_id, created_at, updated_at) "
+            "VALUES ('d1', '源文件.docx', 'tender', 'docx', 'src1.docx', 'upload', 100, 0, 2, 0, '自主', 0, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ))
+        s.execute(text(
+            "INSERT INTO document_versions (id, document_id, version, file_path, file_hash, source, created_at) "
+            "VALUES ('dv1', 'd1', 1, 'src1.docx', 'hash-a', 'upload', CURRENT_TIMESTAMP)"
+        ))
+        s.commit()
+
+        from app.services.source_migration import backfill_source_office_documents
+
+        r1 = backfill_source_office_documents(s)
+        assert r1["created"] == 1
+        od = s.execute(text(
+            "SELECT o.id, o.document_type, o.current_version_id, d.office_document_id FROM documents d "
+            "JOIN office_documents o ON o.id = d.office_document_id WHERE d.id='d1'"
+        )).fetchone()
+        assert od[1] == "source" and od[2] == "dv1" and od[3] == od[0]
+        v = s.execute(text(
+            "SELECT id, version, file_path, file_hash FROM office_document_versions WHERE office_document_id=:o"
+        ), {"o": od[0]}).fetchall()
+        assert v == [("dv1", 1, "src1.docx", "hash-a")], "版本未按原 id/值复制"
+        # 幂等：二跑 skipped
+        r2 = backfill_source_office_documents(s)
+        assert r2 == {"created": 0, "skipped": 1}
+        n = s.execute(text("SELECT count(*) FROM office_documents")).scalar()
+        assert n == 1
+    finally:
+        s.close()
