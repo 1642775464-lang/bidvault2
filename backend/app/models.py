@@ -139,6 +139,49 @@ class DocumentVersion(Base):
     __table_args__ = (UniqueConstraint("document_id", "version", name="uq_docver"),)
 
 
+class OfficeDocument(Base):
+    """通用 Office 文件层（阶段六B-1a）：只负责文件生命周期，业务字段留在业务表。
+
+    document_type: source | material | workspace
+    current_version_id 是唯一正式版本指针（阶段三机制泛化）。
+    title 仅编辑器显示缓存，业务名称真源在业务对象。
+    """
+
+    __tablename__ = "office_documents"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    document_type: Mapped[str] = mapped_column(String(16), index=True)  # source|material|workspace
+    title: Mapped[str] = mapped_column(String(500), default="")
+    file_type: Mapped[str] = mapped_column(String(8), default="docx")
+    current_version_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class OfficeDocumentVersion(Base):
+    """通用 Office 版本表：UNIQUE(office_document_id, version)。
+
+    source: upload | onlyoffice | init | restore
+    status=6 工作快照不落本表（阶段三语义延续）。
+    """
+
+    __tablename__ = "office_document_versions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    office_document_id: Mapped[str] = mapped_column(String(32), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    file_path: Mapped[str] = mapped_column(String(500))
+    file_hash: Mapped[str] = mapped_column(String(64))
+    file_size: Mapped[int] = mapped_column(Integer, default=0)
+    source: Mapped[str] = mapped_column(String(20), default="upload")
+    restored_from_version_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    editor_user: Mapped[str | None] = mapped_column(String(100), default=None)
+    comment: Mapped[str | None] = mapped_column(String(300), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    __table_args__ = (UniqueConstraint("office_document_id", "version", name="uq_odver"),)
+
+
 class Material(Base):
     """素材（F2.6）。type: 表格/文本/图片/附件；cat: 七分类。"""
 
