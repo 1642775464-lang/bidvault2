@@ -400,7 +400,6 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .doc-ico.bid{background:var(--ok-bg);color:var(--ok)}
 .docsub-bar{display:flex;align-items:center;gap:10px;padding:10px 20px;flex-wrap:wrap;flex:none}
 .docsub-bar .bx select{border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px;font-family:inherit;background:#fff;color:var(--ink)}
-.doc-edit{width:100%;min-height:60vh;background:#fff;border:1px solid var(--line);border-radius:6px;padding:48px 56px;line-height:1.9;font-family:inherit;color:var(--ink);resize:vertical;outline:none}
 .sec-title{font-size:13px;font-weight:700;color:var(--ink);margin:18px 0 8px}
 .arcrow{display:flex;gap:8px;margin-bottom:10px}
 .arcrow input{flex:1;max-width:460px;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12.5px;font-family:inherit}

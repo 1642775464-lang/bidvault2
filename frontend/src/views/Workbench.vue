@@ -38,9 +38,6 @@ const tenderDoc = computed(() => myDocs.value.find((d) => d.kind === "tender") ?
 /* ---------------- 文档预览 ---------------- */
 const docHtml = ref("");
 const docRaw = ref("");
-const editing = ref(false);
-const editText = ref("");
-const savingDoc = ref(false);
 const docTitle = ref("");
 const docMeta = ref("");
 const fs = ref(15);
@@ -55,34 +52,6 @@ let hits: HTMLElement[] = [];
 let hitIdx = -1;
 
 const hasDoc = computed(() => !!cur.value && bidDocs.value.length > 0);
-
-function startEdit(): void {
-  if (!hasDoc.value) return;
-  editText.value = docRaw.value;
-  editing.value = true;
-}
-
-async function saveEdit(): Promise<void> {
-  const d = bidDocs.value[0];
-  if (!d) return;
-  savingDoc.value = true;
-  try {
-    await api.saveContent(d.id, editText.value);
-    toast("正文已保存");
-    editing.value = false;
-    docRaw.value = editText.value;
-    await loadDoc();
-  } catch (e) {
-    toast(e instanceof Error ? e.message : "保存失败");
-  } finally {
-    savingDoc.value = false;
-  }
-}
-
-function exportDraft(): void {
-  const d = bidDocs.value[0];
-  if (d) window.open(api.contentDocxUrl(d.id));
-}
 
 const chapters = computed(() => {
   if (!docHtml.value) return [] as { id: string; label: string }[];
@@ -385,6 +354,10 @@ const sortedCases = computed(() =>
 watch(() => store.activeProjectId, loadPanels);
 watch(tenderDoc, loadPanels);
 
+function goEditOriginal(): void {
+  navTo("docs");
+}
+
 function goLib(): void {
   navTo("lib");
 }
@@ -519,10 +492,7 @@ onMounted(async () => {
           <button class="mini-btn" :disabled="!hasDoc" @click="setFs(fs - 1)">A−</button>
           <button class="mini-btn" :disabled="!hasDoc" @click="setFs(fs + 1)">A+</button>
           <span class="tool-sep" />
-          <button v-if="!editing" class="mini-btn" :disabled="!hasDoc" @click="startEdit">编辑正文</button>
-          <button v-else class="mini-btn pri" :disabled="savingDoc" @click="saveEdit">{{ savingDoc ? "保存中…" : "保存" }}</button>
-          <button v-if="editing" class="mini-btn" @click="editing = false">取消</button>
-          <button class="mini-btn" :disabled="!hasDoc || editing" @click="exportDraft">导出成品稿</button>
+          <button class="mini-btn" :disabled="!hasDoc" @click="goEditOriginal">在文档库编辑（ONLYOFFICE）</button>
           <span class="tool-note">{{ docNote }}</span>
         </div>
         <div ref="docScroll" class="doc-scroll" @scroll="onDocScroll">
@@ -531,8 +501,7 @@ onMounted(async () => {
               <div class="ol-title">章节大纲</div>
               <button v-for="(o, i) in outline" :key="o.id" class="ol-item" :class="{ on: i === curChapter }" @click="o.id && gotoChapter(o.id)">{{ o.label }}</button>
             </aside>
-            <textarea v-if="editing" v-model="editText" class="doc-edit" :style="{ fontSize: fs + 'px' }" />
-            <article v-else ref="docBody" class="doc-page" :style="{ fontSize: fs + 'px' }">
+            <article ref="docBody" class="doc-page" :style="{ fontSize: fs + 'px' }">
               <h1>{{ docTitle }}</h1>
               <p class="doc-meta">{{ docMeta }}</p>
               <!-- eslint-disable-next-line vue/no-v-html -->

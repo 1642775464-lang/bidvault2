@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -214,7 +214,8 @@ def update_extract_item(doc_id: str, item_id: str, body: RowsIn, session: Sessio
 
 @router.get("/{doc_id}/content")
 def doc_content(doc_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """正文预览：以 content_text 为准（编辑后的正文），无则回退切片拼接。"""
+    """正文预览：content_text = 当前正式 DocumentVersion 经 parser 生成的派生文本缓存
+    （仅 process_document 写入，只读；无则回退切片拼接）。"""
     from ..models import Chunk
 
     doc = session.get(Document, doc_id)
@@ -232,87 +233,22 @@ def doc_content(doc_id: str, session: Session = Depends(get_session)) -> dict[st
     return {"filename": doc.filename, "text": text[:60000]}
 
 
-class ContentIn(BaseModel):
-    text: str
-
-
-@router.put("/{doc_id}/content")
-def save_content(doc_id: str, body: ContentIn, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """工作台正文编辑保存：更新正文并重建检索索引（原件文件不动）。
-
-    [legacy] ONLYOFFICE 集成后，正式编辑入口为原始文档页签；
-    本接口保留兼容既有调用，待 ONLYOFFICE 验收与迁移完成后下线。
-    """
-    from ..services.ingest.pipeline import _write_index, purge_document_index
-
-    doc = session.get(Document, doc_id)
-    if doc is None:
-        raise HTTPException(404, "文档不存在")
-    doc.content_text = body.text
-    purge_document_index(session, doc_id)
-    _write_index(session, doc_id, [body.text])
-    session.commit()
-    audit("content_saved", doc_id=doc.id, detail=f"{len(body.text)} 字")
-    return {"ok": True, "chars": len(body.text)}
-
-
-@router.get("/{doc_id}/content.docx")
-def content_docx(doc_id: str, session: Session = Depends(get_session)) -> Response:
-    """成品稿导出：编辑后正文用 python-docx 生成 Word 下载（原件保留不动）。
-
-    [legacy] 同上，待 ONLYOFFICE 集成验收后评估下线。
-    """
-    from io import BytesIO
-    from urllib.parse import quote
-
-    from docx import Document as Docx
-    from docx.shared import Pt
-
-    from ..models import Chunk
-
-    doc = session.get(Document, doc_id)
-    if doc is None:
-        raise HTTPException(404, "文档不存在")
-    text = (doc.content_text or "").strip()
-    if not text:
-        rows = (
-            session.query(Chunk)
-            .filter(Chunk.document_id == doc_id)
-            .order_by(Chunk.chunk_index)
-            .all()
-        )
-        text = "\n".join(r.content for r in rows)
-    d = Docx()
-    for line in text.splitlines():
-        ln = line.strip()
-        if not ln:
-            continue
-        p = d.add_paragraph()
-        if _CHAPTER_TITLE.match(ln):
-            run = p.add_run(ln)
-            run.bold = True
-            run.font.size = Pt(14)
-        else:
-            run = p.add_run(ln)
-            run.font.size = Pt(12)
-    buf = BytesIO()
-    d.save(buf)
-    fname = f"编辑稿_{doc.filename}" if doc.filename.endswith(".docx") else f"编辑稿_{doc.filename}.docx"
-    audit("doc_exported", doc_id=doc.id, detail=fname)
-    return Response(
-        content=buf.getvalue(),
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"},
-    )
-
-
 @router.get("/{doc_id}/download")
 def download_doc(doc_id: str, session: Session = Depends(get_session)) -> FileResponse:
-    """成品导出：下载文档原件（Word/PDF 原样，F3.3）。"""
+    """成品导出：下载当前正式 DocumentVersion 对应的原件（Word/PDF 原样，F3.3）。"""
     doc = session.get(Document, doc_id)
     if doc is None:
         raise HTTPException(404, "文档不存在")
     settings = get_settings()
+    from ..models import DocumentVersion
+
+    if doc.current_version_id:
+        v = session.get(DocumentVersion, doc.current_version_id)
+        if v is not None:
+            vpath = settings.files_dir / v.file_path
+            if vpath.is_file():
+                audit("doc_exported", doc_id=doc.id, detail=f"{doc.filename} · v{v.version}")
+                return FileResponse(vpath, filename=doc.filename)
     if doc.stored_name:
         path = settings.files_dir / doc.stored_name
         if path.is_file():

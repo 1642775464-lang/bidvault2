@@ -251,16 +251,6 @@ step("素材图片上传", up_ok, str(r.json()) if up_ok else r.text[:80])
 r = c.get(f"{base}/materials")
 step("上传素材入库", any("营业执照_新" in m["title"] for m in r.json()["items"]))
 
-# 24 第2期 正文编辑保存 + 成品稿导出
-edited = BID + chr(10) + "本人承诺：本投标文件所有内容真实有效。" + chr(10)
-r = c.put(f"{base}/documents/{bid_id}/content", json={"text": edited})
-step("正文编辑保存", r.status_code == 200 and r.json().get("ok"), str(r.text[:60]))
-r = c.get(f"{base}/documents/{bid_id}/content")
-step("编辑后预览", "真实有效" in r.json()["text"])
-r = c.get(f"{base}/documents/{bid_id}/content.docx")
-step("成品稿导出", r.status_code == 200 and len(r.content) > 4000)
-c.put(f"{base}/documents/{bid_id}/content", json={"text": BID})
-
 # 25 第2期 检测规则维护 + 留痕
 r = c.get(f"{base}/detect/rules")
 rules0 = r.json()["rules"]

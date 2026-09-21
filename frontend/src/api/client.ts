@@ -171,18 +171,6 @@ export const api = {
   async editorConfig(docId: string, versionId?: string): Promise<{ scriptUrl: string; config: Record<string, unknown>; mode: "view" | "edit"; version: number | null; enabled: boolean }> {
     return handle(fetch(`/api/documents/${docId}/editor-config${versionId ? `?version_id=${versionId}` : ""}`));
   },
-  async saveContent(docId: string, text: string): Promise<{ ok: boolean }> {
-    return handle(
-      fetch(`/api/documents/${docId}/content`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      }),
-    );
-  },
-  contentDocxUrl(docId: string): string {
-    return `/api/documents/${docId}/content.docx`;
-  },
   async runExtract(docId: string): Promise<{ status: number; extracted: number; materials: number }> {
     return handle(fetch(`/api/documents/${docId}/extract`, { method: "POST" }));
   },

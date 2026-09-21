@@ -77,6 +77,7 @@ class Document(Base):
     is_secret: Mapped[int] = mapped_column(Integer, default=0)  # 遗留列：已取消涉密概念，恒 0
     bid_type: Mapped[str] = mapped_column(String(10), default="自主")
     doc_date: Mapped[str | None] = mapped_column(String(20), default=None)
+    # 派生缓存：当前正式 DocumentVersion 经 parser 生成的纯文本；仅 process_document 写入，勿直写
     content_text: Mapped[str | None] = mapped_column(Text, default=None)
     ocr_conf: Mapped[float | None] = mapped_column(Float, default=None)  # OCR 全文均置信度
     needs_review: Mapped[int] = mapped_column(Integer, default=0)  # 1=OCR 低置信度待复核
