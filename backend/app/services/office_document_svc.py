@@ -142,43 +142,149 @@ class PostSaveProcessor(Protocol):
     def process(self, od: Any, version: Any) -> None: ...
 
 
-class InMemoryProcessorRunRegistry:
-    """B-1a 内存版处理登记（幂等包装用）。
+class ProcessorRunRegistry(Protocol):
+    """幂等登记抽象：B-1a InMemory（契约验证）；B-2 起默认 ProcessorRunTableAdapter（持久）。"""
 
-    后续阶段落地持久表 version_processing_state
-    (version_id, processor_type, status, started_at, finished_at, error)。
-    """
+    def try_claim(self, version_id: str, processor_type: str) -> bool: ...
+    def mark_done(self, version_id: str, processor_type: str) -> None: ...
+    def mark_failed(self, version_id: str, processor_type: str, error: str) -> None: ...
+
+
+class InMemoryProcessorRunRegistry:
+    """内存版（仅契约测试用，生产正确性不依赖进程内状态）。"""
 
     def __init__(self) -> None:
         self._done: set[tuple[str, str]] = set()
 
-    def is_done(self, version_id: str, processor_type: str) -> bool:
-        return (version_id, processor_type) in self._done
+    def try_claim(self, version_id: str, processor_type: str) -> bool:
+        key = (version_id, processor_type)
+        if key in self._done:
+            return False
+        self._done.add(key)
+        return True
 
-    def mark(self, version_id: str, processor_type: str) -> None:
-        self._done.add((version_id, processor_type))
+    def mark_done(self, version_id: str, processor_type: str) -> None:  # noqa: ARG002
+        return None
+
+    def mark_failed(self, version_id: str, processor_type: str, error: str) -> None:  # noqa: ARG002
+        return None
+
+
+class ProcessorRunTableAdapter:
+    """processor_runs 表适配（B-2 起默认）：UNIQUE 抢占；failed 可重试（重试=删记录再 dispatch）。
+
+    持有 engine，每次操作独立短会话——callback 后台线程与应用线程均可安全调用。
+    """
+
+    def __init__(self, engine: Any) -> None:
+        from sqlalchemy.orm import sessionmaker
+
+        self._factory = sessionmaker(bind=engine, expire_on_commit=False)
+
+    def try_claim(self, version_id: str, processor_type: str) -> bool:
+        import uuid as _uuid
+
+        from ..models import ProcessorRun
+
+        s = self._factory()
+        try:
+            s.add(ProcessorRun(
+                id=_uuid.uuid4().hex,
+                office_document_version_id=version_id,
+                processor_type=processor_type,
+                status="running",
+            ))
+            s.commit()
+            return True
+        except Exception:
+            s.rollback()
+            return False
+        finally:
+            s.close()
+
+    def _update(self, version_id: str, processor_type: str, *, status: str, error: str | None) -> None:
+        from ..models import ProcessorRun, _now
+
+        s = self._factory()
+        try:
+            row = (
+                s.query(ProcessorRun)
+                .filter(ProcessorRun.office_document_version_id == version_id,
+                        ProcessorRun.processor_type == processor_type)
+                .first()
+            )
+            if row is not None:
+                row.status = status
+                row.error = error[:2000] if error else None
+                row.finished_at = _now()
+                s.commit()
+        finally:
+            s.close()
+
+    def mark_done(self, version_id: str, processor_type: str) -> None:
+        self._update(version_id, processor_type, status="done", error=None)
+
+    def mark_failed(self, version_id: str, processor_type: str, error: str) -> None:
+        self._update(version_id, processor_type, status="failed", error=error)
 
 
 _PROCESSORS: dict[str, PostSaveProcessor] = {}
-_RUNS = InMemoryProcessorRunRegistry()
+_RUNS: ProcessorRunRegistry = InMemoryProcessorRunRegistry()
+
+
+def use_persistent_runs(engine: Any) -> None:
+    """切换为 processor_runs 持久幂等（应用启动/B-2 起默认）。"""
+    global _RUNS
+    _RUNS = ProcessorRunTableAdapter(engine)
 
 
 def register_processor(processor: PostSaveProcessor) -> None:
     _PROCESSORS[processor.document_type] = processor
 
 
+def retry_processor_run(version_id: str, processor_type: str) -> bool:
+    """failed → 允许重试：删除失败登记，下次 dispatch 重新抢占。"""
+    if isinstance(_RUNS, ProcessorRunTableAdapter):
+        s = _RUNS._factory()
+        try:
+            from ..models import ProcessorRun
+
+            row = (
+                s.query(ProcessorRun)
+                .filter(ProcessorRun.office_document_version_id == version_id,
+                        ProcessorRun.processor_type == processor_type,
+                        ProcessorRun.status == "failed")
+                .first()
+            )
+            if row is not None:
+                s.delete(row)
+                s.commit()
+                return True
+        finally:
+            s.close()
+    return False
+
+
 def dispatch_post_save(od: Any, version: Any) -> str:
-    """版本创建后分发业务处理；同 (version.id, type) 幂等（重复 dispatch 只执行一次）。"""
+    """版本创建后分发业务处理（持久幂等：同 (version.id, type) 只执行一次）。
+
+    抢占失败 = 已登记（done/running）→ already-dispatched；
+    执行异常 → 标记 failed（可经 retry_processor_run 重试），异常不外抛。
+    """
     processor = _PROCESSORS.get(od.document_type)
     if processor is None:
         logger.info("no post-save processor for type=%s version=%s", od.document_type, version.id)
         return "no-processor"
-    key = (version.id, od.document_type)
-    if _RUNS.is_done(*key):
-        logger.info("post-save already dispatched: version=%s type=%s", version.id, od.document_type)
+    if not _RUNS.try_claim(version.id, od.document_type):
+        logger.info("post-save already claimed: version=%s type=%s", version.id, od.document_type)
         return "already-dispatched"
-    _RUNS.mark(*key)
-    processor.process(od, version)
+    try:
+        processor.process(od, version)
+    except Exception as e:
+        logger.exception("post-save processor failed: version=%s type=%s", version.id, od.document_type)
+        _RUNS.mark_failed(version.id, od.document_type, str(e))
+        return "failed"
+    _RUNS.mark_done(version.id, od.document_type)
     return "dispatched"
 
 

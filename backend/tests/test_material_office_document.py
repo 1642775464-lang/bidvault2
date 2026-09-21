@@ -193,7 +193,7 @@ def test_office_document_creation_idempotent(client, source_env):
     cfg = client.get(f"/api/office-documents/{od_id}/editor-config")
     assert cfg.status_code == 200
     body = cfg.json()
-    assert body["mode"] == "view"
+    assert body["mode"] == "edit"  # B-2 起 material 编辑闭环生效
     assert body["version"] == 1
     assert body["config"]["document"]["key"].startswith(f"{od_id}-v1-")
 

@@ -298,15 +298,21 @@ def office_document_editor_config(oid: str, session: Session = Depends(get_sessi
     data = path.read_bytes()
     key = f"{od.id}-v{v.version}-{v.file_hash[:12]}"
     token = OfficeDocumentService.generate_file_token(od.id, vid=v.id)
-    config = onlyoffice_svc.build_editor_config(od.id, od.title or od.id, data, mode="view", key=key)
+    # material 走通用 callback（status=2/6 全语义）；workspace 同；mode 按类型：
+    # material=edit（B-2 编辑闭环），workspace 暂 view（C 阶段）
+    mode = "edit" if od.document_type == "material" else "view"
+    config = onlyoffice_svc.build_editor_config(od.id, od.title or od.id, data, mode=mode, key=key)
     config["document"]["url"] = (
         f"{s.onlyoffice_backend_internal_url}/api/office-documents/{od.id}/files?token={token}"
+    )
+    config["editorConfig"]["callbackUrl"] = (
+        f"{s.onlyoffice_backend_internal_url}/api/office-documents/{od.id}/callback"
     )
     config["token"] = svc_jwt(config)
     return {
         "scriptUrl": f"{s.onlyoffice_public_url}/web-apps/apps/api/documents/api.js",
         "config": config,
-        "mode": "view",
+        "mode": mode,
         "version": v.version,
         "enabled": True,
     }
@@ -316,6 +322,157 @@ def svc_jwt(payload: dict[str, Any]) -> str:
     import jwt
 
     return jwt.encode(payload, get_settings().onlyoffice_jwt_secret, algorithm="HS256")
+
+
+_office_cb_log: dict[str, str] = {}
+
+
+@office_router.get("/{oid}/callback-state")
+def office_callback_state(oid: str) -> dict[str, Any]:
+    return {"doc_id": oid, "state": _office_cb_log.get(oid, "")}
+
+
+def _office_persist(oid: str, url: str, status: int, editor_user: str | None) -> None:
+    """通用保存持久化：status=6 仅工作快照；status=2 正式版本 + post-save 分发。
+
+    素材/工作台的保存语义与 source 完全一致（阶段三），全部经由
+    OfficeDocumentService + dispatch_post_save——不复制三份 callback。
+    """
+    from sqlalchemy.orm import sessionmaker
+
+    from ..db import get_engine
+    from ..services.office_document_svc import (
+        OfficeDocumentService,
+        OfficeDocumentTableAdapter,
+        dispatch_post_save,
+    )
+
+    factory = sessionmaker(bind=get_engine(), expire_on_commit=False)
+    ses = factory()
+    try:
+        od = ses.get(OfficeDocument, oid)
+        if od is None:
+            return
+        adapter = OfficeDocumentTableAdapter(ses)
+        svc = OfficeDocumentService(session=ses, adapter=adapter)
+        tmp = onlyoffice_svc.working_snapshot_path(oid)
+        onlyoffice_svc.download_to(url, tmp)
+        data = tmp.read_bytes()
+        if status == 6:
+            svc.create_working_snapshot(od, data)
+            _office_cb_log[oid] = "已保存工作快照（编辑中，未生成正式版本）"
+            audit("oo_forcesave_snapshot", detail=f"office_document {oid} · {len(data)} 字节")
+            return
+        v = svc.create_version(od, data, source="onlyoffice", editor_user=editor_user)
+        ses.expire(od)
+        _office_cb_log[oid] = f"已保存正式版本 v{v.version}"
+        audit("oo_office_version_saved", detail=f"office_document {oid} v{v.version} · sha256 {v.file_hash[:12]}")
+        result = dispatch_post_save(od, v)
+        _office_cb_log[oid] = f"已保存正式版本 v{v.version} · processor={result}"
+    except Exception as e:
+        _office_cb_log[oid] = f"保存处理失败：{e}"
+        logger.exception("office callback persist failed: %s", oid)
+    finally:
+        ses.close()
+
+
+@office_router.post("/{oid}/callback")
+def office_callback(oid: str, body: dict[str, Any]) -> dict[str, Any]:
+    """通用 ONLYOFFICE 回调（material/workspace；source 走旧端点至 B-1c）。"""
+    status = body.get("status")
+    editor = (body.get("users") or [None])[0] if isinstance(body.get("users"), list) else None
+    if status == 1:
+        _office_cb_log[oid] = "编辑中"
+    elif status == 4:
+        _office_cb_log[oid] = "关闭且无修改"
+    elif status == 7:
+        _office_cb_log[oid] = "强制保存失败"
+        audit("oo_forcesave_error", detail=f"office_document {oid}")
+    elif status in (2, 6):
+        url = body.get("url")
+        if url:
+            threading.Thread(
+                target=_office_persist, args=(oid, url, int(status), editor), daemon=True
+            ).start()
+            _office_cb_log[oid] = "正在处理保存…"
+    return {"error": 0}
+
+
+@office_router.get("/{oid}/versions")
+def office_versions_list(oid: str, limit: int = 50, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """通用版本列表（material/workspace；source 走旧端点至 B-1c）。"""
+    od = session.get(OfficeDocument, oid)
+    if od is None:
+        raise HTTPException(404, "OfficeDocument 不存在")
+    rows = (
+        session.query(OfficeDocumentVersion)
+        .filter(OfficeDocumentVersion.office_document_id == oid)
+        .order_by(OfficeDocumentVersion.version.desc())
+        .limit(limit)
+        .all()
+    )
+    return {"items": [
+        {
+            "id": v.id, "version": v.version, "file_hash": v.file_hash,
+            "source": v.source, "editor_user": v.editor_user,
+            "restored_from_version_id": v.restored_from_version_id,
+            "comment": v.comment,
+            "created_at": v.created_at.isoformat() if v.created_at else None,
+            "is_current": v.id == od.current_version_id,
+            "size": v.file_size,
+        }
+        for v in rows
+    ]}
+
+
+@office_router.get("/{oid}/versions/{vid}/file")
+def office_version_file(oid: str, vid: str, session: Session = Depends(get_session)) -> FileResponse:
+    """下载指定历史版本文件（不可变，只读）。"""
+    od = session.get(OfficeDocument, oid)
+    if od is None:
+        raise HTTPException(404, "OfficeDocument 不存在")
+    v = session.get(OfficeDocumentVersion, vid)
+    if v is None or v.office_document_id != oid:
+        raise HTTPException(404, "历史版本不存在")
+    path = get_settings().files_dir / v.file_path
+    if not path.is_file():
+        raise HTTPException(404, "历史版本文件已丢失")
+    audit("office_version_downloaded", detail=f"office_document {oid} v{v.version}")
+    return FileResponse(path, filename=f"v{v.version}_{od.title or oid}.docx", media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+class OfficeRestoreIn(BaseModel):
+    comment: str | None = None
+    editor_user: str | None = None
+
+
+@office_router.post("/{oid}/versions/{vid}/restore")
+def office_restore_version(oid: str, vid: str, body: OfficeRestoreIn | None = None, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """恢复历史版本=创建新版本（source=restore）+ post-save 分发（派生数据同步回滚）。"""
+    from ..services.office_document_svc import (
+        OfficeDocumentService,
+        OfficeDocumentTableAdapter,
+        dispatch_post_save,
+    )
+
+    od = session.get(OfficeDocument, oid)
+    if od is None:
+        raise HTTPException(404, "OfficeDocument 不存在")
+    target = session.get(OfficeDocumentVersion, vid)
+    if target is None or target.office_document_id != oid:
+        raise HTTPException(404, "历史版本不存在")
+    svc = OfficeDocumentService(session=session, adapter=OfficeDocumentTableAdapter(session))
+    editor = (body.editor_user if body else None) or "本地用户"
+    try:
+        v = svc.restore_version(od, target, editor_user=editor, comment=(body.comment if body else None))
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    session.commit()
+    audit("office_version_restored", detail=f"office_document {oid} v{v.version} ← v{target.version}")
+    dispatch_post_save(od, v)
+    return {"ok": True, "version": v.version, "id": v.id, "restored_from": target.version}
 
 
 @office_router.get("/{oid}/files")

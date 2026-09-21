@@ -110,6 +110,10 @@ export interface Material {
   source_page: number | null;
   used: number;
   updated_at: string | null;
+  office_document_id: string | null;
+  source_document_id: string | null;
+  source_document_version_id: string | null;
+  source_locator_json: string | null;
 }
 
 export interface WatchPathT {

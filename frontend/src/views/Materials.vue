@@ -25,6 +25,17 @@ const eType = ref("表格");
 const eTags = ref("");
 const eContent = ref("");
 const eFile = ref<File | null>(null);
+/* B-2：已 Word 化素材双视图 */
+const matTab = ref<"word" | "ai">("word");
+const matVerOpen = ref(false);
+const matVerList = ref<{ id: string; version: number; source: string; created_at: string | null; is_current: boolean; size: number | null; comment: string | null; restored_from_version_id: string | null }[]>([]);
+const matViewingVid = ref<string | null>(null);
+const matViewingVer = ref<number | null>(null);
+const ooState = ref<"idle" | "loading" | "ready" | "error">("idle");
+const ooError = ref("");
+const matOoHolder = ref<HTMLElement | null>(null);
+let matOoEditor: { destroyEditor: () => void } | null = null;
+let matScriptPromise: Promise<void> | null = null;
 const eTitleErr = ref(false);
 
 const typeIconPath: Record<string, string> = {
@@ -105,6 +116,130 @@ const matPage = ref<HTMLElement | null>(null);
 const wordCount = ref(0);
 const dirty = ref(false);
 const saving = ref(false);
+const isWordMat = computed(() => !!sel.value?.office_document_id);
+const sourceInfo = computed(() => {
+  const m = sel.value;
+  if (!m?.source_locator_json) return null;
+  try {
+    const loc = JSON.parse(m.source_locator_json);
+    return { range: loc.child_range, fingerprint: String(loc.fingerprint || "").slice(0, 19), source_document_id: m.source_document_id, source_document_version_id: m.source_document_version_id };
+  } catch {
+    return null;
+  }
+});
+const sourceStale = ref(false);
+
+async function loadMatVersions(): Promise<void> {
+  const m = sel.value;
+  if (!m?.office_document_id) return;
+  try {
+    matVerList.value = (await api.onlyofficeVersions(m.office_document_id)).items;
+    sourceStale.value = await (async () => {
+      if (!m.source_document_id || !m.source_document_version_id) return false;
+      try {
+        const cur = await api.onlyofficeVersion(m.source_document_id);
+        return !!cur.version && cur.version !== null && m.source_document_version_id !== (await api.onlyofficeVersions(m.source_document_id)).items.find((v) => v.is_current)?.id;
+      } catch {
+        return false;
+      }
+    })();
+  } catch {
+    matVerList.value = [];
+  }
+}
+
+function loadOnlyofficeScriptOnce(scriptUrl: string): Promise<void> {
+  if (matScriptPromise) return matScriptPromise;
+  matScriptPromise = new Promise((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = scriptUrl;
+    el.onload = () => resolve();
+    el.onerror = () => reject(new Error("api.js 加载失败"));
+    document.head.appendChild(el);
+  });
+  return matScriptPromise;
+}
+
+async function initMatOffice(vid?: string): Promise<void> {
+  const m = sel.value;
+  if (!m?.office_document_id) return;
+  ooState.value = "loading";
+  ooError.value = "";
+  try {
+    const cfg = await api.editorConfigOffice(m.office_document_id, vid);
+    if (!matScriptPromise) matScriptPromise = loadOnlyofficeScriptOnce(cfg.scriptUrl);
+    await matScriptPromise;
+    const DocsAPI = (window as unknown as { DocsAPI: { DocEditor: new (id: string, c: unknown) => { destroyEditor: () => void } } }).DocsAPI;
+    await nextTick();
+    if (!document.getElementById("material-office-holder")) return;
+    matOoEditor?.destroyEditor();
+    matOoEditor = new DocsAPI.DocEditor("material-office-holder", cfg.config);
+    ooState.value = "ready";
+  } catch (e) {
+    ooState.value = "error";
+    ooError.value = e instanceof Error ? e.message : "加载失败";
+  }
+}
+
+function switchMatTab(t: "word" | "ai"): void {
+  matTab.value = t;
+  if (t === "word") void initMatOffice(matViewingVid.value ?? undefined);
+  else {
+    matOoEditor?.destroyEditor();
+    matOoEditor = null;
+    ooState.value = "idle";
+  }
+}
+
+async function viewMatVersion(v: { id: string; version: number }): Promise<void> {
+  matViewingVid.value = v.id;
+  matViewingVer.value = v.version;
+  matTab.value = "word";
+  await initMatOffice(v.id);
+}
+
+async function backToMatCurrent(): Promise<void> {
+  matViewingVid.value = null;
+  matViewingVer.value = null;
+  await initMatOffice();
+}
+
+async function restoreMatVersion(v: { id: string; version: number }): Promise<void> {
+  const m = sel.value;
+  if (!m?.office_document_id) return;
+  if (!window.confirm(`确认恢复素材 v${v.version}？将以新建版本方式回滚，并同步刷新 AI/结构化数据。`)) return;
+  try {
+    await api.restoreOfficeVersion(m.office_document_id, v.id);
+    toast(`素材已恢复 v${v.version}（AI/结构化数据同步更新）`);
+    matViewingVid.value = null;
+    matViewingVer.value = null;
+    await initMatOffice();
+    void loadMatVersions();
+    await load();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "恢复失败");
+  }
+}
+
+function openSourceDoc(): void {
+  navTo("docs");
+  toast("来源文档已在文档库定位（可在原始文档页签查看）");
+}
+
+function downloadMatVersion(v: { id: string }): void {
+  if (sel.value?.office_document_id) window.open(`/api/office-documents/${sel.value.office_document_id}/versions/${v.id}/file`);
+}
+
+watch(() => sel.value?.id, () => {
+  matOoEditor?.destroyEditor();
+  matOoEditor = null;
+  ooState.value = "idle";
+  matTab.value = "word";
+  matViewingVid.value = null;
+  matViewingVer.value = null;
+  matVerOpen.value = false;
+  if (isWordMat.value) void nextTick(() => initMatOffice());
+});
 
 function recount(): void {
   if (matPage.value) {
@@ -421,6 +556,54 @@ onMounted(async () => {
             </span>
           </div>
           <div class="ed-body" style="display: flex; flex-direction: column; overflow: hidden; padding: 0">
+            <template v-if="isWordMat">
+              <div class="doctabs" style="padding:10px 16px 0">
+                <button :class="{ on: matTab === 'word' }" @click="switchMatTab('word')">Word正文</button>
+                <button :class="{ on: matTab === 'ai' }" @click="switchMatTab('ai')">AI / 结构化数据</button>
+                <span class="verbadge">{{ matViewingVid ? `查看历史 v${matViewingVer}` : "" }}</span>
+                <button class="verbtn" @click="matVerOpen = true; loadMatVersions()">历史版本</button>
+                <button class="verbtn" @click="openSourceDoc()">查看来源</button>
+              </div>
+              <template v-if="matTab === 'word'">
+                <div v-if="matViewingVid" class="oo-warn" style="display:flex;align-items:center;gap:12px">
+                  <span>正在查看素材历史版本 v{{ matViewingVer }}（只读）</span>
+                  <button class="mini-btn" style="color:var(--risk)" @click="backToMatCurrent">返回当前版本</button>
+                </div>
+                <div v-if="sourceStale" class="oo-warn" style="display:flex;align-items:center;gap:12px;background:var(--accent-bg);color:var(--accent-deep);border-bottom:1px solid var(--line)">
+                  <span>来源文档已有新版本（素材不会自动覆盖）</span>
+                </div>
+                <div class="oo-stage">
+                  <div v-if="ooState === 'loading'" class="empty-state"><b>编辑器加载中…</b></div>
+                  <div v-else-if="ooState === 'error'" class="empty-state"><b>编辑器加载失败</b>{{ ooError }}</div>
+                  <div v-show="ooState === 'ready'" id="material-office-holder" ref="matOoHolder" class="oo-holder"></div>
+                </div>
+              </template>
+              <template v-else>
+                <div class="wordstage">
+                  <div class="wordpage" contenteditable="false" style="cursor:default">
+                    <div class="wp-sec" contenteditable="false">来源信息</div>
+                    <div class="wp-p" contenteditable="false">
+                      来源文档：{{ sourceInfo?.source_document_id ? "已关联（" + sourceInfo.source_document_id.slice(0, 8) + "…）" : "—" }}<br>
+                      来源版本：{{ sourceInfo ? "提取自 v" + (matVerList.find((x) => x.id === sel?.source_document_version_id)?.version ?? "?") : "—" }}<br>
+                      来源位置：{{ sourceInfo ? "body 区块 " + sourceInfo.range[0] + " – " + sourceInfo.range[1] : "—" }}<br>
+                      内容指纹：{{ sourceInfo?.fingerprint ?? "—" }}<br>
+                      创建时间：{{ sel.updated_at?.slice(0, 19).replace("T", " ") || "—" }}
+                    </div>
+                    <div class="wp-sec" contenteditable="false">AI / 结构化数据（派生自 Word 正文，只读）</div>
+                    <template v-if="sel.rows && sel.rows.length">
+                      <table class="realtable" contenteditable="false">
+                        <tr v-for="(r, ri) in sel.rows" :key="'m' + ri">
+                          <td v-for="(c, ci) in r" :key="ci">{{ c }}</td>
+                        </tr>
+                      </table>
+                    </template>
+                    <div v-if="sel.text" class="wp-p" contenteditable="false" style="white-space:pre-wrap">{{ sel.text }}</div>
+                    <div class="wp-p" contenteditable="false" style="text-align:center;text-indent:0;font-size:12px;color:var(--dim)">以上数据由 Word 正文解析派生，随保存自动更新</div>
+                  </div>
+                </div>
+              </template>
+            </template>
+            <template v-else>
             <div class="wordbar">
               <span class="wname">{{ sel.cat }}素材 · {{ sel.type }}</span>
               <span class="wcount">{{ wordCount }} 字</span>
@@ -496,6 +679,7 @@ onMounted(async () => {
               <span>字数统计：{{ wordCount }}</span>
               <span v-if="dirty" style="color:var(--risk)">有未保存修改</span>
             </div>
+            </template>
           </div>
           <div class="ed-foot">
             <button class="act" @click="goSource(sel)">{{ sel.doc_name ? "查看来源文档" : "查看上传记录" }}</button>
@@ -597,5 +781,32 @@ onMounted(async () => {
       :page="sel.source_page ?? 1"
       @close="previewOpen = false"
     />
+    <!-- 素材历史版本 -->
+    <div v-if="matVerOpen" class="modal-wrap" @click.self="matVerOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="素材历史版本">
+        <h3>素材历史版本</h3>
+        <div class="verlist">
+          <div v-for="v in matVerList" :key="v.id" class="verrow" :class="{ cur: v.is_current }">
+            <div class="vl">
+              <b>v{{ v.version }}</b>
+              <span class="chip-tag">{{ { extract: "提取", onlyoffice: "编辑保存", restore: "恢复", upload: "上传", init: "上传" }[v.source] || v.source }}<template v-if="v.restored_from_version_id"> · 源自 v{{ matVerList.find((x) => x.id === v.restored_from_version_id)?.version ?? "?" }}</template></span>
+              <span class="vm">{{ v.created_at ? v.created_at.slice(0, 19).replace("T", " ") : "" }}{{ v.size != null ? " · " + Math.round((v.size || 0) / 1024) + " KB" : "" }}<template v-if="v.comment"> · “{{ v.comment }}”</template></span>
+            </div>
+            <div class="vr">
+              <span v-if="v.is_current" class="chip-role r-admin">当前版本</span>
+              <template v-else>
+                <button class="mini-btn" @click="viewMatVersion(v)">查看</button>
+                <button class="mini-btn" @click="downloadMatVersion(v)">下载</button>
+                <button class="mini-btn pri" @click="restoreMatVersion(v)">恢复</button>
+              </template>
+            </div>
+          </div>
+          <div v-if="!matVerList.length" class="empty-state"><b>暂无历史版本</b></div>
+        </div>
+        <div class="m-foot">
+          <button class="btn-ghost" @click="matVerOpen = false">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

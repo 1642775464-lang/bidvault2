@@ -39,6 +39,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if apply_pending_restore():
         logging.getLogger(__name__).info("pending restore applied")
     make_engine()
+    try:  # B-2：post-save 持久幂等 + 素材处理器注册
+        from .db import get_engine
+        from .services.material_processor import MaterialDocumentProcessor
+        from .services.office_document_svc import register_processor, use_persistent_runs
+
+        use_persistent_runs(get_engine())
+        register_processor(MaterialDocumentProcessor())
+    except Exception:
+        logging.getLogger(__name__).warning("processor registry init skipped")
     settings = get_settings()
     start_workers(interval_seconds=settings.scan_interval_seconds)
     start_backup_scheduler()

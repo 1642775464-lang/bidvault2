@@ -32,6 +32,10 @@ def _m_dict(m: Material, session: Session) -> dict[str, Any]:
         "text": m.text, "file_name": m.file_name, "file_size": m.file_size, "source_page": m.source_page,
         "used": m.used,
         "updated_at": m.updated_at.isoformat() if m.updated_at else None,
+        "office_document_id": m.office_document_id,
+        "source_document_id": m.source_document_id,
+        "source_document_version_id": m.source_document_version_id,
+        "source_locator_json": m.source_locator_json,
     }
 
 

@@ -130,10 +130,8 @@ def test_processor_dispatch_idempotent_contract(db_session):
     v = _svc(db_session).create_version(od, b"x", source="init")
 
     def dispatch_once() -> None:
-        key = (v.id, processor.document_type)
-        if runs.is_done(*key):
+        if not runs.try_claim(v.id, processor.document_type):
             return
-        runs.mark(*key)
         processor.process(od, v)
 
     dispatch_once()

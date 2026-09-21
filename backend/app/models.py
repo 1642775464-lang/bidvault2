@@ -182,6 +182,27 @@ class OfficeDocumentVersion(Base):
     __table_args__ = (UniqueConstraint("office_document_id", "version", name="uq_odver"),)
 
 
+class ProcessorRun(Base):
+    """post-save processor 持久幂等登记（B-2）：UNIQUE 抢占，failed 可重试。
+
+    一个 (office_document_version_id, processor_type) 只允许一条记录；
+    dispatch 时 INSERT OR IGNORE 抢占，抢到的执行；status=failed 的记录
+    可由重试接口删除后重新 dispatch。
+    """
+
+    __tablename__ = "processor_runs"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    office_document_version_id: Mapped[str] = mapped_column(String(32))
+    processor_type: Mapped[str] = mapped_column(String(16))  # source|material|workspace
+    status: Mapped[str] = mapped_column(String(10), default="running")  # running|done|failed
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+
+    __table_args__ = (UniqueConstraint("office_document_version_id", "processor_type", name="uq_proc_run"),)
+
+
 class Material(Base):
     """素材（F2.6）。type: 表格/文本/图片/附件；cat: 七分类。"""
 
