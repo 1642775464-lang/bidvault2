@@ -144,6 +144,51 @@ def _case_match(cur: Project | None, p: Project) -> int:
     return max(5, min(99, score))
 
 
+@router.post("/{project_id}/workspace")
+def ensure_workspace_api(project_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """C-1：幂等获取/创建项目投标工作稿（OfficeDocument type=workspace）。"""
+    from ..models import OfficeDocumentVersion
+    from ..services.workspace import ensure_workspace
+
+    try:
+        od = ensure_workspace(session, project_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    cur = session.get(OfficeDocumentVersion, od.current_version_id) if od.current_version_id else None
+    audit("workspace_ensured", detail=f"project {project_id} · office_document {od.id}")
+    return {
+        "ok": True, "office_document_id": od.id, "title": od.title,
+        "version": cur.version if cur else None,
+    }
+
+
+@router.get("/{project_id}/workspace")
+def workspace_state(project_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """C-1：工作稿状态（未创建返回 exists=False；不隐式创建）。"""
+    p = session.get(Project, project_id)
+    if p is None:
+        raise HTTPException(404, "项目不存在")
+    from ..models import OfficeDocument, OfficeDocumentVersion, WorkspaceDocument
+
+    if not p.workspace_office_document_id:
+        return {"exists": False}
+    od = session.get(OfficeDocument, p.workspace_office_document_id)
+    if od is None:
+        return {"exists": False}
+    cur = session.get(OfficeDocumentVersion, od.current_version_id) if od.current_version_id else None
+    wd = (
+        session.query(WorkspaceDocument)
+        .filter(WorkspaceDocument.office_document_id == od.id)
+        .first()
+    )
+    return {
+        "exists": True, "office_document_id": od.id, "title": od.title,
+        "version": cur.version if cur else None,
+        "derived_from_version_id": wd.derived_from_version_id if wd else None,
+        "derived_chars": len(wd.derived_text or "") if wd else 0,
+    }
+
+
 @router.get("/{project_id}")
 def get_project(project_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
     p = session.get(Project, project_id)

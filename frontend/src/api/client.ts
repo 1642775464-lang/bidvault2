@@ -147,6 +147,12 @@ export const api = {
   async detectRules(): Promise<{ rules: { id: string; name: string; sev: string; type: string; desc: string; enabled: boolean }[] }> {
     return handle(fetch("/api/detect/rules"));
   },
+  async ensureWorkspace(projectId: string): Promise<{ ok: boolean; office_document_id: string; title: string; version: number | null }> {
+    return handle(fetch(`/api/projects/${projectId}/workspace`, { method: "POST" }));
+  },
+  async workspaceState(projectId: string): Promise<{ exists: boolean; office_document_id?: string; title?: string; version?: number | null; derived_chars?: number }> {
+    return handle(fetch(`/api/projects/${projectId}/workspace`));
+  },
   async editorConfigOffice(oid: string, versionId?: string): Promise<{ scriptUrl: string; config: Record<string, unknown>; mode: "view" | "edit"; version: number | null; enabled: boolean }> {
     return handle(fetch(`/api/office-documents/${oid}/editor-config${versionId ? `?version_id=${versionId}` : ""}`));
   },

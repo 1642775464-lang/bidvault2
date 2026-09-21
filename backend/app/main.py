@@ -53,8 +53,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from .services.source_processor import SourceDocumentProcessor
 
         use_persistent_runs(_ge())
+        from .services.workspace import WorkspaceDocumentProcessor
+
+
         register_processor(SourceDocumentProcessor())
         register_processor(MaterialDocumentProcessor())
+        register_processor(WorkspaceDocumentProcessor())
+        register_processor(WorkspaceDocumentProcessor())
         with Session(bind=get_engine()) as _s:
             if not is_cutover_completed(_s):
                 backfill_source_office_documents(_s)  # B-1c-4 切换后由 marker 关闭

@@ -297,7 +297,7 @@ def office_document_editor_config(oid: str, session: Session = Depends(get_sessi
     token = OfficeDocumentService.generate_file_token(od.id, vid=v.id)
     # material 走通用 callback（status=2/6 全语义）；workspace 同；mode 按类型：
     # material=edit（B-2 编辑闭环），workspace 暂 view（C 阶段）
-    mode = "edit" if od.document_type == "material" else "view"
+    mode = "edit" if od.document_type in ("material", "workspace") else "view"
     config = onlyoffice_svc.build_editor_config(od.id, od.title or od.id, data, mode=mode, key=key)
     config["document"]["url"] = (
         f"{s.onlyoffice_backend_internal_url}/api/office-documents/{od.id}/files?token={token}"

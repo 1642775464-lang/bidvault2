@@ -47,6 +47,8 @@ class Project(Base):
     contact: Mapped[str | None] = mapped_column(String(100), default=None)
     sales: Mapped[str | None] = mapped_column(String(50), default=None)
     stage: Mapped[int] = mapped_column(Integer, default=0)
+    # C-1：项目投标工作稿（OfficeDocument type=workspace，唯一真源）
+    workspace_office_document_id: Mapped[str | None] = mapped_column(String(32), default=None)
     is_archived: Mapped[int] = mapped_column(Integer, default=0)
     result: Mapped[str | None] = mapped_column(String(10), default=None)  # 中标 | 未中标
     result_note: Mapped[str | None] = mapped_column(String(300), default=None)
@@ -217,6 +219,19 @@ class AppMeta(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class WorkspaceDocument(Base):
+    """C-1：Workspace 派生数据（正文真源在 OfficeDocumentVersion；本表仅派生缓存）。"""
+
+    __tablename__ = "workspace_documents"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    project_id: Mapped[str] = mapped_column(String(32), index=True)
+    office_document_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    derived_text: Mapped[str | None] = mapped_column(Text, default=None)
+    derived_from_version_id: Mapped[str | None] = mapped_column(String(32), default=None)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
