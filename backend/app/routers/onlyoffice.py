@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_session
-from ..models import Document, DocumentVersion, OfficeDocument, OfficeDocumentVersion
+from ..models import Document, OfficeDocument, OfficeDocumentVersion
 from ..services import onlyoffice_svc
 from ..services.audit import audit
 from ..services.office_document_svc import OfficeDocumentService
@@ -209,83 +209,35 @@ def version_file(doc_id: str, version_id: str, session: Session = Depends(get_se
 
 @router.post("/versions/{doc_id}/{version_id}/restore")
 def restore_version(doc_id: str, version_id: str, body: RestoreIn | None = None, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """恢复历史版本（B-1c-3 维护模式：禁止——写链 B-1c-4 切换后解禁）。"""
-    if _maintenance_locked():
-        raise HTTPException(409, "迁移维护模式：Source 恢复暂禁用（B-1c-4 切写链后解禁）")
-    doc = _doc_or_404(doc_id, session)
-    target = session.get(DocumentVersion, version_id)
-    if target is None or target.document_id != doc.id:
+    """恢复历史版本（B-1c-4 切写链）：通用 Service 建新版本（source=restore）+ dispatch。"""
+    from ..services.office_document_svc import (
+        OfficeDocumentService,
+        OfficeDocumentTableAdapter,
+    )
+
+    od = _od_of_doc_or_404(doc_id, session)
+    target = session.get(OfficeDocumentVersion, version_id)
+    if target is None or target.office_document_id != od.id:
         raise HTTPException(404, "历史版本不存在")
     comment = body.comment if body else None
     editor = (body.editor_user if body else None) or "本地用户"
+    svc = OfficeDocumentService(session=session, adapter=OfficeDocumentTableAdapter(session))
     try:
-        v = onlyoffice_svc.restore_version(session, doc, target, editor_user=editor, comment=comment)
+        v = svc.restore_version(od, target, editor_user=editor, comment=comment)
     except ValueError as e:
         raise HTTPException(409, str(e)) from e
     except FileNotFoundError as e:
         raise HTTPException(404, str(e)) from e
-    audit("version_restored", doc_id=doc.id, detail=f"v{v.version} ← 恢复自 v{target.version}")
-
-    def _reparse() -> None:
-        from sqlalchemy.orm import sessionmaker
-
-        from ..db import get_engine
-        from ..services.ingest.pipeline import process_document
-
-        factory = sessionmaker(bind=get_engine(), expire_on_commit=False)
-        ses = factory()
-        try:
-            d = ses.get(Document, doc.id)
-            if d is not None:
-                process_document(ses, d, version_id=v.id)
-        finally:
-            ses.close()
-
-    threading.Thread(target=_reparse, daemon=True).start()
+    session.commit()
+    audit("version_restored", doc_id=od.id, detail=f"v{v.version} ← 恢复自 v{target.version}")
+    _dispatch_async(od.id, v.id)
     return {"ok": True, "version": v.version, "id": v.id, "restored_from": target.version}
 
 
-def _persist_callback(doc_id: str, url: str, status: int, editor_user: str | None) -> None:
-    """后台执行：下载 DS 回传内容。status=6 仅工作快照；status=2 正式版本+异步重拆。"""
-    from sqlalchemy.orm import sessionmaker
-
-    from ..db import get_engine
-    from ..services.ingest.pipeline import process_document
-
-    factory = sessionmaker(bind=get_engine(), expire_on_commit=False)
-    s = factory()
-    try:
-        doc = s.get(Document, doc_id)
-        if doc is None:
-            return
-        tmp = onlyoffice_svc.working_snapshot_path(doc_id)
-        onlyoffice_svc.download_to(url, tmp)
-        data = tmp.read_bytes()
-        if status == 6:
-            tmp.replace(onlyoffice_svc.working_snapshot_path(doc_id))
-            _callback_log[doc_id] = "已保存工作快照（编辑中，未生成正式版本）"
-            audit("oo_forcesave_snapshot", doc_id=doc_id, detail=f"{len(data)} 字节")
-            return
-        # status == 2：正式版本
-        v = onlyoffice_svc.create_version_from_data(
-            s, doc, data, editor_user=editor_user, source="onlyoffice"
-        )
-        s.expire(doc)
-        _callback_log[doc_id] = f"已保存正式版本 v{v.version}"
-        audit("oo_version_saved", doc_id=doc_id, detail=f"v{v.version} · sha256 {v.file_hash[:12]}")
-        # 异步重拆：按版本化解析（防串写在管线内）
-        try:
-            process_document(s, doc, version_id=v.id)
-            _callback_log[doc_id] = f"已保存并重拆 v{v.version}"
-        except Exception as e:
-            _callback_log[doc_id] = f"v{v.version} 已保存，重拆失败：{e}"
-            logger.exception("version re-extract failed")
-    finally:
-        s.close()
 
 
 @router.post("/callback/{doc_id}")
-def callback(doc_id: str, body: dict[str, Any]) -> dict[str, Any]:
+def callback(doc_id: str, body: dict[str, Any], session: Session = Depends(get_session)) -> dict[str, Any]:
     """ONLYOFFICE 官方回调生命周期：
 
     status=1 编辑中（无动作）；2 可保存（正式版本）；4 无修改关闭；
@@ -301,14 +253,13 @@ def callback(doc_id: str, body: dict[str, Any]) -> dict[str, Any]:
         _callback_log[doc_id] = "强制保存失败"
         audit("oo_forcesave_error", doc_id=doc_id)
     elif status in (2, 6):
-        if _maintenance_locked():
-            audit("oo_callback_rejected_maintenance", doc_id=doc_id, detail=f"status={status}")
-            _callback_log[doc_id] = "迁移维护模式：保存被拒绝"
-            return {"error": 1, "message": "maintenance mode"}
+        # B-1c-4：source 写链正式切换——与 Material 共用通用持久化
+        # （OfficeDocumentService 建版本 → dispatch SourceDocumentProcessor），禁止旧表双写
         url = body.get("url")
         if url:
+            od = _od_of_doc_or_404(doc_id, session)
             threading.Thread(
-                target=_persist_callback, args=(doc_id, url, int(status), editor), daemon=True
+                target=_office_persist, args=(od.id, url, int(status), editor), daemon=True
             ).start()
             _callback_log[doc_id] = "正在处理保存…"
     return {"error": 0}
@@ -371,6 +322,31 @@ def svc_jwt(payload: dict[str, Any]) -> str:
 
 
 _office_cb_log: dict[str, str] = {}
+
+
+def _dispatch_async(od_id: str, version_id: str) -> None:
+    """后台执行 post-save processor（source 全量解析耗时长，避免 HTTP 超时）。"""
+
+    def _run() -> None:
+        from sqlalchemy.orm import sessionmaker
+
+        from ..db import get_engine
+        from ..services.office_document_svc import dispatch_post_save
+
+        factory = sessionmaker(bind=get_engine(), expire_on_commit=False)
+        ses = factory()
+        try:
+            od = ses.get(OfficeDocument, od_id)
+            v = ses.get(OfficeDocumentVersion, version_id)
+            if od is not None and v is not None:
+                result = dispatch_post_save(od, v)
+                _office_cb_log[od_id] = f"v{v.version} processor={result}"
+        except Exception:
+            logger.exception("async dispatch failed: od=%s v=%s", od_id, version_id)
+        finally:
+            ses.close()
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 @office_router.get("/reconcile-summary")
@@ -506,7 +482,6 @@ def office_restore_version(oid: str, vid: str, body: OfficeRestoreIn | None = No
     from ..services.office_document_svc import (
         OfficeDocumentService,
         OfficeDocumentTableAdapter,
-        dispatch_post_save,
     )
 
     od = session.get(OfficeDocument, oid)
@@ -525,7 +500,7 @@ def office_restore_version(oid: str, vid: str, body: OfficeRestoreIn | None = No
         raise HTTPException(404, str(e)) from e
     session.commit()
     audit("office_version_restored", detail=f"office_document {oid} v{v.version} ← v{target.version}")
-    dispatch_post_save(od, v)
+    _dispatch_async(od.id, v.id)
     return {"ok": True, "version": v.version, "id": v.id, "restored_from": target.version}
 
 

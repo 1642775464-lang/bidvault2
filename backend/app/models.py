@@ -63,10 +63,13 @@ class Document(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
     filename: Mapped[str] = mapped_column(String(500))
+    # [deprecated B-1c-4] 旧文件名字段：真源在 OfficeDocument.current_version_id → version.file_path。
+    # 新业务代码禁止读取/写入；仅 upload 落盘记录与历史异常数据兜底使用。
     stored_name: Mapped[str | None] = mapped_column(String(64), default=None)
     source: Mapped[str] = mapped_column(String(10), default="upload")  # upload | path
     origin_path: Mapped[str | None] = mapped_column(String(1000), unique=True)
-    current_version_id: Mapped[str | None] = mapped_column(String(32), default=None)  # deprecated 兼容字段（B-1c 后真源在 OfficeDocument.current_version_id，新代码禁读）
+    # [deprecated B-1c-4] 旧 current 指针：真源在 OfficeDocument.current_version_id。新代码禁止读取/写入。
+    current_version_id: Mapped[str | None] = mapped_column(String(32), default=None)
     office_document_id: Mapped[str | None] = mapped_column(String(32), index=True, default=None)  # B-1c：Office 主身份
     kind: Mapped[str] = mapped_column(String(10), default="tender")  # tender | bid
     file_type: Mapped[str] = mapped_column(String(8), default="docx")  # docx|pdf|txt|xlsx|xls|csv|scan
@@ -119,7 +122,10 @@ class ExtractRow(Base):
 
 
 class DocumentVersion(Base):
-    """文档正式版本（阶段三）：upload 初始版本 / ONLYOFFICE status=2 保存版本。
+    """[deprecated B-1c-4] legacy 版本表：写链已切 OfficeDocumentVersion，本表 read-only。
+
+    保留仅为迁移期对账与历史数据兜底；新代码禁止写入。
+    历史语义：upload 初始版本 / ONLYOFFICE status=2 保存版本（阶段三）。
 
     status=6（forcesave，编辑中）只写工作快照，绝不产生本表记录、不换 key。
     """
@@ -202,6 +208,16 @@ class ProcessorRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
 
     __table_args__ = (UniqueConstraint("office_document_version_id", "processor_type", name="uq_proc_run"),)
+
+
+class AppMeta(Base):
+    """应用级键值元数据（迁移标记等）。"""
+
+    __tablename__ = "app_meta"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
 class Material(Base):

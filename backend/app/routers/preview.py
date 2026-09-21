@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from ..config import get_settings
 from ..db import get_session
@@ -40,9 +40,24 @@ def page_count(doc_id: str, session: Session = Depends(get_session)) -> dict[str
 
 
 def _doc_bytes(doc: Document) -> bytes:
+    """B-1c-4：页图渲染基于 OfficeDocument.current_version（不再读 deprecated stored_name）。"""
+    from ..config import get_settings
+    from ..models import OfficeDocument, OfficeDocumentVersion
+
+    if doc.office_document_id:
+        session = object_session(doc)
+        if session is None:
+            session = None
+        od = session.get(OfficeDocument, doc.office_document_id) if session is not None else None
+        if od is not None and od.current_version_id and session is not None:
+            v = session.get(OfficeDocumentVersion, od.current_version_id)
+            if v is not None:
+                path = get_settings().files_dir / v.file_path
+                if path.is_file():
+                    return path.read_bytes()
     from ..services.ingest.parser import read_source
 
-    return read_source(doc.source, doc.origin_path, doc.stored_name)
+    return read_source(doc.source, doc.origin_path, doc.stored_name)  # deprecated 兜底
 
 
 @router.get("/documents/{doc_id}/pages")

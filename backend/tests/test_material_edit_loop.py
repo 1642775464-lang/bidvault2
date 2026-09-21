@@ -233,7 +233,7 @@ def test_material_restore_rolls_back_derived(client, monkeypatch):
     try:
         row = s.execute(
             text("SELECT m.source_document_version_id, v.file_path, v.file_hash FROM materials m "
-                 "JOIN document_versions v ON v.id=m.source_document_version_id WHERE m.id=:i"),
+                 "JOIN office_document_versions v ON v.id=m.source_document_version_id WHERE m.id=:i"),
             {"i": mid},
         ).fetchone()
     finally:

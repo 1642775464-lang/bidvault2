@@ -43,14 +43,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from sqlalchemy.orm import Session
 
         from .db import get_engine
+        from .db import get_engine as _ge
         from .services.material_processor import MaterialDocumentProcessor
         from .services.office_document_svc import register_processor, use_persistent_runs
-        from .services.source_migration import backfill_source_office_documents
+        from .services.source_migration import (
+            backfill_source_office_documents,
+            is_cutover_completed,
+        )
+        from .services.source_processor import SourceDocumentProcessor
 
-        use_persistent_runs(get_engine())
-        with Session(bind=get_engine()) as _s:
-            backfill_source_office_documents(_s)
+        use_persistent_runs(_ge())
+        register_processor(SourceDocumentProcessor())
         register_processor(MaterialDocumentProcessor())
+        with Session(bind=get_engine()) as _s:
+            if not is_cutover_completed(_s):
+                backfill_source_office_documents(_s)  # B-1c-4 切换后由 marker 关闭
     except Exception:
         logging.getLogger(__name__).warning("processor registry init skipped")
     settings = get_settings()

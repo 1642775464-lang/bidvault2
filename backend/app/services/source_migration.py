@@ -18,9 +18,12 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from ..config import get_settings
 from ..models import Document, DocumentVersion, OfficeDocument, OfficeDocumentVersion
 
 logger = logging.getLogger(__name__)
+
+
 
 
 def _file_size(files_dir: Any, file_path: str | None) -> int:
@@ -40,8 +43,6 @@ def backfill_source_office_documents(session: Session) -> dict[str, int]:
     - 有 od：同步缺失的版本行（串行处理时文档可能在无版本阶段被抢先建档），
       并在 current 悬空时补为最新版本 id
     """
-    from ..config import get_settings
-
     created = synced = skipped = 0
     docs = session.query(Document).all()
     for d in docs:
@@ -108,3 +109,96 @@ def backfill_source_office_documents(session: Session) -> dict[str, int]:
     if created or synced:
         logger.info("source office documents backfilled: created=%d synced=%d skipped=%d", created, synced, skipped)
     return {"created": created, "synced": synced, "skipped": skipped}
+
+
+# ---------------- B-1c-4：切换标记 ----------------
+
+CUTOVER_KEY = "source_office_cutover"
+
+
+def is_cutover_completed(session: Any) -> bool:
+    from ..models import AppMeta
+
+    return session.get(AppMeta, CUTOVER_KEY) is not None
+
+
+def freeze_cutover(session: Any) -> dict[str, Any]:
+    """一次性切换标记：记录每个 source 的 legacy 基线（max_version/version_ids/current）。
+
+    幂等：marker 已存在时直接返回现有记录，不覆盖（基线冻结后不可变）。
+    写入 marker 后：启动 backfill 停止；legacy 表进入 deprecated read-only。
+    """
+    import json as _json
+
+    from ..models import AppMeta, Document, DocumentVersion
+
+    existing = session.get(AppMeta, CUTOVER_KEY)
+    if existing is not None:
+        parsed: dict[str, Any] = _json.loads(existing.value)
+        return parsed
+
+    baseline: dict[str, Any] = {"completed_at": _now_iso(), "documents": {}}
+    for d in session.query(Document).all():
+        if not d.office_document_id:
+            continue
+        versions = (
+            session.query(DocumentVersion)
+            .filter(DocumentVersion.document_id == d.id)
+            .order_by(DocumentVersion.version)
+            .all()
+        )
+        latest = versions[-1] if versions else None
+        baseline["documents"][d.id] = {
+            "office_document_id": d.office_document_id,
+            "legacy_max_version": latest.version if latest else 0,
+            "legacy_version_ids": [v.id for v in versions],
+            "legacy_current_version_id": d.current_version_id,
+            "cutover_current_version_id": d.current_version_id or (latest.id if latest else None),
+        }
+    payload = _json.dumps(baseline, ensure_ascii=False)
+    session.add(AppMeta(key=CUTOVER_KEY, value=payload))
+    session.commit()
+    return baseline
+
+
+def _now_iso() -> str:
+    from datetime import datetime
+
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def ensure_source_office_document(session: Any, doc: Any) -> Any:
+    """B-1c-4 upload 建档：source Document → OfficeDocument + v1（直写 office 表）。
+
+    与旧 ensure_version（deprecated，写 document_versions）职责替换；
+    幂等：已有 od 直接返回。
+    """
+    import hashlib as _hashlib
+
+    from ..models import OfficeDocument, OfficeDocumentVersion
+
+    if doc.office_document_id:
+        od = session.get(OfficeDocument, doc.office_document_id)
+        if od is not None:
+            return od
+    settings = get_settings()
+    digest = _hashlib.sha256((settings.files_dir / doc.stored_name).read_bytes()).hexdigest()
+    od = OfficeDocument(
+        document_type="source", title=doc.filename,
+        file_type=doc.file_type or "docx",
+    )
+    session.add(od)
+    session.flush()
+    v = OfficeDocumentVersion(
+        office_document_id=od.id, version=1,
+        file_path=doc.stored_name, file_hash=digest,
+        file_size=(settings.files_dir / doc.stored_name).stat().st_size,
+        source="upload",
+    )
+    session.add(v)
+    session.flush()
+    od.current_version_id = v.id
+    doc.office_document_id = od.id
+    doc.current_version_id = v.id  # deprecated 兼容写（最后一次）
+    session.commit()
+    return od

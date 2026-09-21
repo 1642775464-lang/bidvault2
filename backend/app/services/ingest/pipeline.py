@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ...config import get_settings
 from ...models import Document, ExtractItem, ExtractRow, Material
 from ..audit import audit
 from .parser import parse_any, read_source
@@ -47,13 +48,11 @@ def process_document(session: Session, doc: Document, *, version_id: str | None 
     """
     try:
         if version_id:
-            from ...models import DocumentVersion
+            from ...models import OfficeDocumentVersion
 
-            v = session.get(DocumentVersion, version_id)
+            v = session.get(OfficeDocumentVersion, version_id)
             if v is None:
                 raise ValueError(f"版本不存在：{version_id}")
-            from ...config import get_settings
-
             data = (get_settings().files_dir / v.file_path).read_bytes()
         else:
             data = read_source(doc.source, doc.origin_path, doc.stored_name)
@@ -71,7 +70,8 @@ def process_document(session: Session, doc: Document, *, version_id: str | None 
         # 防串写：清索引/落库前，当前版本必须仍指向本次解析的版本
         if version_id:
             fresh = session.execute(
-                text("SELECT current_version_id FROM documents WHERE id = :i"),
+                text("SELECT current_version_id FROM office_documents WHERE id = "
+                     "(SELECT office_document_id FROM documents WHERE id = :i)"),
                 {"i": doc.id},
             ).scalar()
             if fresh != version_id:
@@ -94,20 +94,13 @@ def process_document(session: Session, doc: Document, *, version_id: str | None 
                 logger.warning("image extraction failed: %s", doc.filename, exc_info=True)
         doc.status = 2
         session.commit()
-        # 原始上传即 v1（正式版本链起点；存量文档由 editor-config/callback 惰性补档）
+        # B-1c-4：原始上传即 OfficeDocument v1（唯一写真源=office 表；旧表进入 deprecated read-only）
         try:
-            from ...services.onlyoffice_svc import ensure_version
+            from ...services.source_migration import ensure_source_office_document
 
-            ensure_version(session, doc)
+            ensure_source_office_document(session, doc)
         except Exception:
-            logger.warning("ensure_version failed: %s", doc.filename, exc_info=True)
-        # B-1c-3：身份建档镜像（幂等）——写链仍在旧表（B-1c-4 切换），office 表供读链
-        try:
-            from ...services.source_migration import backfill_source_office_documents
-
-            backfill_source_office_documents(session)
-        except Exception:
-            logger.warning("source backfill failed: %s", doc.filename, exc_info=True)
+            logger.warning("ensure_source_office_document failed: %s", doc.filename, exc_info=True)
         audit("doc_extracted", doc_id=doc.id, detail=f"结构项 {extracted} · 素材 {made + img_made}")
         return IngestResult(doc.id, 2, n, extracted, made + img_made)
     except Exception as exc:

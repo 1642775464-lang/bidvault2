@@ -120,6 +120,32 @@ class OfficeVersionStore:
 
 
 def reconcile_source_documents(session: Any) -> dict[str, Any]:
+    """双读对账：cutover 前 exact 模式；cutover 后 legacy-prefix 模式（B-1c-4）。
+
+    - exact（无 marker）：old == new 全量逐字段，mismatched 必须为 0
+    - prefix（有 marker）：只验 cutover watermark 以内 old == new，
+      并验证 legacy 表自 cutover 未变（零新增/零修改）；新表允许出现更高版本
+      （禁止为维持 mismatch=0 双写旧表）
+    """
+    from .source_migration import CUTOVER_KEY
+
+    marker = None
+    try:
+        from ..models import AppMeta
+
+        row = session.get(AppMeta, CUTOVER_KEY)
+        if row is not None:
+            import json as _json
+
+            marker = _json.loads(row.value)
+    except Exception:
+        marker = None
+    if marker is not None:
+        return _reconcile_legacy_prefix(session, marker)
+    return _reconcile_exact(session)
+
+
+def _reconcile_exact(session: Any) -> dict[str, Any]:
     """全量 source 文档双读对账：old vs new 逐字段 explicit compare。"""
     legacy = LegacySourceVersionStore()
     office = OfficeVersionStore()
@@ -209,3 +235,95 @@ def reconcile_source_documents(session: Any) -> dict[str, Any]:
             summary["matched_documents"] += 1
 
     return {"summary": summary, "mismatches": mismatches}
+
+
+def _reconcile_legacy_prefix(session: Any, marker: dict[str, Any]) -> dict[str, Any]:
+    """B-1c-4 切换后：legacy-prefix 对账。
+
+    对每份在 marker 基线中的文档：
+    1. legacy 表自 cutover 未变（version_ids 集合完全一致）——零新增零修改
+    2. prefix（version <= legacy_max_version）old == new 逐字段一致
+    3. office current 的 version >= cutover 版本（允许新版本；不回写旧表）
+    """
+    from ..models import Document
+
+    legacy = LegacySourceVersionStore()
+    office = OfficeVersionStore()
+    summary: dict[str, int] = {
+        "documents_total": 0,
+        "matched_documents": 0,
+        "mismatched_documents": 0,
+        "old_versions": 0,
+        "new_versions": 0,
+        "missing_versions": 0,
+        "extra_versions": 0,
+        "hash_mismatch": 0,
+        "path_mismatch": 0,
+        "current_mismatch": 0,
+        "restore_chain_mismatch": 0,
+        "field_mismatch": 0,
+        "legacy_changed_since_cutover": 0,
+        "new_versions_after_cutover": 0,
+    }
+    mismatches: list[dict[str, Any]] = []
+    docs = session.query(Document).all()
+    summary["documents_total"] = len(docs)
+    for d in docs:
+        base = marker.get("documents", {}).get(d.id)
+        if base is None:
+            continue
+        old = legacy.load(session, d.id)
+        new = office.load(session, d.id)
+        if old is None or new is None:
+            summary["mismatched_documents"] += 1
+            mismatches.append({"doc_id": d.id, "kind": "missing_snapshot"})
+            continue
+        issues: list[str] = []
+        # 1) legacy 自 cutover 未变
+        if set(old.versions) != set(base["legacy_version_ids"]):
+            summary["legacy_changed_since_cutover"] += 1
+            issues.append("legacy table changed since cutover")
+        # 2) prefix 逐字段
+        max_v = base["legacy_max_version"]
+        for vid in base["legacy_version_ids"]:
+            o = old.versions.get(vid)
+            n = new.versions.get(vid)
+            summary["old_versions"] += 1
+            if n is None:
+                summary["missing_versions"] += 1
+                issues.append(f"prefix missing in office: {vid}")
+                continue
+            summary["new_versions"] += 1
+            assert o is not None
+            if o.file_hash != n.file_hash:
+                summary["hash_mismatch"] += 1
+                issues.append(f"{vid} hash")
+            if o.file_path != n.file_path:
+                summary["path_mismatch"] += 1
+                issues.append(f"{vid} path")
+            if o.restored_from_version_id != n.restored_from_version_id:
+                summary["restore_chain_mismatch"] += 1
+                issues.append(f"{vid} restored_from")
+            if (o.version, o.source, o.editor_user, o.comment, o.created_at) != (
+                n.version, n.source, n.editor_user, n.comment, n.created_at
+            ):
+                summary["field_mismatch"] += 1
+                issues.append(f"{vid} fields")
+        # 3) 新表允许更高版本；current 不得回退到 cutover 之前
+        after = [v for v in new.versions.values() if v.version > max_v]
+        summary["new_versions_after_cutover"] += len(after)
+        cur_new = new.versions.get(new.current_version_id) if new.current_version_id else None
+        if cur_new is not None and cur_new.version < max_v:
+            summary["current_mismatch"] += 1
+            issues.append(f"office current regressed to v{cur_new.version} (< cutover v{max_v})")
+        if issues:
+            summary["mismatched_documents"] += 1
+            mismatches.append({"doc_id": d.id, "kind": "prefix", "issues": issues})
+        else:
+            summary["matched_documents"] += 1
+    return {
+        "mode": "legacy-prefix",
+        "cutover_at": marker.get("completed_at"),
+        "summary": summary,
+        "mismatches": mismatches,
+    }
