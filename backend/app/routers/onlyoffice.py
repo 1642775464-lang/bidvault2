@@ -209,7 +209,9 @@ def version_file(doc_id: str, version_id: str, session: Session = Depends(get_se
 
 @router.post("/versions/{doc_id}/{version_id}/restore")
 def restore_version(doc_id: str, version_id: str, body: RestoreIn | None = None, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """恢复历史版本：以创建新版本方式落地（source=restore），并自动按新版本重拆。"""
+    """恢复历史版本（B-1c-3 维护模式：禁止——写链 B-1c-4 切换后解禁）。"""
+    if _maintenance_locked():
+        raise HTTPException(409, "迁移维护模式：Source 恢复暂禁用（B-1c-4 切写链后解禁）")
     doc = _doc_or_404(doc_id, session)
     target = session.get(DocumentVersion, version_id)
     if target is None or target.document_id != doc.id:
