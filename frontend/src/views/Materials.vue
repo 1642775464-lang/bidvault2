@@ -134,17 +134,16 @@ async function loadMatVersions(): Promise<void> {
   if (!m?.office_document_id) return;
   try {
     matVerList.value = (await api.onlyofficeVersions(m.office_document_id)).items;
-    sourceStale.value = await (async () => {
-      if (!m.source_document_id || !m.source_document_version_id) return false;
-      try {
-        const cur = await api.onlyofficeVersion(m.source_document_id);
-        return !!cur.version && cur.version !== null && m.source_document_version_id !== (await api.onlyofficeVersions(m.source_document_id)).items.find((v) => v.is_current)?.id;
-      } catch {
-        return false;
-      }
-    })();
   } catch {
     matVerList.value = [];
+  }
+  // 来源新版本提示：与素材自身版本列表互不影响（source 尚未迁通用层，走 source 端点）
+  try {
+    if (!m.source_document_id || !m.source_document_version) return;
+    const cur = await api.onlyofficeVersion(m.source_document_id);
+    sourceStale.value = !!cur.version && cur.version > m.source_document_version;
+  } catch {
+    sourceStale.value = false;
   }
 }
 

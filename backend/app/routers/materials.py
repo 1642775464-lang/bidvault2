@@ -23,6 +23,13 @@ router = APIRouter(prefix="/api/materials", tags=["F2.6 素材库"])
 
 def _m_dict(m: Material, session: Session) -> dict[str, Any]:
     proj = session.get(Project, m.project_id) if m.project_id else None
+    # 提取时来源版本号（数字，用于前端"来源文档已有新版本"比较）
+    source_version: int | None = None
+    if m.source_document_version_id:
+        from ..models import DocumentVersion
+
+        sv = session.get(DocumentVersion, m.source_document_version_id)
+        source_version = sv.version if sv else None
     return {
         "id": m.id, "title": m.title, "type": m.type, "cat": m.cat, "src": m.src,
         "doc_name": m.doc_name, "project_id": m.project_id,
@@ -36,6 +43,7 @@ def _m_dict(m: Material, session: Session) -> dict[str, Any]:
         "source_document_id": m.source_document_id,
         "source_document_version_id": m.source_document_version_id,
         "source_locator_json": m.source_locator_json,
+        "source_document_version": source_version,
     }
 
 

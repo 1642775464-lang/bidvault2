@@ -114,6 +114,7 @@ export interface Material {
   source_document_id: string | null;
   source_document_version_id: string | null;
   source_locator_json: string | null;
+  source_document_version: number | null;
 }
 
 export interface WatchPathT {
