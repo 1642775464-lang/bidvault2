@@ -34,37 +34,54 @@ def _file_size(files_dir: Any, file_path: str | None) -> int:
 
 
 def backfill_source_office_documents(session: Session) -> dict[str, int]:
-    """幂等回填：返回 {created, skipped}。"""
+    """幂等回填（补齐语义）：返回 {created, synced, skipped}。
+
+    - 无 od：新建 OfficeDocument + 复制全部版本
+    - 有 od：同步缺失的版本行（串行处理时文档可能在无版本阶段被抢先建档），
+      并在 current 悬空时补为最新版本 id
+    """
     from ..config import get_settings
 
-    created = skipped = 0
+    created = synced = skipped = 0
     docs = session.query(Document).all()
     for d in docs:
-        if d.office_document_id:
-            skipped += 1
-            continue
-        latest_dv = (
-            session.query(DocumentVersion)
-            .filter(DocumentVersion.document_id == d.id)
-            .order_by(DocumentVersion.version.desc())
-            .first()
-        )
-        current = d.current_version_id or (latest_dv.id if latest_dv else None)
-        od = OfficeDocument(
-            document_type="source",
-            title=d.filename,
-            file_type=d.file_type or "docx",
-            current_version_id=current,
-        )
-        session.add(od)
-        session.flush()
         versions = (
             session.query(DocumentVersion)
             .filter(DocumentVersion.document_id == d.id)
             .order_by(DocumentVersion.version)
             .all()
         )
+        latest_dv = versions[-1] if versions else None
+        current = d.current_version_id or (latest_dv.id if latest_dv else None)
+
+        od = (
+            session.get(OfficeDocument, d.office_document_id)
+            if d.office_document_id
+            else None
+        )
+        if od is None:
+            od = OfficeDocument(
+                document_type="source",
+                title=d.filename,
+                file_type=d.file_type or "docx",
+                current_version_id=current,
+            )
+            session.add(od)
+            session.flush()
+            d.office_document_id = od.id
+            created += 1
+
+        # 同步缺失的版本行（按原 id）
+        existing = {
+            v.id: v
+            for v in session.query(OfficeDocumentVersion)
+            .filter(OfficeDocumentVersion.office_document_id == od.id)
+            .all()
+        }
+        changed = False
         for dv in versions:
+            if dv.id in existing:
+                continue
             session.add(OfficeDocumentVersion(
                 id=dv.id,  # 原 id 直接沿用：restore 链/current 指针零重映射
                 office_document_id=od.id,
@@ -78,9 +95,16 @@ def backfill_source_office_documents(session: Session) -> dict[str, int]:
                 comment=dv.comment,
                 created_at=dv.created_at,
             ))
-        d.office_document_id = od.id
-        created += 1
-    session.commit()
-    if created:
-        logger.info("source office documents backfilled: created=%d skipped=%d", created, skipped)
-    return {"created": created, "skipped": skipped}
+            changed = True
+        # current 悬空补齐
+        if od.current_version_id is None and current is not None:
+            od.current_version_id = current
+            changed = True
+        if changed:
+            synced += 1
+            session.commit()
+        else:
+            skipped += 1
+    if created or synced:
+        logger.info("source office documents backfilled: created=%d synced=%d skipped=%d", created, synced, skipped)
+    return {"created": created, "synced": synced, "skipped": skipped}

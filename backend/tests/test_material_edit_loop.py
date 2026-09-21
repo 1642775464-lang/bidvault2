@@ -27,6 +27,7 @@ from app.main import app
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     os.environ["ACCESS_PASSWORD"] = ""
+    os.environ["SOURCE_MAINTENANCE_MODE"] = "0"  # 素材编辑闭环测试不受 Source 维护锁影响
     os.environ["DATA_DIR"] = str(tmp_path / "data")
     os.environ["SCAN_INTERVAL_SECONDS"] = "3600"
     import app.config as cfg

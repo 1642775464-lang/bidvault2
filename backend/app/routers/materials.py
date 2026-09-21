@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_session
-from ..models import MATERIAL_CATS, Document, DocumentVersion, Material, MaterialRef, Project
+from ..models import MATERIAL_CATS, Document, Material, MaterialRef, Project
 from ..services import ooxml_clone, source_locator
 from ..services.audit import audit
 from ..services.images import guess_cat
@@ -196,7 +196,6 @@ def create_office_document(material_id: str, body: OfficeDocIn, session: Session
     幂等：已有 office_document_id 时直接返回现有对象，不重复创建。
     高保真：OOXML clone source package（指定来源版本），仅裁剪 body，禁止重建正文。
     """
-    from sqlalchemy import text as _text
 
     from ..models import OfficeDocument, OfficeDocumentVersion
     from ..services.office_document_svc import OfficeDocumentService, OfficeDocumentTableAdapter
@@ -216,20 +215,23 @@ def create_office_document(material_id: str, body: OfficeDocIn, session: Session
     src_doc = session.get(Document, body.source_document_id)
     if src_doc is None:
         raise HTTPException(404, "来源文档不存在")
+    from ..models import OfficeDocument, OfficeDocumentVersion
+
+    if not src_doc.office_document_id:
+        raise HTTPException(409, "来源文档尚未建立 Office 档案")
+    src_od = session.get(OfficeDocument, src_doc.office_document_id)
+    if src_od is None:
+        raise HTTPException(409, "来源 Office 档案丢失")
     if body.source_document_version_id:
-        sv = session.get(DocumentVersion, body.source_document_version_id)
-        if sv is None or sv.document_id != src_doc.id:
+        sv = session.get(OfficeDocumentVersion, body.source_document_version_id)
+        if sv is None or sv.office_document_id != src_od.id:
             raise HTTPException(404, "来源版本不存在")
+    elif src_od.current_version_id:
+        sv = session.get(OfficeDocumentVersion, src_od.current_version_id)
     else:
-        sv_row = session.execute(
-            _text("SELECT id FROM document_versions WHERE document_id=:i ORDER BY version DESC LIMIT 1"),
-            {"i": src_doc.id},
-        ).first()
-        if sv_row is None:
-            raise HTTPException(409, "来源文档尚无正式版本（未拆解/未建档）")
-        sv = session.get(DocumentVersion, sv_row[0])
-        if sv is None:
-            raise HTTPException(409, "来源版本文件已丢失")
+        sv = None
+    if sv is None:
+        raise HTTPException(409, "来源文档尚无正式版本（未拆解/未建档）")
     if sv is None:
         raise HTTPException(409, "来源版本不可用")
     settings = get_settings()

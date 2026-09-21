@@ -32,6 +32,8 @@ class Settings:
     onlyoffice_jwt_secret: str = field(default_factory=lambda: _env("ONLYOFFICE_JWT_SECRET", default="bidvault-onlyoffice-dev-secret"))
     # 阶段三 callback 落地前默认只读；置 1 仅限开发模式（页面会明确提示“修改不会保存”）
     onlyoffice_edit_enabled: bool = field(default_factory=lambda: _env("ONLYOFFICE_EDIT_ENABLED", default="0") == "1")
+    # B-1c-3 迁移维护模式：禁止 Source 编辑/保存/恢复（读取链切换窗口）
+    source_maintenance_mode: bool = field(default_factory=lambda: _env("SOURCE_MAINTENANCE_MODE", default="0") == "1")
 
     @property
     def onlyoffice_enabled(self) -> bool:

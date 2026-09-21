@@ -67,6 +67,7 @@ def list_docs(
                 "is_secret": d.is_secret, "error_msg": d.error_msg,
                 "ocr_conf": d.ocr_conf, "needs_review": d.needs_review,
                 "created_at": d.created_at.isoformat() if d.created_at else None,
+                "office_document_id": d.office_document_id,
             }
             for d in rows
         ],
@@ -123,12 +124,20 @@ def get_extract(doc_id: str, session: Session = Depends(get_session)) -> dict[st
 
 @router.post("/{doc_id}/extract")
 def run_extract(doc_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """重新拆解（B-1c-3 读链切换）：按 OfficeDocument.current_version 文件版本化解析。"""
     doc = session.get(Document, doc_id)
     if doc is None:
         raise HTTPException(404, "文档不存在")
     if doc.status == 1:
         raise HTTPException(409, "拆解进行中")
-    result = process_document(session, doc)
+    if not doc.office_document_id:
+        raise HTTPException(409, "文档尚未建立 Office 档案，请先重新上传")
+    from ..models import OfficeDocument
+
+    od = session.get(OfficeDocument, doc.office_document_id)
+    if od is None or not od.current_version_id:
+        raise HTTPException(409, "Office 档案无正式版本")
+    result = process_document(session, doc, version_id=od.current_version_id)
     return {"status": result.status, "extracted": result.extracted, "materials": result.materials}
 
 
@@ -235,20 +244,23 @@ def doc_content(doc_id: str, session: Session = Depends(get_session)) -> dict[st
 
 @router.get("/{doc_id}/download")
 def download_doc(doc_id: str, session: Session = Depends(get_session)) -> FileResponse:
-    """成品导出：下载当前正式 DocumentVersion 对应的原件（Word/PDF 原样，F3.3）。"""
+    """成品导出（B-1c-3 读链切换）：下载 OfficeDocument.current_version 对应的原件。"""
     doc = session.get(Document, doc_id)
     if doc is None:
         raise HTTPException(404, "文档不存在")
     settings = get_settings()
-    from ..models import DocumentVersion
+    from ..models import OfficeDocument, OfficeDocumentVersion
 
-    if doc.current_version_id:
-        v = session.get(DocumentVersion, doc.current_version_id)
-        if v is not None:
-            vpath = settings.files_dir / v.file_path
-            if vpath.is_file():
-                audit("doc_exported", doc_id=doc.id, detail=f"{doc.filename} · v{v.version}")
-                return FileResponse(vpath, filename=doc.filename)
+    if doc.office_document_id:
+        od = session.get(OfficeDocument, doc.office_document_id)
+        if od is not None and od.current_version_id:
+            v = session.get(OfficeDocumentVersion, od.current_version_id)
+            if v is not None:
+                vpath = settings.files_dir / v.file_path
+                if vpath.is_file():
+                    audit("doc_exported", doc_id=doc.id, detail=f"{doc.filename} · v{v.version}")
+                    return FileResponse(vpath, filename=doc.filename)
+    # deprecated 兼容回退（B-1c 后新代码禁读，仅兜底历史异常数据）
     if doc.stored_name:
         path = settings.files_dir / doc.stored_name
         if path.is_file():

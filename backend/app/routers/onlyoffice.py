@@ -49,17 +49,31 @@ def _doc_or_404(doc_id: str, session: Session) -> Document:
     doc = session.get(Document, doc_id)
     if doc is None:
         raise HTTPException(404, "文档不存在")
-    if not doc.stored_name:
-        raise HTTPException(409, "该文档没有原始文件（非上传件）")
     return doc
 
 
-@router.get("/version/{doc_id}")
-def version_state(doc_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """当前正式版本摘要（前端最小保存状态反馈用）。"""
+def _od_of_doc_or_404(doc_id: str, session: Session) -> OfficeDocument:
+    """B-1c-3：source 文档 id → OfficeDocument（读取链唯一身份）。"""
     doc = _doc_or_404(doc_id, session)
-    v = onlyoffice_svc.current_version(session, doc)
-    session.commit()
+    if not doc.office_document_id:
+        raise HTTPException(409, "文档尚未建立 Office 档案，请先完成一次拆解或重新上传")
+    od = session.get(OfficeDocument, doc.office_document_id)
+    if od is None:
+        raise HTTPException(409, "Office 档案丢失，请重新上传")
+    return od
+
+
+def _maintenance_locked() -> bool:
+    """B-1c-3 维护模式：禁止 Source 编辑/保存/恢复。"""
+    return get_settings().source_maintenance_mode
+
+
+def _office_version_state(od: OfficeDocument, session: Session) -> dict[str, Any]:
+    v = (
+        session.get(OfficeDocumentVersion, od.current_version_id)
+        if od.current_version_id
+        else None
+    )
     if v is None:
         return {"version": None}
     return {
@@ -71,6 +85,13 @@ def version_state(doc_id: str, session: Session = Depends(get_session)) -> dict[
     }
 
 
+@router.get("/version/{doc_id}")
+def version_state(doc_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """当前正式版本摘要（适配转发：doc_id → office_document_id，B-1c-3 读链切换）。"""
+    od = _od_of_doc_or_404(doc_id, session)
+    return _office_version_state(od, session)
+
+
 def register_document_routes(documents_router: APIRouter) -> None:
     """editor-config 挂在 documents 前缀下（任务单定义 GET /api/documents/:id/editor-config）。"""
 
@@ -80,47 +101,48 @@ def register_document_routes(documents_router: APIRouter) -> None:
         version_id: str | None = None,
         session: Session = Depends(get_session),
     ) -> dict[str, Any]:
-        """version_id 给定时：只读查看该历史版本（历史文件不可变，强制 view）。"""
+        """适配转发（B-1c-3 读链切换）：doc_id → office_document_id，全部数据来自通用层。
+
+        version_id 给定时：只读查看该历史版本（强制 view）。
+        维护模式：mode 强制 view（禁止 Source 编辑产生新写入）。
+        key = {office_document_id}-v{version}-{hash12}。
+        """
         s = get_settings()
         if not s.onlyoffice_enabled:
             raise HTTPException(503, "ONLYOFFICE 未配置（缺少 ONLYOFFICE_DOCUMENT_SERVER_PUBLIC_URL）")
-        doc = _doc_or_404(doc_id, session)
-        if not doc.stored_name:
-            raise HTTPException(409, "该文档没有原始文件")
-        viewing = None
-        mode = None
-        token = onlyoffice_svc.sign_file_token(doc.id)
-        if version_id:
-            viewing = session.get(DocumentVersion, version_id)
-            if viewing is None or viewing.document_id != doc.id:
-                raise HTTPException(404, "历史版本不存在")
-            path = s.files_dir / viewing.file_path
-            if not path.is_file():
-                raise HTTPException(404, "历史版本文件已丢失")
-            mode = "view"
-            token = onlyoffice_svc.sign_file_token(doc.id, vid=viewing.id)
-        else:
-            path = s.files_dir / doc.stored_name
-            if not path.is_file():
-                raise HTTPException(404, "原始文件已丢失，请重新上传")
-        v = onlyoffice_svc.current_version(session, doc) if viewing is None else viewing
-        session.commit()
-        # key 与正式版本绑定：下次重新打开文档时才切换到新正式版本的 key
-        key = (
-            f"{doc.id}-v{v.version}-{v.file_hash[:12]}"
-            if v is not None
-            else onlyoffice_svc.document_key(doc.id, path.read_bytes())
+        od = _od_of_doc_or_404(doc_id, session)
+        v = (
+            session.get(OfficeDocumentVersion, od.current_version_id)
+            if (version_id is None and od.current_version_id)
+            else None
         )
-        config = onlyoffice_svc.build_editor_config(doc.id, doc.filename, path.read_bytes(), mode=mode, key=key)
+        viewing = None
+        if version_id:
+            viewing = session.get(OfficeDocumentVersion, version_id)
+            if viewing is None or viewing.office_document_id != od.id:
+                raise HTTPException(404, "历史版本不存在")
+            v = viewing
+        if v is None:
+            raise HTTPException(409, "该文档尚无正式版本")
+        path = s.files_dir / v.file_path
+        if not path.is_file():
+            raise HTTPException(404, "版本文件已丢失")
+        mode = "view" if (version_id or _maintenance_locked()) else None
+        token = OfficeDocumentService.generate_file_token(od.id, vid=v.id)
+        key = f"{od.id}-v{v.version}-{v.file_hash[:12]}"
+        config = onlyoffice_svc.build_editor_config(od.id, od.title, path.read_bytes(), mode=mode, key=key)
         config["document"]["url"] = (
-            f"{s.onlyoffice_backend_internal_url}/api/onlyoffice/files/{doc.id}?token={token}"
+            f"{s.onlyoffice_backend_internal_url}/api/office-documents/{od.id}/files?token={token}"
+        )
+        config["editorConfig"]["callbackUrl"] = (
+            f"{s.onlyoffice_backend_internal_url}/api/office-documents/{od.id}/callback"
         )
         config["token"] = jwt_encode(config)
         return {
             "scriptUrl": f"{s.onlyoffice_public_url}/web-apps/apps/api/documents/api.js",
             "config": config,
             "mode": config["editorConfig"]["mode"],
-            "version": v.version if v is not None else None,
+            "version": v.version,
             "viewing_version_id": viewing.id if viewing else None,
             "enabled": True,
         }
@@ -148,23 +170,41 @@ class RestoreIn(BaseModel):
 
 @router.get("/versions/{doc_id}")
 def versions_list(doc_id: str, limit: int = 50, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """历史版本列表（新→旧，带 is_current 标记）。"""
-    doc = _doc_or_404(doc_id, session)
-    return {"items": onlyoffice_svc.list_versions(session, doc, limit=limit)}
+    """历史版本列表（B-1c-3 读链切换：office_document_versions，新→旧，带 is_current）。"""
+    od = _od_of_doc_or_404(doc_id, session)
+    rows = (
+        session.query(OfficeDocumentVersion)
+        .filter(OfficeDocumentVersion.office_document_id == od.id)
+        .order_by(OfficeDocumentVersion.version.desc())
+        .limit(limit)
+        .all()
+    )
+    return {"items": [
+        {
+            "id": v.id, "version": v.version, "file_hash": v.file_hash,
+            "source": v.source, "editor_user": v.editor_user,
+            "restored_from_version_id": v.restored_from_version_id,
+            "comment": v.comment,
+            "created_at": v.created_at.isoformat() if v.created_at else None,
+            "is_current": v.id == od.current_version_id,
+            "size": v.file_size,
+        }
+        for v in rows
+    ]}
 
 
 @router.get("/versions/{doc_id}/{version_id}/file")
 def version_file(doc_id: str, version_id: str, session: Session = Depends(get_session)) -> FileResponse:
-    """下载指定历史版本的原文件（历史文件不可变，只读）。"""
-    doc = _doc_or_404(doc_id, session)
-    v = session.get(DocumentVersion, version_id)
-    if v is None or v.document_id != doc.id:
+    """下载指定历史版本的原文件（B-1c-3：office_document_versions；历史文件不可变，只读）。"""
+    od = _od_of_doc_or_404(doc_id, session)
+    v = session.get(OfficeDocumentVersion, version_id)
+    if v is None or v.office_document_id != od.id:
         raise HTTPException(404, "历史版本不存在")
     path = get_settings().files_dir / v.file_path
     if not path.is_file():
         raise HTTPException(404, "历史版本文件已丢失")
-    audit("version_file_downloaded", doc_id=doc.id, detail=f"v{v.version}")
-    return FileResponse(path, filename=f"v{v.version}_{doc.filename}", media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    audit("version_file_downloaded", doc_id=od.id, detail=f"v{v.version}")
+    return FileResponse(path, filename=f"v{v.version}_{od.title or od.id}", media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
 @router.post("/versions/{doc_id}/{version_id}/restore")
@@ -259,6 +299,10 @@ def callback(doc_id: str, body: dict[str, Any]) -> dict[str, Any]:
         _callback_log[doc_id] = "强制保存失败"
         audit("oo_forcesave_error", doc_id=doc_id)
     elif status in (2, 6):
+        if _maintenance_locked():
+            audit("oo_callback_rejected_maintenance", doc_id=doc_id, detail=f"status={status}")
+            _callback_log[doc_id] = "迁移维护模式：保存被拒绝"
+            return {"error": 1, "message": "maintenance mode"}
         url = body.get("url")
         if url:
             threading.Thread(
@@ -510,15 +554,22 @@ def fetch_file(doc_id: str, token: str, session: Session = Depends(get_session))
     if not ok:
         raise HTTPException(403, "文件访问凭证无效或已过期")
     doc = _doc_or_404(doc_id, session)
+    if not doc.office_document_id:
+        raise HTTPException(409, "文档尚未建立 Office 档案")
+    od = session.get(OfficeDocument, doc.office_document_id)
+    if od is None:
+        raise HTTPException(409, "Office 档案丢失")
     if vid:
-        v = session.get(DocumentVersion, vid)
-        if v is None or v.document_id != doc.id:
+        v = session.get(OfficeDocumentVersion, vid)
+        if v is None or v.office_document_id != od.id:
             raise HTTPException(404, "历史版本不存在")
-        path = get_settings().files_dir / v.file_path
+    elif od.current_version_id:
+        v = session.get(OfficeDocumentVersion, od.current_version_id)
     else:
-        if not doc.stored_name:
-            raise HTTPException(409, "该文档没有原始文件")
-        path = get_settings().files_dir / doc.stored_name
+        v = None
+    if v is None:
+        raise HTTPException(404, "版本不存在")
+    path = get_settings().files_dir / v.file_path
     if not path.is_file():
         raise HTTPException(404, "原始文件已丢失")
     return FileResponse(path, filename=doc.filename, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")

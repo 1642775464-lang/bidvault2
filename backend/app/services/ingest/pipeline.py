@@ -101,6 +101,13 @@ def process_document(session: Session, doc: Document, *, version_id: str | None 
             ensure_version(session, doc)
         except Exception:
             logger.warning("ensure_version failed: %s", doc.filename, exc_info=True)
+        # B-1c-3：身份建档镜像（幂等）——写链仍在旧表（B-1c-4 切换），office 表供读链
+        try:
+            from ...services.source_migration import backfill_source_office_documents
+
+            backfill_source_office_documents(session)
+        except Exception:
+            logger.warning("source backfill failed: %s", doc.filename, exc_info=True)
         audit("doc_extracted", doc_id=doc.id, detail=f"结构项 {extracted} · 素材 {made + img_made}")
         return IngestResult(doc.id, 2, n, extracted, made + img_made)
     except Exception as exc:

@@ -205,7 +205,7 @@ def test_source_backfill_idempotent(tmp_path, monkeypatch):
         assert v == [("dv1", 1, "src1.docx", "hash-a")], "版本未按原 id/值复制"
         # 幂等：二跑 skipped
         r2 = backfill_source_office_documents(s)
-        assert r2 == {"created": 0, "skipped": 1}
+        assert r2 == {"created": 0, "synced": 0, "skipped": 1}, "幂等：二跑应无任何变更"
         n = s.execute(text("SELECT count(*) FROM office_documents")).scalar()
         assert n == 1
     finally:
