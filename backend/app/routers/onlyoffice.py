@@ -327,6 +327,14 @@ def svc_jwt(payload: dict[str, Any]) -> str:
 _office_cb_log: dict[str, str] = {}
 
 
+@office_router.get("/reconcile-summary")
+def reconcile_summary(session: Session = Depends(get_session)) -> dict[str, Any]:
+    """B-1c-2 只读双读对账摘要：legacy vs office 逐字段 explicit compare。"""
+    from ..services.version_stores import reconcile_source_documents
+
+    return reconcile_source_documents(session)
+
+
 @office_router.get("/{oid}/callback-state")
 def office_callback_state(oid: str) -> dict[str, Any]:
     return {"doc_id": oid, "state": _office_cb_log.get(oid, "")}
