@@ -87,7 +87,7 @@ def build_editor_config(document_id: str, filename: str, data: bytes, *, mode: s
             "user": {"id": "local-user", "name": "本地用户"},
             "customization": {
                 "compactHeader": False,
-                "hideRightMenu": False,
+                "hideRightMenu": True,  # 默认收起右侧格式面板（正文宽度优先）；用户仍可手动展开，DS 会记住其选择
                 "autosave": True,
                 "forcesave": True,  # 用户 Ctrl+S → callback status=6（工作快照）；关闭文档 → status=2 正式版本
             },

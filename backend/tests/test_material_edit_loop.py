@@ -241,3 +241,69 @@ def test_material_restore_rolls_back_derived(client, monkeypatch):
     src_bytes = (pathlib.Path(cfg.get_settings().files_dir) / row[1]).read_bytes()
     assert hashlib.sha256(src_bytes).hexdigest() == row[2], "Source 版本文件被改动"
 
+
+
+def _run_status(vid: str) -> str | None:
+    """直连当前库读登记状态；不触碰 appdb 全局单例（避免与 dispatch 线程竞争）。"""
+    import app.config as cfg
+    from app.db import make_engine
+
+    factory = sessionmaker(bind=make_engine(cfg.get_settings().db_path), expire_on_commit=False)
+    s = factory()
+    try:
+        return s.execute(
+            text("SELECT status FROM processor_runs WHERE office_document_version_id=:v "
+                 "AND processor_type='material'"),
+            {"v": vid},
+        ).scalar()
+    finally:
+        s.close()
+
+
+def test_retry_processor_endpoint(client):
+    """派生数据处理失败后的重试端点：failed 登记 → 重新入队 → 再次 done；无失败登记时为 no-op。
+
+    注意：retry 触发的 _dispatch_async 是后台线程，结束前必须 _wait_cb_log 等它落地，
+    且等待期间不得调用 _db()（清全局单例会与线程的 get_engine 竞争，污染下一个测试）。
+    """
+    _mid, od_id, _ = _setup_word_material(client)
+
+    import app.config as cfg
+    from app.db import make_engine
+
+    factory = sessionmaker(bind=make_engine(cfg.get_settings().db_path), expire_on_commit=False)
+    s = factory()
+    try:
+        vid = s.execute(
+            text("SELECT current_version_id FROM office_documents WHERE id=:o"), {"o": od_id}
+        ).scalar()
+        # 模拟一次处理失败：processor_runs 是幂等真源，登记一条 failed
+        s.execute(
+            text("DELETE FROM processor_runs WHERE office_document_version_id=:v"),
+            {"v": vid},
+        )
+        s.execute(
+            text("INSERT INTO processor_runs "
+                 "(id, office_document_version_id, processor_type, status, error, started_at, finished_at) "
+                 "VALUES ('run-failed-1', :v, 'material', 'failed', 'boom', "
+                 "'2026-01-01 00:00:00.000000', '2026-01-01 00:00:01.000000')"),
+            {"v": vid},
+        )
+        s.commit()
+    finally:
+        s.close()
+
+    r = client.post(f"/api/office-documents/{od_id}/retry-processor")
+    assert r.status_code == 200, r.text
+    assert r.json()["retried"] is True, "failed 登记未被重试"
+    _wait_cb_log(od_id, "processor=", 20)  # 等 dispatch 线程落地再碰 DB
+    assert _run_status(vid) == "done", f"重试后 processor 未回到 done：{_run_status(vid)}"
+
+    # 无失败登记时重试 = 无副作用 no-op（不重复处理）；同样等线程结束
+    r2 = client.post(f"/api/office-documents/{od_id}/retry-processor")
+    assert r2.status_code == 200
+    assert r2.json()["retried"] is False
+    _wait_cb_log(od_id, "already-dispatched", 20)
+
+    # 不存在的 od → 404
+    assert client.post("/api/office-documents/nope/retry-processor").status_code == 404

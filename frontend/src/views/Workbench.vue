@@ -38,7 +38,7 @@ const tenderDoc = computed(() => myDocs.value.find((d) => d.kind === "tender") ?
 /* ---------------- Workspace 工作稿（C-2：正文唯一真源） ---------------- */
 const wsOid = ref<string | null>(null);
 const wsVersion = ref<number | null>(null);
-const wsSync = ref<"editing" | "staged" | "creating" | "saved" | "syncing" | "failed" | "idle">("idle");
+const wsSync = ref<"synced" | "staged" | "creating" | "saved" | "syncing" | "failed" | "idle">("idle");
 const wsVerOpen = ref(false);
 const wsVerList = ref<{ id: string; version: number; source: string; created_at: string | null; is_current: boolean; size: number | null; comment: string | null }[]>([]);
 let wsPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -57,7 +57,7 @@ async function initWorkspace(): Promise<void> {
     if (mySeq !== wsPollSeq || cur.value?.id !== pid) return; // 项目已切换，丢弃过期响应
     wsOid.value = r.office_document_id;
     wsVersion.value = r.version;
-    wsSync.value = "editing";
+    wsSync.value = "synced"; // 稳态：正式版本 + 派生数据已一致（编辑器打开本身不算保存状态）
     startWsPoll();
   } catch (e) {
     if (mySeq !== wsPollSeq) return;
@@ -105,6 +105,12 @@ async function pollWorkspace(): Promise<void> {
       if (cs.state.includes("正在处理保存")) wsSync.value = "creating";
       else if (cs.state.includes("工作快照")) wsSync.value = "staged";
       else if (cs.state.includes("失败")) wsSync.value = "failed";
+      else {
+        // 稳态判定：派生数据是否追平 current（正式版本状态 + 派生同步状态两个维度）
+        const dFrom = st.derived_from_version_id ?? null;
+        const dCur = st.current_version_id ?? null;
+        wsSync.value = dFrom && dCur && dFrom !== dCur ? "syncing" : "synced";
+      }
     }
   } catch {
     /* 轮询失败下轮重试 */
@@ -147,6 +153,23 @@ async function restoreWsVersion(v: { id: string; version: number }): Promise<voi
 
 function downloadWsCurrent(): void {
   if (wsOid.value) window.open(`/api/office-documents/${wsOid.value}/files`);
+}
+
+/** 派生数据处理失败后的重试：重新入队当前版本的 processor（幂等）。 */
+async function retrySync(): Promise<void> {
+  if (!wsOid.value) {
+    void initWorkspace(); // 初始化失败（无 oid）时的重试 = 重新初始化
+    return;
+  }
+  try {
+    wsSync.value = "syncing";
+    await api.retryProcessor(wsOid.value);
+    toast("已重新触发派生数据处理");
+    void pollWorkspace();
+  } catch (e) {
+    wsSync.value = "failed";
+    toast(e instanceof Error ? e.message : "重试失败");
+  }
 }
 
 const hasDoc = computed(() => !!cur.value && bidDocs.value.length > 0);
@@ -392,11 +415,14 @@ onMounted(async () => {
         <div class="ws-toolbar">
           <span class="ws-title">{{ cur ? cur.name : "" }} · 投标工作稿</span>
           <span class="verbadge" v-if="wsVersion">v{{ wsVersion }}</span>
-          <span class="syncbadge" v-if="wsSync === 'staged'">修改已暂存（Ctrl+S 暂存，关闭后生成正式版本）</span>
+          <span class="syncbadge" v-if="wsSync === 'staged'">修改已暂存</span>
           <span class="syncbadge" v-else-if="wsSync === 'creating'">正在生成正式版本…</span>
-          <span class="syncbadge ok" v-else-if="wsSync === 'saved'">已保存 · v{{ wsVersion }}</span>
+          <span class="syncbadge ok" v-else-if="wsSync === 'saved'">已保存</span>
           <span class="syncbadge warn" v-else-if="wsSync === 'syncing'">派生数据同步中…</span>
-          <span class="syncbadge" v-else-if="wsSync === 'failed'">同步失败</span>
+          <span class="syncbadge warn" v-else-if="wsSync === 'failed'">
+            同步失败<button class="retry" @click="retrySync">重试</button>
+          </span>
+          <span class="syncbadge ok" v-else-if="wsSync === 'synced'">已同步</span>
           <span class="tool-sep" />
           <button class="mini-btn" :disabled="!wsOid" @click="wsVerOpen = !wsVerOpen; loadWsVersions()">历史版本</button>
           <button class="mini-btn" :disabled="!wsOid" @click="downloadWsCurrent">下载当前</button>

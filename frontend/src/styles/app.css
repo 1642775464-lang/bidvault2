@@ -377,6 +377,8 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .ws-toolbar .syncbadge{font-size:11.5px;border-radius:4px;padding:3px 8px;color:var(--sub);background:#f2f5f9}
 .ws-toolbar .syncbadge.ok{color:var(--ok);background:var(--ok-bg)}
 .ws-toolbar .syncbadge.warn{color:var(--risk);background:var(--risk-bg)}
+.ws-toolbar .syncbadge .retry{margin-left:6px;border:1px solid currentColor;background:transparent;border-radius:3px;font-size:11px;line-height:1.5;padding:0 5px;color:inherit;cursor:pointer}
+.ws-toolbar .syncbadge .retry:hover{opacity:.75}
 .ws-toolbar .mini-btn{margin-left:0}
 .col-doc .ws-stage{flex:1;min-height:0;display:flex;flex-direction:column;background:#f4f6fa}
 .col-doc .office-editor{flex:1;min-height:0}

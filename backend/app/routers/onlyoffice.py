@@ -349,6 +349,29 @@ def _dispatch_async(od_id: str, version_id: str) -> None:
     threading.Thread(target=_run, daemon=True).start()
 
 
+@office_router.post("/{oid}/retry-processor")
+def office_retry_processor(oid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """派生数据处理失败后重试（当前版本）。
+
+    复用既有幂等语义：retry_processor_run 仅删除 failed 登记，随后 dispatch 重新抢占；
+    已 done/running 的版本重试为无副作用 no-op（try_claim 失败 → already-dispatched）。
+    """
+    from ..services.office_document_svc import retry_processor_run
+
+    od = session.get(OfficeDocument, oid)
+    if od is None or not od.current_version_id:
+        raise HTTPException(404, "OfficeDocument 不存在或尚无版本")
+    v = session.get(OfficeDocumentVersion, od.current_version_id)
+    if v is None:
+        raise HTTPException(404, "当前版本不存在")
+    retried = retry_processor_run(v.id, od.document_type)
+    audit("oo_processor_retry", detail=f"office_document {oid} v{v.version} · {'重新入队' if retried else '无失败登记'}")
+    # 覆盖上次的失败提示，避免前端状态条把重试误读成仍在失败
+    _office_cb_log[oid] = f"正在重试 v{v.version} 派生数据处理"
+    _dispatch_async(od.id, v.id)
+    return {"ok": True, "version": v.version, "retried": retried}
+
+
 @office_router.get("/reconcile-summary")
 def reconcile_summary(session: Session = Depends(get_session)) -> dict[str, Any]:
     """B-1c-2 只读双读对账摘要：legacy vs office 逐字段 explicit compare。"""
