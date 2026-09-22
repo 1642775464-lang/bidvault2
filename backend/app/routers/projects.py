@@ -184,6 +184,7 @@ def workspace_state(project_id: str, session: Session = Depends(get_session)) ->
     return {
         "exists": True, "office_document_id": od.id, "title": od.title,
         "version": cur.version if cur else None,
+        "current_version_id": od.current_version_id,
         "derived_from_version_id": wd.derived_from_version_id if wd else None,
         "derived_chars": len(wd.derived_text or "") if wd else 0,
     }

@@ -217,6 +217,17 @@ def test_stale_version_parse_skipped(client, monkeypatch):
     content = _docx_bytes(BASE + "\n第二次内容。")
     _fire_callback(client, doc_id, 2, content, monkeypatch)
     _wait_versions(od_id, 2)
+    # 等 v2 的 SourceDocumentProcessor 完成（派生落地）再取基线，避免与后台线程竞态
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        s = _db()
+        try:
+            t = s.execute(text("SELECT content_text FROM documents WHERE id=:i"), {"i": doc_id}).scalar() or ""
+        finally:
+            s.close()
+        if "第二次内容" in t:
+            break
+        time.sleep(0.5)
 
     s = _db()
     try:

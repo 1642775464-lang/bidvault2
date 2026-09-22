@@ -150,7 +150,7 @@ export const api = {
   async ensureWorkspace(projectId: string): Promise<{ ok: boolean; office_document_id: string; title: string; version: number | null }> {
     return handle(fetch(`/api/projects/${projectId}/workspace`, { method: "POST" }));
   },
-  async workspaceState(projectId: string): Promise<{ exists: boolean; office_document_id?: string; title?: string; version?: number | null; derived_chars?: number }> {
+  async workspaceState(projectId: string): Promise<{ exists: boolean; office_document_id?: string; title?: string; version?: number | null; current_version_id?: string | null; derived_from_version_id?: string | null; derived_chars?: number }> {
     return handle(fetch(`/api/projects/${projectId}/workspace`));
   },
   async editorConfigOffice(oid: string, versionId?: string): Promise<{ scriptUrl: string; config: Record<string, unknown>; mode: "view" | "edit"; version: number | null; enabled: boolean }> {

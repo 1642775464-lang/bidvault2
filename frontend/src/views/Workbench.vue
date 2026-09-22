@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
+import OfficeEditor from "../components/office/OfficeEditor.vue";
 import type { Material, PersonCard, Project, RiskItemT , HistCase } from "../api/types";
 import {
   RISK_TYPES,
@@ -27,7 +28,6 @@ function pickProject(p: Project): void {
   }
   store.activeProjectId = p.id;
   ddOpen.value = false;
-  clearSearch();
   toast(`已切换到「${p.name}」`);
 }
 
@@ -35,188 +35,121 @@ const myDocs = computed(() => (cur.value ? store.docsByProject[cur.value.id] ?? 
 const bidDocs = computed(() => myDocs.value.filter((d) => d.kind === "bid"));
 const tenderDoc = computed(() => myDocs.value.find((d) => d.kind === "tender") ?? null);
 
-/* ---------------- 文档预览 ---------------- */
-const docHtml = ref("");
-const docRaw = ref("");
-const docTitle = ref("");
-const docMeta = ref("");
-const fs = ref(15);
-const searchInput = ref<HTMLInputElement | null>(null);
-const hitInfo = ref("—");
-const outline = ref<{ id: string; label: string }[]>([]);
-const progress = ref(0);
-const curChapter = ref(-1);
-const docScroll = ref<HTMLElement | null>(null);
-const docBody = ref<HTMLElement | null>(null);
-let hits: HTMLElement[] = [];
-let hitIdx = -1;
+/* ---------------- Workspace 工作稿（C-2：正文唯一真源） ---------------- */
+const wsOid = ref<string | null>(null);
+const wsVersion = ref<number | null>(null);
+const wsSync = ref<"editing" | "staged" | "creating" | "saved" | "syncing" | "failed" | "idle">("idle");
+const wsVerOpen = ref(false);
+const wsVerList = ref<{ id: string; version: number; source: string; created_at: string | null; is_current: boolean; size: number | null; comment: string | null }[]>([]);
+let wsPollTimer: ReturnType<typeof setInterval> | null = null;
+let wsPollSeq = 0;
+
+async function initWorkspace(): Promise<void> {
+  const mySeq = ++wsPollSeq;
+  const pid = cur.value?.id;
+  if (!pid) {
+    wsOid.value = null;
+    wsSync.value = "idle";
+    return;
+  }
+  try {
+    const r = await api.ensureWorkspace(pid);
+    if (mySeq !== wsPollSeq || cur.value?.id !== pid) return; // 项目已切换，丢弃过期响应
+    wsOid.value = r.office_document_id;
+    wsVersion.value = r.version;
+    wsSync.value = "editing";
+    startWsPoll();
+  } catch (e) {
+    if (mySeq !== wsPollSeq) return;
+    wsOid.value = null;
+    wsSync.value = "failed";
+    toast(e instanceof Error ? e.message : "工作稿初始化失败");
+  }
+}
+
+async function pollWorkspace(): Promise<void> {
+  const mySeq = wsPollSeq;
+  const pid = cur.value?.id;
+  const oid = wsOid.value;
+  if (!pid || !oid || wsPollSeq !== mySeq) return;
+  try {
+    const st = await api.workspaceState(pid);
+    if (wsPollSeq !== mySeq || st.office_document_id !== oid) return; // 过期响应丢弃
+    if (st.version != null && st.version !== wsVersion.value) {
+      wsVersion.value = st.version;
+      // 完成信号：callback-state 出现 processor 结果（事件信号，非猜测延迟）
+      for (let i = 0; i < 90; i++) {
+        const cs = await api.officeCallbackState(oid);
+        if (cs.state.includes("processor=") || cs.state.includes("保存处理失败")) break;
+        await new Promise((r2) => setTimeout(r2, 1000));
+      }
+      if (wsPollSeq !== mySeq) return;
+      wsSync.value = "saved";
+      void loadWsVersions();
+      // 派生同步状态：derived_from_version_id vs current_version_id
+      const ws2 = await api.workspaceState(pid);
+      if (wsPollSeq !== mySeq || ws2.office_document_id !== oid) return;
+      if (ws2.derived_from_version_id !== ws2.current_version_id) {
+        wsSync.value = "syncing";
+        for (let i = 0; i < 90; i++) {
+          const ws3 = await api.workspaceState(pid);
+          if (wsPollSeq !== mySeq) return;
+          if (ws3.derived_from_version_id === ws3.current_version_id) break;
+          await new Promise((r2) => setTimeout(r2, 1500));
+        }
+      }
+      if (wsPollSeq !== mySeq) return;
+      wsSync.value = "saved";
+    } else {
+      const cs = await api.officeCallbackState(oid);
+      if (cs.state.includes("正在处理保存")) wsSync.value = "creating";
+      else if (cs.state.includes("工作快照")) wsSync.value = "staged";
+      else if (cs.state.includes("失败")) wsSync.value = "failed";
+    }
+  } catch {
+    /* 轮询失败下轮重试 */
+  }
+}
+
+function startWsPoll(): void {
+  if (wsPollTimer) clearInterval(wsPollTimer);
+  void pollWorkspace();
+  wsPollTimer = setInterval(() => void pollWorkspace(), 5000);
+}
+
+function stopWsPoll(): void {
+  if (wsPollTimer) clearInterval(wsPollTimer);
+  wsPollTimer = null;
+}
+
+async function loadWsVersions(): Promise<void> {
+  if (!wsOid.value) return;
+  try {
+    wsVerList.value = (await api.officeVersions(wsOid.value)).items;
+  } catch {
+    wsVerList.value = [];
+  }
+}
+
+async function restoreWsVersion(v: { id: string; version: number }): Promise<void> {
+  if (!wsOid.value) return;
+  if (!window.confirm(`确认恢复工作稿 v${v.version}？将以新建版本方式回滚。`)) return;
+  try {
+    await api.restoreOfficeVersion(wsOid.value, v.id);
+    toast(`工作稿已恢复 v${v.version}`);
+    wsSync.value = "syncing";
+    void pollWorkspace();
+    void loadWsVersions();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "恢复失败");
+  }
+}
+
+function downloadWsCurrent(): void {
+  if (wsOid.value) window.open(`/api/office-documents/${wsOid.value}/files`);
+}
 
 const hasDoc = computed(() => !!cur.value && bidDocs.value.length > 0);
-
-const chapters = computed(() => {
-  if (!docHtml.value) return [] as { id: string; label: string }[];
-  const box = document.createElement("div");
-  box.innerHTML = docHtml.value;
-  return Array.from(box.querySelectorAll("h2")).map((h, i) => ({ id: `ch-${i}`, label: h.textContent ?? "" }));
-});
-
-async function loadDoc(): Promise<void> {
-  hits = [];
-  hitIdx = -1;
-  hitInfo.value = "—";
-  docHtml.value = "";
-  docTitle.value = "";
-  outline.value = [];
-  progress.value = 0;
-  curChapter.value = -1;
-  if (searchInput.value) searchInput.value.value = "";
-  const d = bidDocs.value[0];
-  if (!d) return;
-  try {
-    const r = await api.content(d.id);
-    docRaw.value = r.text;
-    docTitle.value = r.filename;
-    docMeta.value = `${d.kind === "tender" ? "招标文件" : "投标文件"} · ${Math.max(1, Math.round(d.size / 1024))} KB`;
-    const paras = r.text.split(/\n+/).map((s) => s.trim()).filter(Boolean);
-    const parts: string[] = [];
-    let chN = 0;
-    for (const para of paras) {
-      const m = para.match(/^(第[一二三四五六七八九十百]+章[^，。;；]*)$/);
-      if (m) {
-        parts.push(`<h2 id="ch-${chN}">${m[1]}</h2>`);
-        chN++;
-      } else {
-        parts.push(`<p>${para}</p>`);
-      }
-    }
-    docHtml.value = parts.join("");
-    await nextTick();
-    outline.value = Array.from(docBody.value?.querySelectorAll("h2") ?? []).map((h) => ({
-      id: h.id,
-      label: h.textContent ?? "",
-    }));
-    if (!outline.value.length && docBody.value?.querySelector("h1")) {
-      outline.value = [{ id: "", label: docTitle.value }];
-    }
-    onDocScroll();
-  } catch {
-    docHtml.value = "";
-  }
-}
-
-watch(hasDoc, loadDoc, { immediate: false });
-watch(() => store.activeProjectId, () => {
-  clearSearch();
-  loadDoc();
-});
-
-function gotoChapter(id: string): void {
-  const h = docBody.value?.querySelector(`#${id}`);
-  if (h && docScroll.value) {
-    const top = h.getBoundingClientRect().top - docScroll.value.getBoundingClientRect().top + docScroll.value.scrollTop - 14;
-    docScroll.value.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-  }
-}
-
-function onDocScroll(): void {
-  const ds = docScroll.value;
-  if (!ds) return;
-  const max = ds.scrollHeight - ds.clientHeight;
-  progress.value = max > 0 ? (ds.scrollTop / max) * 100 : 0;
-  const hs = Array.from(docBody.value?.querySelectorAll("h2") ?? []);
-  let c = -1;
-  hs.forEach((h, i) => {
-    if (h.getBoundingClientRect().top - ds.getBoundingClientRect().top < 130) c = i;
-  });
-  curChapter.value = c;
-}
-
-/* 文内搜索 */
-function clearSearch(): void {
-  if (searchInput.value) searchInput.value.value = "";
-  docBody.value?.querySelectorAll("mark.hit").forEach((m) => {
-    const parent = m.parentNode;
-    if (parent) {
-      parent.replaceChild(document.createTextNode(m.textContent ?? ""), m);
-      parent.normalize();
-    }
-  });
-  hits = [];
-  hitIdx = -1;
-  hitInfo.value = hasDoc.value ? "—" : "";
-}
-function doSearch(q: string): void {
-  clearSearch();
-  if (!q || !docBody.value) return;
-  const walker = document.createTreeWalker(docBody.value, NodeFilter.SHOW_TEXT, {
-    acceptNode(n) {
-      if (!n.nodeValue?.trim()) return NodeFilter.FILTER_REJECT;
-      const p = n.parentNode as HTMLElement | null;
-      if (p && p.closest && p.closest("mark.hit")) return NodeFilter.FILTER_REJECT;
-      return NodeFilter.FILTER_ACCEPT;
-    },
-  });
-  const nodes: Text[] = [];
-  while (walker.nextNode()) nodes.push(walker.currentNode as Text);
-  const low = q.toLowerCase();
-  const ql = q.length;
-  nodes.forEach((n) => {
-    const text = n.nodeValue ?? "";
-    let idx = text.toLowerCase().indexOf(low);
-    if (idx < 0) return;
-    const frag = document.createDocumentFragment();
-    let pos = 0;
-    while (idx >= 0) {
-      frag.appendChild(document.createTextNode(text.slice(pos, idx)));
-      const mk = document.createElement("mark");
-      mk.className = "hit";
-      mk.textContent = text.substr(idx, ql);
-      frag.appendChild(mk);
-      pos = idx + ql;
-      idx = text.toLowerCase().indexOf(low, pos);
-    }
-    frag.appendChild(document.createTextNode(text.slice(pos)));
-    n.parentNode?.replaceChild(frag, n);
-  });
-  hits = Array.from(docBody.value?.querySelectorAll("mark.hit") ?? []);
-  if (hits.length) {
-    hitIdx = 0;
-    flashHit();
-  }
-  updateHitInfo();
-}
-function flashHit(): void {
-  const el = hits[hitIdx];
-  el?.scrollIntoView({ block: "center", behavior: "smooth" });
-  updateHitInfo();
-}
-function updateHitInfo(): void {
-  hitInfo.value = hits.length ? `${hitIdx + 1}/${hits.length}` : "无命中";
-}
-let searchTimer = 0;
-function onSearchInput(ev: Event): void {
-  window.clearTimeout(searchTimer);
-  const v = (ev.target as HTMLInputElement).value.trim();
-  searchTimer = window.setTimeout(() => doSearch(v), 180);
-}
-function hitNext(): void {
-  if (hits.length) {
-    hitIdx = (hitIdx + 1) % hits.length;
-    flashHit();
-  }
-}
-function hitPrev(): void {
-  if (hits.length) {
-    hitIdx = (hitIdx - 1 + hits.length) % hits.length;
-    flashHit();
-  }
-}
-function setFs(v: number): void {
-  fs.value = Math.max(13, Math.min(19, v));
-}
-const docNote = computed(() =>
-  hasDoc.value ? `共 ${outline.value.length} 章 · 正文 ${fs.value}px` : "暂无投标文件",
-);
 
 /* ---------------- 检测面板 ---------------- */
 const tab = ref<"scan" | "score" | "cases" | "people">("scan");
@@ -301,12 +234,8 @@ async function toggleDone(r: RiskItemT): Promise<void> {
 }
 
 function locate(r: RiskItemT): void {
-  const kw = (r.quote || r.meta || r.title).slice(0, 10);
-  if (searchInput.value) {
-    doSearch(kw);
-    tab.value = "scan";
-  }
-  toast(r.quote ? "已定位原文引用" : "无原文引用，已按标题搜索");
+  tab.value = "scan";
+  toast(r.quote ? "引用原文：" + r.quote.slice(0, 40) : "未找到原文引用");
 }
 
 function downloadReport(): void {
@@ -352,6 +281,10 @@ const sortedCases = computed(() =>
 );
 
 watch(() => store.activeProjectId, loadPanels);
+watch(cur, (p) => {
+  // 项目切换/首次加载：初始化（或切换）工作稿
+  if (p) void initWorkspace();
+});
 watch(tenderDoc, loadPanels);
 
 function goEditOriginal(): void {
@@ -391,32 +324,8 @@ async function doExport(fmt?: string): Promise<void> {
     toast("已导出 Word（投标文件原件）");
     return;
   }
-  if (f === "PDF") {
-    printDoc();
-  }
 }
 
-function printDoc(): void {
-  if (!docHtml.value) {
-    toast("没有可打印的文档");
-    return;
-  }
-  const w = window.open("", "_blank");
-  if (!w) {
-    toast("浏览器拦截了打印窗口");
-    return;
-  }
-  w.document.write(
-    `<html><head><title></title><style>` +
-      "body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;padding:48px;color:#1d2b3a;line-height:1.9}" +
-      "h1{text-align:center;font-size:20px}h2{font-size:15px;margin:22px 0 8px}" +
-      "p{font-size:14px;text-align:justify}mark{background:#b9d7ff}" +
-      "</style></head><body><h1>" + docTitle.value + "</h1>" + docHtml.value + "</body></html>",
-  );
-  w.document.close();
-  w.focus();
-  w.print();
-}
 
 watch(
   () => store.projects.length,
@@ -429,7 +338,7 @@ watch(
 );
 
 onMounted(async () => {
-  await loadDoc();
+  await initWorkspace();
   await loadPanels();
   await refreshCore();
 });
@@ -480,46 +389,50 @@ onMounted(async () => {
     <div class="workspace">
       <!-- 左：文档预览 -->
       <section class="col col-doc">
-        <div class="doc-toolbar">
-          <div class="search">
-            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></svg>
-            <input ref="searchInput" type="text" placeholder="在文档内搜索…" :disabled="!hasDoc" @input="onSearchInput">
-          </div>
-          <span class="hit-info">{{ hitInfo }}</span>
-          <button class="mini-btn" :disabled="!hits.length" @click="hitPrev">↑</button>
-          <button class="mini-btn" :disabled="!hits.length" @click="hitNext">↓</button>
+        <div class="ws-toolbar">
+          <span class="ws-title">{{ cur ? cur.name : "" }} · 投标工作稿</span>
+          <span class="verbadge" v-if="wsVersion">v{{ wsVersion }}</span>
+          <span class="syncbadge" v-if="wsSync === 'staged'">修改已暂存（Ctrl+S 暂存，关闭后生成正式版本）</span>
+          <span class="syncbadge" v-else-if="wsSync === 'creating'">正在生成正式版本…</span>
+          <span class="syncbadge ok" v-else-if="wsSync === 'saved'">已保存 · v{{ wsVersion }}</span>
+          <span class="syncbadge warn" v-else-if="wsSync === 'syncing'">派生数据同步中…</span>
+          <span class="syncbadge" v-else-if="wsSync === 'failed'">同步失败</span>
           <span class="tool-sep" />
-          <button class="mini-btn" :disabled="!hasDoc" @click="setFs(fs - 1)">A−</button>
-          <button class="mini-btn" :disabled="!hasDoc" @click="setFs(fs + 1)">A+</button>
-          <span class="tool-sep" />
-          <button class="mini-btn" :disabled="!hasDoc" @click="goEditOriginal">在文档库编辑（ONLYOFFICE）</button>
-          <span class="tool-note">{{ docNote }}</span>
+          <button class="mini-btn" :disabled="!wsOid" @click="wsVerOpen = !wsVerOpen; loadWsVersions()">历史版本</button>
+          <button class="mini-btn" :disabled="!wsOid" @click="downloadWsCurrent">下载当前</button>
+          <button class="mini-btn" :disabled="!wsOid" @click="doExport()">导出 Word</button>
         </div>
-        <div ref="docScroll" class="doc-scroll" @scroll="onDocScroll">
-          <div v-if="hasDoc" class="doc-wrap">
-            <aside v-if="outline.length" class="doc-outline">
-              <div class="ol-title">章节大纲</div>
-              <button v-for="(o, i) in outline" :key="o.id" class="ol-item" :class="{ on: i === curChapter }" @click="o.id && gotoChapter(o.id)">{{ o.label }}</button>
-            </aside>
-            <article ref="docBody" class="doc-page" :style="{ fontSize: fs + 'px' }">
-              <h1>{{ docTitle }}</h1>
-              <p class="doc-meta">{{ docMeta }}</p>
-              <!-- eslint-disable-next-line vue/no-v-html -->
-              <div v-html="docHtml" />
-            </article>
-          </div>
-          <div v-else class="doc-empty">
-            <div class="es-icon">
-              <svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6Z" /><path d="M14 3v4h4" /><path d="M9 13h6M9 17h4" /></svg>
+        <div class="ws-stage">
+          <template v-if="cur">
+            <OfficeEditor v-if="wsOid" :office-document-id="wsOid" mode="edit" />
+            <div v-else class="empty-state" style="margin:auto"><b>工作稿初始化中…</b></div>
+          </template>
+          <div v-else class="empty-state" style="margin:auto"><b>请先在顶部选择项目</b></div>
+        </div>
+        <div v-if="wsVerOpen" class="modal-wrap" @click.self="wsVerOpen = false">
+          <div class="modal" role="dialog" aria-modal="true" aria-label="工作稿历史版本">
+            <h3>工作稿历史版本</h3>
+            <div class="verlist">
+              <div v-for="v in wsVerList" :key="v.id" class="verrow" :class="{ cur: v.is_current }">
+                <div class="vl">
+                  <b>v{{ v.version }}</b>
+                  <span class="chip-tag">{{ { init: "初始化", onlyoffice: "编辑保存", restore: "恢复", upload: "上传" }[v.source] || v.source }}</span>
+                  <span class="vm">{{ v.created_at ? v.created_at.slice(0, 19).replace("T", " ") : "" }}{{ v.size ? " · " + Math.round(v.size / 1024) + " KB" : "" }}<template v-if="v.comment"> · “{{ v.comment }}”</template></span>
+                </div>
+                <div class="vr">
+                  <span v-if="v.is_current" class="chip-role r-admin">当前版本</span>
+                  <template v-else>
+                    <button class="mini-btn" @click="restoreWsVersion(v)">恢复</button>
+                  </template>
+                </div>
+              </div>
+              <div v-if="!wsVerList.length" class="empty-state"><b>暂无历史版本</b></div>
             </div>
-            <b>该项目的投标文件还没有上传</b>
-            <p>投标文件在「技术标制作」阶段由文档编写产生；可在文档库上传管理，进度跟踪在项目库。</p>
-            <button class="act pri" style="margin-right:8px" @click="goLib()">前往项目库</button>
-            <button class="act" @click="goDocsUpload()">在文档库上传投标文件</button>
+            <div class="m-foot"><button class="btn-ghost" @click="wsVerOpen = false">关闭</button></div>
           </div>
         </div>
-        <div class="doc-progress"><i :style="{ width: progress + '%' }" /></div>
       </section>
+
 
       <!-- 右：检测面板 -->
       <section class="col col-panel">
