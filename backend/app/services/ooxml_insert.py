@@ -430,3 +430,48 @@ def _validate_package(new_bytes: bytes, *, expect_total: int, expect_grid: int,
     Docx(io.BytesIO(new_bytes))  # python-docx 能打开
     assert sum(1 for _ in body.iter(_W + "gridSpan")) == expect_grid, "gridSpan 不守恒"
     assert sum(1 for _ in body.iter(_W + "vMerge")) == expect_vmerge, "vMerge 不守恒"
+
+
+class AiTextMutator:
+    """C-4b-1：确定性 AI 内容写入——提案 text 逐行转普通段落，追加到 final sectPr 之前。
+
+    AI 内容是新生成文本（无格式继承需求），逐行建 w:p/w:r/w:t（空行→空段），
+    包级重组复用与 C-3b 相同的「原包拷贝 + 仅改 document.xml」路径，不重画既有内容；
+    写入后走同一 PackageValidator（块数守恒）。
+    """
+
+    def mutate_append(self, proposal: Any, workspace_bytes: bytes) -> bytes:
+        import json as _json
+
+        text = _json.loads(proposal.content_json)["text"]
+        lines = text.replace("\r\n", "\n").split("\n")
+
+        ws_zip = zipfile.ZipFile(io.BytesIO(workspace_bytes))
+        root = safe_parse_xml(ws_zip.read("word/document.xml"))
+        body = root.find(_W + "body")
+        children = list(body)
+        if not children or children[-1].tag != _W + "sectPr":
+            raise UnsupportedMaterialStructureError(
+                ["workspace_final_sectpr_missing"], "Workspace 缺少合法 final sectPr，拒绝写入")
+        final_sectpr = children[-1]
+        ws_grid = sum(1 for _ in body.iter(_W + "gridSpan"))
+        ws_vmerge = sum(1 for _ in body.iter(_W + "vMerge"))
+
+        for line in lines:
+            p = etree.SubElement(body, _W + "p")
+            r = etree.SubElement(p, _W + "r")
+            t_el = etree.SubElement(r, _W + "t")
+            t_el.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            t_el.text = line
+            final_sectpr.addprevious(p)  # 移动到 sectPr 之前，保持段落顺序
+
+        new_doc = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zo:
+            for item in ws_zip.infolist():
+                zo.writestr(item, new_doc if item.filename == "word/document.xml"
+                            else ws_zip.read(item.filename))
+        new_bytes: bytes = out.getvalue()
+        _validate_package(new_bytes, expect_total=len(children) + len(lines),
+                          expect_grid=ws_grid, expect_vmerge=ws_vmerge)
+        return new_bytes

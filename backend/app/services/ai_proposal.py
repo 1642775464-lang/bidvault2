@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC
 from typing import Any, Protocol
 
 from ..models import AiProposal, OfficeDocument, OfficeDocumentVersion, _now
@@ -128,6 +129,10 @@ class AiProposalService:
         return self._decide(proposal_id, "rejected")
 
     def expire_proposal(self, proposal_id: str) -> dict[str, Any]:
+        p = self._get(proposal_id)
+        # expire 不是清理已成功建版提案的捷径：已建版必须走恢复认领（保持文档与审计一致）
+        if p.status == "applying" and self._find_applied_version(p) is not None:
+            raise InvalidProposalStateError("提案已成功建版，不可作废（应通过 apply 走恢复认领）")
         return self._decide(proposal_id, "expired")
 
     def _decide(self, proposal_id: str, target: str) -> dict[str, Any]:
@@ -162,7 +167,24 @@ class AiProposalService:
         if p.status == "applied":
             return self._view(p)
         if p.status == "applying":
-            raise ProposalApplyingError("提案正在处理中，请稍后查询结果")
+            # 崩溃恢复（C-4b-1）：版本 comment 携带提案 id——已建版则认领；未建版且超时则转 failed 可重试
+            linked = self._find_applied_version(p)
+            if linked is not None:
+                p.status = "applied"
+                p.applied_version_id = linked.id
+                if p.applied_at is None:
+                    p.applied_at = _now()
+                self.session.commit()
+                self._audit("ai_proposal_applied", p,
+                            f"崩溃恢复认领 v{linked.version} ({linked.id})")
+                return self._view(p)
+            if not self._applying_stale(p):
+                raise ProposalApplyingError("提案正在处理中，请稍后查询结果")
+            p.status = "failed"
+            p.error = "处理超时（疑似中断于建版前），已转为可重试"
+            self.session.commit()
+            self._audit("ai_proposal_failed", p, p.error)
+            # 落入 failed → 下方 claim 路径接管重试
         if p.status not in PROPOSAL_CLAIMABLE_STATES:
             if p.status == "draft":
                 raise InvalidProposalStateError("提案尚未审批，不可应用")
@@ -251,6 +273,30 @@ class AiProposalService:
         """瞬态错误（423 等）时释放抢占，提案回到原状态保持可重试。"""
         p.status = prior_status
         self.session.commit()
+
+    def _find_applied_version(self, p: AiProposal) -> OfficeDocumentVersion | None:
+        """崩溃恢复：按提案 id（版本 comment 中的稳定操作标识）唯一关联已创建的正式版本。"""
+        linked: list[OfficeDocumentVersion] = list(
+            self.session.query(OfficeDocumentVersion)
+            .filter(OfficeDocumentVersion.office_document_id == p.workspace_office_document_id,
+                    OfficeDocumentVersion.source == "ai_insert",
+                    OfficeDocumentVersion.comment.like(f"%{p.id}%"))
+            .all()
+        )
+        assert len(linked) <= 1, f"提案 {p.id} 关联到多个版本（恢复约束被破坏）"
+        found: OfficeDocumentVersion | None = linked[0] if linked else None
+        return found
+
+    def _applying_stale(self, p: AiProposal) -> bool:
+        """applying 是否已超时（超过 mutator 处理预算 → 判定中断于建版前，转可重试）。"""
+        from datetime import datetime
+
+        if p.decided_at is None:
+            return True
+        decided = p.decided_at
+        if decided.tzinfo is None:
+            decided = decided.replace(tzinfo=UTC)
+        return (datetime.now(UTC) - decided).total_seconds() > 180
 
     # ---------------- 内部 ----------------
 

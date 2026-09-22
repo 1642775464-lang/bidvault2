@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,9 +19,12 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+if TYPE_CHECKING:
+    from ..services.ai_proposal import AiProposalService
+
 from ..config import get_settings
 from ..db import get_session
-from ..models import Document, OfficeDocument, OfficeDocumentVersion
+from ..models import AiProposal, Document, OfficeDocument, OfficeDocumentVersion
 from ..services import onlyoffice_svc
 from ..services.audit import audit
 from ..services.office_document_svc import OfficeDocumentService
@@ -390,6 +393,137 @@ def office_material_insert(oid: str, body: MaterialInsertIn, session: Session = 
     )
     try:
         return svc.insert_material(req)
+    except UnsupportedMaterialStructureError as e:
+        raise HTTPException(e.http_status, {"code": e.code, "features": e.features}) from e
+    except UnsafeXmlError as e:
+        raise HTTPException(422, {"code": "UNSAFE_XML", "features": [str(e)]}) from e
+    except WorkspaceMutationError as e:
+        raise HTTPException(e.http_status, e.code) from e
+
+
+# ---------------- C-4b-1：AI 提案（确定性写入；真实云 AI 属 C-4b-2） ----------------
+
+
+class AiProposalIn(BaseModel):
+    base_workspace_version_id: str
+    title: str = ""
+    text: str
+    operation: str = "append_end"
+    model: str | None = None
+    context: Any = None
+
+
+def _ai_service(session: Session) -> AiProposalService:
+    from ..services.ai_proposal import AiProposalService
+    from ..services.ooxml_insert import AiTextMutator
+
+    def _probe(doc_id: str) -> bool:
+        state = _office_cb_log.get(doc_id, "")
+        return any(k in state for k in _ACTIVE_EDIT_STATES)
+
+    return AiProposalService(
+        session=session,
+        active_edit_probe=_probe,
+        mutator=AiTextMutator(),
+        dispatch_fn=lambda od_id, version_id: _dispatch_async(od_id, version_id),
+    )
+
+
+@office_router.post("/{oid}/ai-proposals")
+def create_ai_proposal(oid: str, body: AiProposalIn,
+                       session: Session = Depends(get_session)) -> dict[str, Any]:
+    """创建 AI 修改提案（draft）。提案内容未经确认不进入任何正文落点。"""
+    from ..services.ai_proposal import AiProposalRequest
+    from ..services.workspace_mutation import WorkspaceMutationError
+
+    if session.get(OfficeDocument, oid) is None:
+        raise HTTPException(404, "OfficeDocument 不存在")
+    svc = _ai_service(session)
+    try:
+        return svc.create_proposal(AiProposalRequest(
+            workspace_office_document_id=oid,
+            base_workspace_version_id=body.base_workspace_version_id,
+            title=body.title,
+            text=body.text,
+            operation=body.operation,
+            model=body.model,
+            context=body.context,
+        ))
+    except WorkspaceMutationError as e:
+        raise HTTPException(e.http_status, e.code) from e
+
+
+@office_router.get("/{oid}/ai-proposals")
+def list_ai_proposals(oid: str, limit: int = 50,
+                      session: Session = Depends(get_session)) -> dict[str, Any]:
+    rows = (
+        session.query(AiProposal)
+        .filter(AiProposal.workspace_office_document_id == oid)
+        .order_by(AiProposal.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return {"items": [
+        {"id": p.id, "title": p.title, "operation": p.operation, "status": p.status,
+         "base_workspace_version_id": p.base_workspace_version_id,
+         "applied_version_id": p.applied_version_id, "model": p.model,
+         "error": p.error, "created_at": p.created_at}
+        for p in rows
+    ]}
+
+
+ai_router = APIRouter(prefix="/api/ai-proposals", tags=["AI 提案"])
+
+
+def _proposal_service(session: Session) -> AiProposalService:
+    return _ai_service(session)
+
+
+@ai_router.post("/{pid}/approve")
+def ai_proposal_approve(pid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    from ..services.workspace_mutation import WorkspaceMutationError
+
+    svc = _proposal_service(session)
+    try:
+        return svc.approve_proposal(pid)
+    except WorkspaceMutationError as e:
+        raise HTTPException(e.http_status, e.code) from e
+
+
+@ai_router.post("/{pid}/reject")
+def ai_proposal_reject(pid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    from ..services.workspace_mutation import WorkspaceMutationError
+
+    svc = _proposal_service(session)
+    try:
+        return svc.reject_proposal(pid)
+    except WorkspaceMutationError as e:
+        raise HTTPException(e.http_status, e.code) from e
+
+
+@ai_router.post("/{pid}/expire")
+def ai_proposal_expire(pid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    from ..services.workspace_mutation import WorkspaceMutationError
+
+    svc = _proposal_service(session)
+    try:
+        return svc.expire_proposal(pid)
+    except WorkspaceMutationError as e:
+        raise HTTPException(e.http_status, e.code) from e
+
+
+@ai_router.post("/{pid}/apply")
+def ai_proposal_apply(pid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """应用提案：OOXML 写入 → 新 Workspace 正式版本（source=ai_insert）→ 派生异步分发。"""
+    from ..services.workspace_mutation import (
+        UnsupportedMaterialStructureError,
+        WorkspaceMutationError,
+    )
+    from ..services.xml_safety import UnsafeXmlError
+
+    svc = _proposal_service(session)
+    try:
+        return svc.apply_proposal(pid)
     except UnsupportedMaterialStructureError as e:
         raise HTTPException(e.http_status, {"code": e.code, "features": e.features}) from e
     except UnsafeXmlError as e:

@@ -106,6 +106,7 @@ app.include_router(preview.router)
 app.include_router(detect.router)
 app.include_router(onlyoffice.router)
 app.include_router(onlyoffice.office_router)
+app.include_router(onlyoffice.ai_router)
 onlyoffice.register_document_routes(documents.router)
 
 
