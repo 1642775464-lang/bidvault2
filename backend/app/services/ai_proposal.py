@@ -26,7 +26,12 @@ from .workspace_mutation import (
 )
 
 ALLOWED_AI_OPERATIONS = ("append_end",)
-PROPOSAL_ACTIVE_STATES = ("draft", "approved")
+PROPOSAL_CLAIMABLE_STATES = ("draft", "approved", "failed")  # failed 可重试（明确重试策略）
+
+
+class ProposalApplyingError(WorkspaceMutationError):
+    code = "PROPOSAL_APPLYING"
+    http_status = 409
 
 
 class InvalidProposalOperationError(WorkspaceMutationError):
@@ -137,14 +142,55 @@ class AiProposalService:
     # ---------------- 应用（真实版本变更；mutator 为 C-4b 注入位） ----------------
 
     def apply_proposal(self, proposal_id: str) -> dict[str, Any]:
+        """应用提案。幂等/并发语义（C-4a 补正）：
+
+        - applied   → 幂等返回既有 applied_version_id（响应丢失后的安全重试）
+        - applying  → 409 PROPOSAL_APPLYING（另一请求已抢占，不启动第二次 mutator）
+        - draft/approved/failed → 数据库条件更新抢占（claim）后执行
+        - rejected/expired → 409 PROPOSAL_INVALID_STATE
+        - failed 可重试：claim 的 CAS 条件包含 failed（重试策略=用户再次发起 apply）
+
+        事务一致性：claim 先行提交（持久），此后任何时刻崩溃提案都停在 applying，
+        绝不出现「正式版本已创建而提案仍在 approved」的重复应用窗口；
+        版本 comment 携带提案 id，供后续自动认领恢复（当前 expire 为兜底出口）。
+        """
         p = self._get(proposal_id)
-        if p.status not in PROPOSAL_ACTIVE_STATES:
+
+        # 幂等：applied → 返回既有结果
+        if p.status == "applied":
+            return self._view(p)
+        if p.status == "applying":
+            raise ProposalApplyingError("提案正在处理中，请稍后查询结果")
+        if p.status not in PROPOSAL_CLAIMABLE_STATES:
             raise InvalidProposalStateError(f"提案状态为 {p.status}，不可应用")
+
+        prior_status = p.status
+        claimed = (
+            self.session.query(AiProposal)
+            .filter(AiProposal.id == p.id,
+                    AiProposal.status.in_(PROPOSAL_CLAIMABLE_STATES))
+            .update({"status": "applying", "decided_at": _now()},
+                    synchronize_session=False)
+        )
+        self.session.commit()
+        if claimed != 1:
+            # 并发下抢占失败：重读并以最新状态回应
+            latest = self._get(proposal_id)
+            if latest.status == "applied":
+                return self._view(latest)
+            if latest.status == "applying":
+                raise ProposalApplyingError("提案正在处理中，请稍后查询结果")
+            raise InvalidProposalStateError(f"提案状态为 {latest.status}，不可应用")
+        p.status = "applying"
+
         od = self.session.get(OfficeDocument, p.workspace_office_document_id)
         if od is None or od.document_type != "workspace":
+            self._release(p, prior_status)
             raise RelatedEntityNotFoundError("workspace OfficeDocument 不存在或类型不符")
 
+        # 活跃编辑是瞬态条件：423 时释放抢占，提案回到原状态（可重试）
         if self._active_edit_probe(od.id):
+            self._release(p, prior_status)
             raise WorkspaceEditingError("工作稿处于活跃编辑状态，请先结束编辑")
 
         current = od.current_version_id
@@ -157,6 +203,7 @@ class AiProposalService:
             raise WorkspaceVersionConflictError(p.error)
 
         if self._mutator is None:
+            self._release(p, prior_status)
             raise MutationEngineNotImplementedError("AI 内容 mutator 未实现（C-4b）")
 
         ws_bytes = self._read_version_bytes(current)
@@ -164,7 +211,7 @@ class AiProposalService:
             new_bytes = self._mutator.mutate_append(p, ws_bytes)
         except WorkspaceMutationError:
             raise
-        except Exception as e:  # mutator 内部失败 → 提案 failed，零副作用
+        except Exception as e:  # mutator 内部失败 → 提案 failed（可重试），零副作用
             p.status = "failed"
             p.error = str(e)[:500]
             self.session.commit()
@@ -174,7 +221,10 @@ class AiProposalService:
         from .office_document_svc import OfficeDocumentService, OfficeDocumentTableAdapter
 
         svc = OfficeDocumentService(session=self.session, adapter=OfficeDocumentTableAdapter(self.session))
-        version = svc.create_version(od, new_bytes, source="ai_insert", comment=f"AI 提案：{p.title[:80]}")
+        version = svc.create_version(
+            od, new_bytes, source="ai_insert",
+            # comment 携带提案 id：崩溃恢复时可由 applying 提案认领（防重复应用）
+            comment=f"AI 提案 {p.id}：{p.title[:60]}")
         if version.id == p.base_workspace_version_id:
             p.status = "failed"
             p.error = "mutator 输出与 base 相同（无内容变化）"
@@ -192,6 +242,11 @@ class AiProposalService:
         if self._dispatch_fn is not None:
             self._dispatch_fn(od.id, version.id)
         return self._view(p)
+
+    def _release(self, p: AiProposal, prior_status: str) -> None:
+        """瞬态错误（423 等）时释放抢占，提案回到原状态保持可重试。"""
+        p.status = prior_status
+        self.session.commit()
 
     # ---------------- 内部 ----------------
 

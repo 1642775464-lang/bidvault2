@@ -122,8 +122,10 @@ class _AiAppendStub:
 
     def __init__(self, fail: bool = False):
         self.fail = fail
+        self.calls = 0
 
     def mutate_append(self, proposal, workspace_bytes: bytes) -> bytes:
+        self.calls += 1
         if self.fail:
             raise RuntimeError("AI 写入失败（替身注入）")
         d = Docx(io.BytesIO(workspace_bytes))
@@ -254,21 +256,74 @@ def test_approve_apply_full_chain(client):
     assert applied_log and v2.id in applied_log[0].detail
 
 
-# ---------------- 3：重复 apply 不产生第二个版本 ----------------
+# ---------------- 3：applied 重复 apply 幂等返回既有结果 ----------------
 
 
-def test_double_apply_rejected(client):
+def test_apply_idempotent_after_applied(client):
     ws_oid, _doc_id = _setup_workspace(client)
     base_vid = _current_vid(ws_oid)
     svc = _service(client)
     p = svc.create_proposal(_req(ws_oid, base_vid))
     svc.approve_proposal(p["id"])
-    svc.apply_proposal(p["id"])
+    first = svc.apply_proposal(p["id"])
+
+    # 响应丢失后的安全重试：applied → 幂等返回既有结果（非报错）
+    second = svc.apply_proposal(p["id"])
+    assert second["status"] == "applied"
+    assert second["applied_version_id"] == first["applied_version_id"]
+    assert _ver_count(ws_oid) == 2, "重复 apply 产生了第二个版本"
+
+
+# ---------------- 3b：applying 抢占（DB 条件更新），未抢到不得执行 mutator ----------------
+
+
+def test_applying_blocks_concurrent_apply(client):
+    ws_oid, _doc_id = _setup_workspace(client)
+    base_vid = _current_vid(ws_oid)
+    stub = _AiAppendStub()
+    svc = _service(client, mutator=stub)
+    p = svc.create_proposal(_req(ws_oid, base_vid))
+    svc.approve_proposal(p["id"])
+
+    # 模拟并发：另一请求已把提案抢到 applying
+    s = _db_session()
+    try:
+        s.get(AiProposal, p["id"]).status = "applying"
+        s.commit()
+    finally:
+        s.close()
 
     with pytest.raises(Exception) as ei:
         svc.apply_proposal(p["id"])
-    assert ei.value.code == "PROPOSAL_INVALID_STATE"
-    assert _ver_count(ws_oid) == 2, "重复 apply 产生了第二个版本"
+    assert ei.value.code == "PROPOSAL_APPLYING"
+    assert stub.calls == 0, "抢占失败方执行了 mutator"
+    assert _ver_count(ws_oid) == 1
+
+
+# ---------------- 3c：failed 可重试（明确重试策略） ----------------
+
+
+def test_failed_retry_policy(client):
+    ws_oid, _doc_id = _setup_workspace(client)
+    base_vid = _current_vid(ws_oid)
+    bad = _AiAppendStub(fail=True)
+    good = _AiAppendStub()
+    svc = _service(client, mutator=bad)
+    p = svc.create_proposal(_req(ws_oid, base_vid))
+    svc.approve_proposal(p["id"])
+
+    from app.services.ai_proposal import WorkspaceMutationError
+
+    with pytest.raises(WorkspaceMutationError) as ei:
+        svc.apply_proposal(p["id"])
+    assert "AI 写入失败" in str(ei.value)
+    assert _db_session().get(AiProposal, p["id"]).status == "failed"
+
+    # 重试策略：failed 可再次 apply（换好引擎后成功）
+    svc2 = _service(client, mutator=good)
+    applied = svc2.apply_proposal(p["id"])
+    assert applied["status"] == "applied" and applied["applied_version_id"]
+    assert _ver_count(ws_oid) == 2
 
 
 # ---------------- 4：rejected 不可应用 ----------------

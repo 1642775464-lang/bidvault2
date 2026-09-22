@@ -261,7 +261,8 @@ class AiProposal(Base):
 
     未经确认的 AI 内容只落本表——禁止进 derived_text/content_text/版本表；
     apply 成功后才经 create_version(source="ai_insert") 进入正式版本链。
-    状态机：draft → approved → applied | failed；draft → rejected | expired。
+    状态机（C-4a 补正）：draft/approved/failed 可 claim（DB 条件更新→applying，抢占失败不执行 mutator）；
+    applying→applied|failed；applied 重复 apply 幂等返回既有结果；draft→rejected|expired。
     """
 
     __tablename__ = "ai_proposals"
