@@ -170,7 +170,7 @@ class OfficeDocument(Base):
 class OfficeDocumentVersion(Base):
     """通用 Office 版本表：UNIQUE(office_document_id, version)。
 
-    source: upload | onlyoffice | init | restore
+    source: upload | onlyoffice | init | restore | extract | material_insert
     status=6 工作快照不落本表（阶段三语义延续）。
     """
 
@@ -233,6 +233,27 @@ class WorkspaceDocument(Base):
     derived_text: Mapped[str | None] = mapped_column(Text, default=None)
     derived_from_version_id: Mapped[str | None] = mapped_column(String(32), default=None)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class WorkspaceMutation(Base):
+    """C-3a：Material → Workspace 插入审计（回答"这段内容从哪个素材来"）。
+
+    不是版本表——新版本仍存 office_document_versions（source=material_insert），
+    本表只记录 mutation 双方精确版本与插入语义。
+    """
+
+    __tablename__ = "workspace_mutations"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    workspace_office_document_id: Mapped[str] = mapped_column(String(32), index=True)
+    workspace_base_version_id: Mapped[str] = mapped_column(String(32))
+    workspace_new_version_id: Mapped[str] = mapped_column(String(32))
+    material_id: Mapped[str] = mapped_column(String(32), index=True)
+    material_office_document_id: Mapped[str] = mapped_column(String(32))
+    material_version_id: Mapped[str] = mapped_column(String(32))
+    insert_mode: Mapped[str] = mapped_column(String(20), default="append_end")
+    target_locator_json: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 class Material(Base):

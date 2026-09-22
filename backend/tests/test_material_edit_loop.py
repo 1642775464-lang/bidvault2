@@ -13,6 +13,7 @@ import hashlib
 import io
 import os
 import time
+from pathlib import Path
 
 import pytest
 from docx import Document as Docx
@@ -80,8 +81,7 @@ def _patch_download(monkeypatch, content: bytes) -> None:
     import app.services.onlyoffice_svc as svc
 
     def fake_download(url: str, dest_path) -> None:  # noqa: ARG001
-        with open(dest_path, "wb") as f:
-            f.write(content)
+        Path(dest_path).write_bytes(content)
 
     monkeypatch.setattr(svc, "download_to", fake_download)
     monkeypatch.setattr(oo.onlyoffice_svc, "download_to", fake_download)

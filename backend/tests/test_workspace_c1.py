@@ -13,6 +13,7 @@ import hashlib
 import io
 import os
 import time
+from pathlib import Path
 
 import pytest
 from docx import Document as Docx
@@ -157,8 +158,7 @@ def test_workspace_callback_and_derived_text(client, monkeypatch):
 
     def fake(url: str, dest) -> None:  # noqa: ARG001
         called["n"] += 1
-        with open(dest, "wb") as f:
-            f.write(content)
+        Path(dest).write_bytes(content)
 
     monkeypatch.setattr(svc, "download_to", fake)
     monkeypatch.setattr(oo.onlyoffice_svc, "download_to", fake)
@@ -239,8 +239,7 @@ def test_workspace_restore_and_others_untouched(client, monkeypatch):
 
     def fake(url: str, dest) -> None:  # noqa: ARG001
         called["n"] += 1
-        with open(dest, "wb") as f:
-            f.write(v2_content)
+        Path(dest).write_bytes(v2_content)
 
     monkeypatch.setattr(svc, "download_to", fake)
     monkeypatch.setattr(oo.onlyoffice_svc, "download_to", fake)

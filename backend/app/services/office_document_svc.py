@@ -23,6 +23,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 from ..config import get_settings
@@ -113,15 +114,15 @@ class OfficeDocumentTableAdapter:
             od.current_version_id = version_id
 
     def write_file(self, file_path: str, data: bytes) -> None:
-        p = get_settings().files_dir / file_path
+        p = _safe_under_files_dir(file_path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = f"{p}.tmp"
-        with open(tmp, "wb") as f:
-            f.write(data)
+        tmp = Path(f"{p}.tmp")
+        tmp.write_bytes(data)
         os.replace(tmp, p)
 
     def read_file(self, file_path: str) -> bytes:
-        return (get_settings().files_dir / file_path).read_bytes()
+        data: bytes = _safe_under_files_dir(file_path).read_bytes()
+        return data
 
     def commit(self) -> None:
         self._session.commit()
@@ -168,6 +169,17 @@ class InMemoryProcessorRunRegistry:
 
     def mark_failed(self, version_id: str, processor_type: str, error: str) -> None:  # noqa: ARG002
         return None
+
+
+def _safe_under_files_dir(rel: str) -> Any:
+    """files_dir 内的受控路径解析：resolve 后拒绝逃逸（防 DB file_path 被篡改穿越）。"""
+    from ..config import get_settings
+
+    base = get_settings().files_dir.resolve()
+    p = (base / rel).resolve()
+    if not p.is_relative_to(base):
+        raise ValueError(f"非法文件路径：{rel}")
+    return p
 
 
 class ProcessorRunTableAdapter:
@@ -345,11 +357,10 @@ class OfficeDocumentService:
 
     def create_working_snapshot(self, od: Any, data: bytes) -> None:
         """status=6 工作快照：不落版本表、不换 current_version_id。"""
-        p = get_settings().files_dir / "working" / f"{od.id}.docx"
+        p = _safe_under_files_dir(f"working/{od.id}.docx")
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = f"{p}.tmp"
-        with open(tmp, "wb") as f:
-            f.write(data)
+        tmp = Path(f"{p}.tmp")
+        tmp.write_bytes(data)
         os.replace(tmp, p)
 
     def restore_version(self, od: Any, target: Any, *, editor_user: str | None,

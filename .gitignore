@@ -11,3 +11,4 @@ dist/
 *.log
 回归证据/
 拆解链路代码.md
+.mimosa/

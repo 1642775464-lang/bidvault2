@@ -349,6 +349,47 @@ def _dispatch_async(od_id: str, version_id: str) -> None:
     threading.Thread(target=_run, daemon=True).start()
 
 
+@office_router.post("/{oid}/material-insert")
+def office_material_insert(oid: str, body: MaterialInsertIn, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """C-3a：Material → Workspace 插入契约。
+
+    插入=创建新 Workspace 正式版本（source=material_insert），非编辑器操作。
+    本阶段 OOXML 引擎未注入：校验通过后返回 501 MUTATION_ENGINE_NOT_IMPLEMENTED（零副作用）。
+    """
+    from ..services.workspace_mutation import (
+        MaterialInsertRequest,
+        WorkspaceMutationError,
+        WorkspaceMutationService,
+    )
+
+    od = session.get(OfficeDocument, oid)
+    if od is None:
+        raise HTTPException(404, "OfficeDocument 不存在")
+
+    def _probe(doc_id: str) -> bool:
+        state = _office_cb_log.get(doc_id, "")
+        return any(k in state for k in _ACTIVE_EDIT_STATES)
+
+    svc = WorkspaceMutationService(
+        session=session,
+        active_edit_probe=_probe,
+        dispatch_fn=lambda od_id, version_id: _dispatch_async(od_id, version_id),
+    )
+    req = MaterialInsertRequest(
+        workspace_office_document_id=oid,
+        base_workspace_version_id=body.base_workspace_version_id,
+        material_id=body.material_id,
+        material_office_document_id=body.material_office_document_id,
+        material_version_id=body.material_version_id,
+        insert_mode=body.insert_mode,
+        target_locator=body.target_locator,
+    )
+    try:
+        return svc.insert_material(req)
+    except WorkspaceMutationError as e:
+        raise HTTPException(e.http_status, e.code) from e
+
+
 @office_router.post("/{oid}/retry-processor")
 def office_retry_processor(oid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
     """派生数据处理失败后重试（当前版本）。
@@ -497,6 +538,21 @@ def office_version_file(oid: str, vid: str, session: Session = Depends(get_sessi
 class OfficeRestoreIn(BaseModel):
     comment: str | None = None
     editor_user: str | None = None
+
+
+class MaterialInsertIn(BaseModel):
+    """C-3a：Material → Workspace 插入请求（版本精确固定；契约见 阶段六C3a-插入契约设计.md）。"""
+
+    base_workspace_version_id: str
+    material_id: str
+    material_office_document_id: str
+    material_version_id: str
+    insert_mode: str = "append_end"
+    target_locator: Any = None
+
+
+# DS 会话态 → 活跃编辑（内存信号；持久信号=工作快照脏判定，在服务内）
+_ACTIVE_EDIT_STATES = ("编辑中", "正在处理保存", "工作快照", "强制保存失败")
 
 
 @office_router.post("/{oid}/versions/{vid}/restore")

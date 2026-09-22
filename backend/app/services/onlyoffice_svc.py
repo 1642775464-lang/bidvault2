@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
+from pathlib import Path
 from typing import Any
 
 import jwt
@@ -123,10 +124,13 @@ def download_to(url: str, dest_path: Any) -> None:
     """流式下载 DS 回调给出的文件（支持大文档，原子写：tmp + replace）。"""
     import httpx
 
-    tmp = f"{dest_path}.tmp"
+    dest = Path(dest_path)
+    if not dest.resolve().is_relative_to(get_settings().files_dir.resolve()):
+        raise ValueError(f"下载目标越界：{dest_path}")
+    tmp = Path(f"{dest_path}.tmp")
     with httpx.stream("GET", url, timeout=300, follow_redirects=True) as r:
         r.raise_for_status()
-        with open(tmp, "wb") as f:
+        with tmp.open("wb") as f:
             for chunk in r.iter_bytes(1024 * 1024):
                 f.write(chunk)
     import os

@@ -10,6 +10,7 @@ import hashlib
 import io
 import os
 import time
+from pathlib import Path
 
 import pytest
 from docx import Document as Docx
@@ -100,8 +101,7 @@ def _setup(client, monkeypatch) -> tuple[str, str]:
     content = _docx_bytes(BASE + "\n只应出现在 v2 的句子。")
 
     def fake(url: str, dest) -> None:  # noqa: ARG001
-        with open(dest, "wb") as f:
-            f.write(content)
+        Path(dest).write_bytes(content)
 
     monkeypatch.setattr(svc, "download_to", fake)
     monkeypatch.setattr(oo.onlyoffice_svc, "download_to", fake)
