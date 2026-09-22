@@ -26,7 +26,8 @@ from .workspace_mutation import (
 )
 
 ALLOWED_AI_OPERATIONS = ("append_end",)
-PROPOSAL_CLAIMABLE_STATES = ("draft", "approved", "failed")  # failed 可重试（明确重试策略）
+# 人工审批边界在 DB 层强制：draft 不在抢占条件中，未经 approve 的提案任何路径都不能 claim
+PROPOSAL_CLAIMABLE_STATES = ("approved", "failed")  # failed 可重试（明确重试策略）
 
 
 class ProposalApplyingError(WorkspaceMutationError):
@@ -146,7 +147,8 @@ class AiProposalService:
 
         - applied   → 幂等返回既有 applied_version_id（响应丢失后的安全重试）
         - applying  → 409 PROPOSAL_APPLYING（另一请求已抢占，不启动第二次 mutator）
-        - draft/approved/failed → 数据库条件更新抢占（claim）后执行
+        - draft → 409 拒绝（尚未审批，DB 层强制人工确认边界）
+  - approved/failed → 数据库条件更新抢占（claim）后执行
         - rejected/expired → 409 PROPOSAL_INVALID_STATE
         - failed 可重试：claim 的 CAS 条件包含 failed（重试策略=用户再次发起 apply）
 
@@ -162,6 +164,8 @@ class AiProposalService:
         if p.status == "applying":
             raise ProposalApplyingError("提案正在处理中，请稍后查询结果")
         if p.status not in PROPOSAL_CLAIMABLE_STATES:
+            if p.status == "draft":
+                raise InvalidProposalStateError("提案尚未审批，不可应用")
             raise InvalidProposalStateError(f"提案状态为 {p.status}，不可应用")
 
         prior_status = p.status

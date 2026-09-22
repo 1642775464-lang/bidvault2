@@ -274,6 +274,40 @@ def test_apply_idempotent_after_applied(client):
     assert _ver_count(ws_oid) == 2, "重复 apply 产生了第二个版本"
 
 
+# ---------------- 3a：draft 不可抢占（人工审批边界在 DB 层强制） ----------------
+
+
+def test_draft_cannot_be_claimed(client):
+    """项目负责人验收修正：draft 不在抢占条件中——即使绕过服务层前置检查，
+    持久抢占层对 draft 的 claim rowcount 必须为 0（未经审批的 AI 内容不得写入）。"""
+    ws_oid, _doc_id = _setup_workspace(client)
+    base_vid = _current_vid(ws_oid)
+    stub = _AiAppendStub()
+    svc = _service(client, mutator=stub)
+    p = svc.create_proposal(_req(ws_oid, base_vid))  # draft，未 approve
+
+    # 直接执行抢占层同款条件更新（模拟服务层前置检查被遗漏）
+    s = _db_session()
+    try:
+        rowcount = (s.query(AiProposal)
+                    .filter(AiProposal.id == p["id"],
+                            AiProposal.status.in_(("approved", "failed")))
+                    .update({"status": "applying"}, synchronize_session=False))
+        status = s.get(AiProposal, p["id"]).status
+    finally:
+        s.close()
+    assert rowcount == 0, "draft 被 claim（审批边界失守）"
+    assert status == "draft"
+
+    # 服务层 apply(draft) → 拒绝且 mutator 未执行
+    with pytest.raises(Exception) as ei:
+        svc.apply_proposal(p["id"])
+    assert ei.value.code == "PROPOSAL_INVALID_STATE"
+    assert "尚未审批" in str(ei.value)
+    assert stub.calls == 0
+    assert _ver_count(ws_oid) == 1
+
+
 # ---------------- 3b：applying 抢占（DB 条件更新），未抢到不得执行 mutator ----------------
 
 
