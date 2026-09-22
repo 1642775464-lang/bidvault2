@@ -351,16 +351,19 @@ def _dispatch_async(od_id: str, version_id: str) -> None:
 
 @office_router.post("/{oid}/material-insert")
 def office_material_insert(oid: str, body: MaterialInsertIn, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """C-3a：Material → Workspace 插入契约。
+    """C-3b：Material → Workspace 插入（OOXML 包级 mutation）。
 
     插入=创建新 Workspace 正式版本（source=material_insert），非编辑器操作。
-    本阶段 OOXML 引擎未注入：校验通过后返回 501 MUTATION_ENGINE_NOT_IMPLEMENTED（零副作用）。
+    结构不支持 → 422 UNSUPPORTED_MATERIAL_STRUCTURE（features 列表）；并发 → 409；活跃编辑 → 423。
     """
+    from ..services.ooxml_insert import OOXMLInsertEngine
     from ..services.workspace_mutation import (
         MaterialInsertRequest,
+        UnsupportedMaterialStructureError,
         WorkspaceMutationError,
         WorkspaceMutationService,
     )
+    from ..services.xml_safety import UnsafeXmlError
 
     od = session.get(OfficeDocument, oid)
     if od is None:
@@ -373,6 +376,7 @@ def office_material_insert(oid: str, body: MaterialInsertIn, session: Session = 
     svc = WorkspaceMutationService(
         session=session,
         active_edit_probe=_probe,
+        engine=OOXMLInsertEngine(),
         dispatch_fn=lambda od_id, version_id: _dispatch_async(od_id, version_id),
     )
     req = MaterialInsertRequest(
@@ -386,6 +390,10 @@ def office_material_insert(oid: str, body: MaterialInsertIn, session: Session = 
     )
     try:
         return svc.insert_material(req)
+    except UnsupportedMaterialStructureError as e:
+        raise HTTPException(e.http_status, {"code": e.code, "features": e.features}) from e
+    except UnsafeXmlError as e:
+        raise HTTPException(422, {"code": "UNSAFE_XML", "features": [str(e)]}) from e
     except WorkspaceMutationError as e:
         raise HTTPException(e.http_status, e.code) from e
 

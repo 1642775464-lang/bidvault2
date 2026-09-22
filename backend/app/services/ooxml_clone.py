@@ -18,6 +18,8 @@ from typing import Any
 
 from lxml import etree
 
+from .xml_safety import safe_parse_xml
+
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
@@ -37,7 +39,7 @@ def clone_material(docx_bytes: bytes, child_range: tuple[int, int],
     """
     zin = zipfile.ZipFile(io.BytesIO(docx_bytes))
     doc_xml = zin.read("word/document.xml")
-    root = etree.fromstring(doc_xml)
+    root = safe_parse_xml(doc_xml)
     body = root.find(_W + "body")
     children = list(body)
     lo, hi = child_range
@@ -70,7 +72,7 @@ def clone_material(docx_bytes: bytes, child_range: tuple[int, int],
     if chosen is None and inner_sectprs:
         chosen = inner_sectprs[-1]
     if chosen is None:
-        chosen = etree.fromstring(
+        chosen = safe_parse_xml(
             f'<w:sectPr xmlns:w="{_W}"><w:pgSz w:w="11906" w:h="16838"/>'
             f'<w:pgMar w:top="1440" w:right="1800" w:bottom="1440" w:left="1800"/></w:sectPr>'
         )
@@ -110,7 +112,7 @@ def clone_material(docx_bytes: bytes, child_range: tuple[int, int],
 def table_structure_summary(docx_bytes: bytes, tbl_index: int = 0) -> dict[str, Any]:
     """clone 产物结构断言辅助：第 tbl_index 张表的行/格/合并描述。"""
     z = zipfile.ZipFile(io.BytesIO(docx_bytes))
-    root = etree.fromstring(z.read("word/document.xml"))
+    root = safe_parse_xml(z.read("word/document.xml"))
     body = root.find(_W + "body")
     tbls = body.findall(_W + "tbl")
     if tbl_index >= len(tbls):

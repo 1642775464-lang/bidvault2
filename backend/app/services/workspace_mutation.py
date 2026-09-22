@@ -5,7 +5,7 @@
   与 ONLYOFFICE callback 链完全无关（禁伪造 status=2）。
 - 乐观并发：base_workspace_version_id 必须 == workspace.current_version_id，否则 409。
 - 活跃编辑保护：DS 会话态（注入探测）或工作快照脏（存在且 hash ≠ current）→ 拒绝。
-- 本阶段生产路径 engine=None：校验通过后显式 501，零副作用；真实 OOXML mutation 属 C-3b。
+- engine=None（引擎未注入）时校验通过后显式 501，零副作用。
 """
 
 from __future__ import annotations
@@ -66,6 +66,17 @@ class MutationNoChangeError(WorkspaceMutationError):
 class MutationEngineNotImplementedError(WorkspaceMutationError):
     code = "MUTATION_ENGINE_NOT_IMPLEMENTED"
     http_status = 501
+
+
+class UnsupportedMaterialStructureError(WorkspaceMutationError):
+    """C-3b：素材包含引擎不支持的结构（显式拒绝，不静默降级）。detail 携带 features 列表。"""
+
+    code = "UNSUPPORTED_MATERIAL_STRUCTURE"
+    http_status = 422
+
+    def __init__(self, features: list[str], message: str = "") -> None:
+        self.features = list(dict.fromkeys(features))
+        super().__init__(message or f"素材包含不支持的结构：{', '.join(self.features)}")
 
 
 class MutationEngine(Protocol):
@@ -167,17 +178,25 @@ class WorkspaceMutationService:
     def _has_active_edit(self, ws_od: Any) -> bool:
         if self._active_edit_probe(ws_od.id):
             return True
-        current = (
-            self.session.get(OfficeDocumentVersion, ws_od.current_version_id)
-            if ws_od.current_version_id
-            else None
-        )
         from ..config import get_settings
 
-        # 脏快照 = status=6 暂存的修改从未落成正式版本
+        # 脏快照 = 快照内容不属于该 workspace 的任何已持久化版本
+        # （只比对 current 会误报：DS status=6 载荷与 status=2 落版文件逐字节不同，
+        #   且 restore 后快照可能只是被超越的历史内容——那些都不是"未落版本的修改"）
         snap = get_settings().files_dir / "working" / f"{ws_od.id}.docx"
-        return (snap.is_file() and current is not None
-                and hashlib.sha256(snap.read_bytes()).hexdigest() != current.file_hash)
+        if not snap.is_file():
+            return False
+        snap_hash = hashlib.sha256(snap.read_bytes()).hexdigest()
+        versions = (
+            self.session.query(OfficeDocumentVersion)
+            .filter(OfficeDocumentVersion.office_document_id == ws_od.id)
+            .all()
+        )
+        for v in versions:
+            f = get_settings().files_dir / v.file_path
+            if f.is_file() and hashlib.sha256(f.read_bytes()).hexdigest() == snap_hash:
+                return False
+        return True
 
     def _version_no(self, ws_od: Any) -> int:
         v = (

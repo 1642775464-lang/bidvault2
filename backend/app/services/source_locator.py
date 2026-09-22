@@ -12,7 +12,7 @@ import io
 import zipfile
 from typing import Any
 
-from lxml import etree
+from .xml_safety import safe_parse_xml
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -29,7 +29,7 @@ def body_slots(docx_bytes: bytes) -> list[dict[str, Any]]:
     """解析 document.xml，返回 body 顶层节点槽位：
     [{child_index, kind: 'p'|'tbl'|'sectpr'|'other', text, has_sectpr}]。
     """
-    root = etree.fromstring(docx_bytes)
+    root = safe_parse_xml(docx_bytes)
     body = root.find(_W + "body")
     slots: list[dict[str, Any]] = []
     for idx, child in enumerate(body):
@@ -51,7 +51,7 @@ def body_slots(docx_bytes: bytes) -> list[dict[str, Any]]:
 def _document_root(docx_bytes: bytes) -> Any:
     """从 DOCX 包读取并解析 word/document.xml（输入是完整包，不是裸 XML）。"""
     z = zipfile.ZipFile(io.BytesIO(docx_bytes))
-    return etree.fromstring(z.read("word/document.xml"))
+    return safe_parse_xml(z.read("word/document.xml"))
 
 
 def semantic_fingerprint(docx_bytes: bytes, child_range: tuple[int, int]) -> str:
@@ -127,7 +127,7 @@ def resolve(docx_bytes: bytes, locator: dict[str, Any]) -> dict[str, Any]:
 
 def list_table_ranges(docx_bytes: bytes, min_rows: int = 1) -> list[dict[str, Any]]:
     """列出全部表格及其 child_index（辅助选择素材范围/验收用）。"""
-    root = etree.fromstring(docx_bytes)
+    root = safe_parse_xml(docx_bytes)
     body = root.find(_W + "body")
     out = []
     for idx, child in enumerate(body):

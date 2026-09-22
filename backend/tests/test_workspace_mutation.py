@@ -363,6 +363,45 @@ def test_active_edit_rejected(client):
     assert r2.status_code == 423 and r2.json()["detail"] == "WORKSPACE_EDITING"
 
 
+def test_superseded_snapshot_not_editing(client):
+    """脏判定精细化（C-3b 实测修正）：快照内容属于历史版本（被 restore 超越）≠ 活跃编辑。
+
+    DS status=6 载荷与 status=2 落版文件逐字节不同，且 restore 不清理工作快照——
+    只比对 current 会永久误拒。规则：快照内容不属于任何已持久化版本才算未保存。
+    """
+    from pathlib import Path as FilesPath
+
+    import app.config as cfg
+
+    mid, mod_oid = _setup_word_material(client)
+    ws_oid = _setup_workspace(client)
+    v1 = _version_id(ws_oid, 1)
+    mat_vid = _version_id(mod_oid, 1)
+
+    svc = _service(engine_double=_AppendEngine(), probe=lambda _oid: False)
+    svc.insert_material(_req(ws_oid, v1, mid, mod_oid, mat_vid))  # v1 → v2
+
+    # 工作快照 = v1 内容（非 current v2）——若是历史遗留，不算未保存修改
+    s = _db_session()
+    try:
+        v1_row = s.get(OfficeDocumentVersion, v1)
+        snap_bytes = (FilesPath(cfg.get_settings().files_dir) / v1_row.file_path).read_bytes()
+    finally:
+        s.close()
+    snap = FilesPath(cfg.get_settings().files_dir) / "working" / f"{ws_oid}.docx"
+    snap.parent.mkdir(parents=True, exist_ok=True)
+    snap.write_bytes(snap_bytes)
+
+    r2 = svc.insert_material(_req(ws_oid, _version_id(ws_oid, 2), mid, mod_oid, mat_vid))
+    assert r2["version"] == 3, "被超越的历史快照误判为活跃编辑"
+
+    # 反例：快照内容不属于任何版本 → 仍拒绝
+    snap.write_bytes(_docx_bytes("真正未落版本的修改"))
+    with pytest.raises(Exception) as ei:
+        svc.insert_material(_req(ws_oid, _version_id(ws_oid, 3), mid, mod_oid, mat_vid))
+    assert ei.value.code == "WORKSPACE_EDITING"
+
+
 # ---------------- 契约 6+7：audit schema 与 source 枚举 ----------------
 
 
@@ -383,11 +422,20 @@ def test_audit_schema_and_source_enum(client):
     base_vid = _version_id(ws_oid, 1)
     mat_vid = _version_id(mod_oid, 1)
 
-    # 引擎未注入：501（零副作用）；source 枚举契约另用 create_version 验证
+    # C-3b 起端点注入真实引擎：契约校验通过即真实插入（HTTP 集成路径）
     r = client.post(f"/api/office-documents/{ws_oid}/material-insert",
                     json=_ep_body(ws_oid, base_vid, mid, mod_oid, mat_vid))
-    assert r.status_code == 501 and r.json()["detail"] == "MUTATION_ENGINE_NOT_IMPLEMENTED"
+    assert r.status_code == 200 and r.json()["version"] == 2, r.text
+    s = _db_session()
+    try:
+        vrow = (s.query(OfficeDocumentVersion)
+                .filter(OfficeDocumentVersion.office_document_id == ws_oid,
+                        OfficeDocumentVersion.version == 2).one())
+    finally:
+        s.close()
+    assert vrow.source == "material_insert"
 
+    # source 枚举契约另用 create_version 显式验证
     s = _db_session()
     try:
         od = s.get(OfficeDocument, ws_oid)
@@ -397,7 +445,7 @@ def test_audit_schema_and_source_enum(client):
         s.refresh(v)
     finally:
         s.close()
-    assert v.source == "material_insert" and v.version == 2
+    assert v.source == "material_insert" and v.version == 3  # 端点真实插入后为 v2，此处再建 v3
 
 
 # ---------------- 契约 8/9：insert_mode 校验、引擎未注入零副作用、404 ----------------
