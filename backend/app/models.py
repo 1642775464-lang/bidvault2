@@ -170,7 +170,7 @@ class OfficeDocument(Base):
 class OfficeDocumentVersion(Base):
     """通用 Office 版本表：UNIQUE(office_document_id, version)。
 
-    source: upload | onlyoffice | init | restore | extract | material_insert | ai_insert
+    source: upload | onlyoffice | init | restore | extract | material_insert | ai_generate
     status=6 工作快照不落本表（阶段三语义延续）。
     """
 
@@ -260,9 +260,10 @@ class AiProposal(Base):
     """C-4a：AI 修改提案（审批模型）。
 
     未经确认的 AI 内容只落本表——禁止进 derived_text/content_text/版本表；
-    apply 成功后才经 create_version(source="ai_insert") 进入正式版本链。
-    状态机（C-4a 补正）：draft/approved/failed 可 claim（DB 条件更新→applying，抢占失败不执行 mutator）；
-    applying→applied|failed；applied 重复 apply 幂等返回既有结果；draft→rejected|expired。
+    apply 成功后才经 create_version(source="ai_generate") 进入正式版本链。
+    状态机（C-4a 补正 + C-4b-1 fencing）：draft/approved/failed 可 claim（DB 条件更新→applying，
+    claim_generation+1 作 fencing token，抢占失败不执行 mutator）；applying→creating→applied|failed；
+    applied 重复 apply 幂等返回既有结果；draft→rejected|expired。
     """
 
     __tablename__ = "ai_proposals"
@@ -276,6 +277,7 @@ class AiProposal(Base):
     context_json: Mapped[str | None] = mapped_column(Text, default=None)  # 出网边界：发送给云模型的上下文来源
     model: Mapped[str | None] = mapped_column(String(100), default=None)
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    claim_generation: Mapped[int] = mapped_column(Integer, default=0)  # fencing token：每次 claim +1
     error: Mapped[str | None] = mapped_column(String(500), default=None)
     applied_version_id: Mapped[str | None] = mapped_column(String(32), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

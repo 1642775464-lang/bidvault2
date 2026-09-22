@@ -2,7 +2,7 @@
 
 核心语义（阶段六C4a-AI审批契约设计.md）：
 - AI 内容在用户 approve 之前只存在于 ai_proposals——禁止进 derived_text/content_text/版本表；
-- apply = 与素材插入同一持久化链：OOXML mutation（注入）→ create_version(source="ai_insert")
+- apply = 与素材插入同一持久化链：OOXML mutation（注入）→ create_version(source="ai_generate")
   → current 前移 → 派生追平；拒绝伪造 ONLYOFFICE callback；
 - CAS：apply 时 base_workspace_version_id 必须 == current，失效则提案转 expired（409）；
 - 状态机：draft → approved → applied | failed；draft → rejected | expired；
@@ -33,6 +33,11 @@ PROPOSAL_CLAIMABLE_STATES = ("approved", "failed")  # failed 可重试（明确�
 
 class ProposalApplyingError(WorkspaceMutationError):
     code = "PROPOSAL_APPLYING"
+    http_status = 409
+
+
+class ProposalSupersededError(WorkspaceMutationError):
+    code = "PROPOSAL_SUPERSEDED"
     http_status = 409
 
 
@@ -195,7 +200,8 @@ class AiProposalService:
             self.session.query(AiProposal)
             .filter(AiProposal.id == p.id,
                     AiProposal.status.in_(PROPOSAL_CLAIMABLE_STATES))
-            .update({"status": "applying", "decided_at": _now()},
+            .update({"status": "applying", "decided_at": _now(),
+                     "claim_generation": AiProposal.claim_generation + 1},
                     synchronize_session=False)
         )
         self.session.commit()
@@ -207,7 +213,10 @@ class AiProposalService:
             if latest.status == "applying":
                 raise ProposalApplyingError("提案正在处理中，请稍后查询结果")
             raise InvalidProposalStateError(f"提案状态为 {latest.status}，不可应用")
-        p.status = "applying"
+        # synchronize_session=False：显式过期后重读，取真实 fencing token（防陈旧值误判 superseded）
+        self.session.expire(p)
+        p = self._get(proposal_id)
+        my_generation = p.claim_generation
 
         od = self.session.get(OfficeDocument, p.workspace_office_document_id)
         if od is None or od.document_type != "workspace":
@@ -244,14 +253,54 @@ class AiProposalService:
             self._audit("ai_proposal_failed", p, p.error)
             raise WorkspaceMutationError(f"AI 内容写入失败：{e}") from e
 
+        # ---------------- fence + 单事务落版 ----------------
+        # fencing：仍由本请求持有 applying 且代际未变才允许写；被新请求接管则放弃（不产生版本）
+        fence = (
+            self.session.query(AiProposal)
+            .filter(AiProposal.id == p.id,
+                    AiProposal.status == "applying",
+                    AiProposal.claim_generation == my_generation)
+            .update({"status": "creating"}, synchronize_session=False)
+        )
+        if fence != 1:
+            self.session.rollback()  # 释放 SQLite 写锁（0 行更新无内容可提交），避免审计连接被锁
+            self._audit("ai_proposal_superseded", p, "claim 已被新请求接管，本次放弃写入")
+            raise ProposalSupersededError("提案已被新请求接管，本次写入放弃")
+
+        # 原子复核 base（同事务内再验证 Workspace current，防止 claim 后被其他操作落版）
+        od = self.session.get(OfficeDocument, p.workspace_office_document_id)
+        if od is None or od.current_version_id != p.base_workspace_version_id:
+            self.session.rollback()  # 撤销 creating 标记
+            p = self._get(proposal_id)
+            p.status = "expired"
+            p.error = "工作稿在写入前发生了版本变化，提案基于的版本已失效"
+            self.session.commit()
+            self._audit("ai_proposal_expired", p, p.error)
+            raise WorkspaceVersionConflictError(p.error)
+
         from .office_document_svc import OfficeDocumentService, OfficeDocumentTableAdapter
 
-        svc = OfficeDocumentService(session=self.session, adapter=OfficeDocumentTableAdapter(self.session))
+        class _NoCommitAdapter:
+            """事务由 AI 提案统一提交：版本行与提案 applied 状态同事务落库。"""
+
+            def __init__(self, inner: Any) -> None:
+                self._inner = inner
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(self._inner, name)
+
+            def commit(self) -> None:
+                pass
+
+        svc = OfficeDocumentService(session=self.session,
+                                    adapter=_NoCommitAdapter(OfficeDocumentTableAdapter(self.session)))
         version = svc.create_version(
-            od, new_bytes, source="ai_insert",
-            # comment 携带提案 id：崩溃恢复时可由 applying 提案认领（防重复应用）
+            od, new_bytes, source="ai_generate",
+            # comment 携带提案 id：崩溃恢复时按提案 id 唯一认领已建版本
             comment=f"AI 提案 {p.id}：{p.title[:60]}")
         if version.id == p.base_workspace_version_id:
+            self.session.rollback()  # 无内容变化：撤销 creating 标记
+            p = self._get(proposal_id)
             p.status = "failed"
             p.error = "mutator 输出与 base 相同（无内容变化）"
             self.session.commit()
@@ -261,7 +310,7 @@ class AiProposalService:
         p.status = "applied"
         p.applied_version_id = version.id
         p.applied_at = _now()
-        self.session.commit()
+        self.session.commit()  # 版本行 + 提案状态 同一事务
         self.session.expire(od)
         self._audit("ai_proposal_applied", p,
                     f"v{version.version} ({version.id}) · sha256 {version.file_hash[:12]}")
@@ -279,7 +328,7 @@ class AiProposalService:
         linked: list[OfficeDocumentVersion] = list(
             self.session.query(OfficeDocumentVersion)
             .filter(OfficeDocumentVersion.office_document_id == p.workspace_office_document_id,
-                    OfficeDocumentVersion.source == "ai_insert",
+                    OfficeDocumentVersion.source == "ai_generate",
                     OfficeDocumentVersion.comment.like(f"%{p.id}%"))
             .all()
         )

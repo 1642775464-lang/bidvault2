@@ -2,7 +2,7 @@
 
 契约见 阶段六C4a-AI审批契约设计.md：
 - AI 内容在 approve 前只落 ai_proposals（禁进 derived_text/content_text/版本表）
-- apply = create_version(source="ai_insert")；CAS base==current（失效→expired 409）
+- apply = create_version(source="ai_generate")；CAS base==current（失效→expired 409）
 - 状态机：rejected/expired/applied 不可应用；重复 apply 不产生第二个版本
 - apply 失败 → failed + 零副作用；不写 Source/Material；AI 失败不影响 Workspace
 """
@@ -249,7 +249,7 @@ def test_approve_apply_full_chain(client):
         applied_log = s.query(AuditLog).filter(AuditLog.action == "ai_proposal_applied").all()
     finally:
         s.close()
-    assert v2.source == "ai_insert"
+    assert v2.source == "ai_generate"
     assert current == applied["applied_version_id"] == v2.id
     assert row.status == "applied" and row.applied_at is not None
     assert derived.derived_from_version_id == v2.id  # 同步 dispatch：派生追平
@@ -358,6 +358,58 @@ def test_failed_retry_policy(client):
     applied = svc2.apply_proposal(p["id"])
     assert applied["status"] == "applied" and applied["applied_version_id"]
     assert _ver_count(ws_oid) == 2
+
+
+# ---------------- 3d：fencing——180s 超时重试后旧请求不能建版 ----------------
+
+
+def test_fencing_superseded_request_cannot_create_version(client):
+    """项目负责人验收要求：超时重试后，旧请求若仍存活，不得与新请求各自成功建一个正式版本。
+
+    模拟：旧请求（gen1）在 mutator 执行期间，新请求完成超时判定并重新抢占（gen+1）；
+    旧请求 mutator 返回后，fence（status=applying AND gen=旧值）rowcount=0 → 放弃写入。
+    """
+    from app.services.ai_proposal import ProposalSupersededError
+
+    ws_oid, _doc_id = _setup_workspace(client)
+    base_vid = _current_vid(ws_oid)
+
+    class _SupersededDuringMutate:
+        """mutator 执行期间模拟新请求重新抢占（claim_generation +1）。"""
+
+        def __init__(self):
+            self.calls = 0
+
+        def mutate_append(self, proposal, workspace_bytes: bytes) -> bytes:
+            self.calls += 1
+            s = _db_session()
+            try:
+                s.query(AiProposal).filter(AiProposal.id == proposal.id).update(
+                    {"claim_generation": AiProposal.claim_generation + 1},
+                    synchronize_session=False)
+                s.commit()
+            finally:
+                s.close()
+            return workspace_bytes  # 旧请求仍返回内容，但 fence 应拒绝其落版
+
+    stub = _SupersededDuringMutate()
+    svc = _service(client, mutator=stub)
+    p = svc.create_proposal(_req(ws_oid, base_vid))
+    svc.approve_proposal(p["id"])
+
+    with pytest.raises(ProposalSupersededError):
+        svc.apply_proposal(p["id"])
+
+    assert stub.calls == 1, "mutator 未被调用或被重复调用"
+    assert _ver_count(ws_oid) == 1, "被接管的旧请求创建了正式版本"
+    s = _db_session()
+    try:
+        row = s.get(AiProposal, p["id"])
+        superseded = s.query(AuditLog).filter(AuditLog.action == "ai_proposal_superseded").all()
+    finally:
+        s.close()
+    assert row.status == "applying"  # 归新请求所有；恢复/重试由其接管
+    assert superseded, "缺少 superseded 审计"
 
 
 # ---------------- 4：rejected 不可应用 ----------------

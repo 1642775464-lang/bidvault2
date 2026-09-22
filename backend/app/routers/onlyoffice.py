@@ -514,7 +514,7 @@ def ai_proposal_expire(pid: str, session: Session = Depends(get_session)) -> dic
 
 @ai_router.post("/{pid}/apply")
 def ai_proposal_apply(pid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """应用提案：OOXML 写入 → 新 Workspace 正式版本（source=ai_insert）→ 派生异步分发。"""
+    """应用提案：OOXML 写入 → 新 Workspace 正式版本（source=ai_generate）→ 派生异步分发。"""
     from ..services.workspace_mutation import (
         UnsupportedMaterialStructureError,
         WorkspaceMutationError,

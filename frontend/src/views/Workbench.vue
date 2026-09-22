@@ -666,7 +666,7 @@ onMounted(async () => {
               <div v-for="v in wsVerList" :key="v.id" class="verrow" :class="{ cur: v.is_current }">
                 <div class="vl">
                   <b>v{{ v.version }}</b>
-                  <span class="chip-tag">{{ { init: "初始化", onlyoffice: "编辑保存", restore: "恢复", upload: "上传", extract: "原始提取", material_insert: "素材插入" }[v.source] || v.source }}</span>
+                  <span class="chip-tag">{{ { init: "初始化", onlyoffice: "编辑保存", restore: "恢复", upload: "上传", extract: "原始提取", material_insert: "素材插入", ai_generate: "AI 生成" }[v.source] || v.source }}</span>
                   <span class="vm">{{ v.created_at ? v.created_at.slice(0, 19).replace("T", " ") : "" }}{{ v.size ? " · " + Math.round(v.size / 1024) + " KB" : "" }}<template v-if="v.comment"> · “{{ v.comment }}”</template></span>
                 </div>
                 <div class="vr">

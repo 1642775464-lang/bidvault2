@@ -165,7 +165,7 @@ def test_endpoint_full_chain(client):
         row = s.get(AiProposal, p["id"])
     finally:
         s.close()
-    assert v2.source == "ai_insert" and current == v2.id
+    assert v2.source == "ai_generate" and current == v2.id
     assert applied["applied_version_id"] == v2.id
     assert row.status == "applied" and row.applied_version_id == v2.id
 
