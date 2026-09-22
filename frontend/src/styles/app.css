@@ -380,6 +380,15 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .ws-toolbar .syncbadge .retry{margin-left:6px;border:1px solid currentColor;background:transparent;border-radius:3px;font-size:11px;line-height:1.5;padding:0 5px;color:inherit;cursor:pointer}
 .ws-toolbar .syncbadge .retry:hover{opacity:.75}
 .ws-toolbar .mini-btn{margin-left:0}
+/* C-3c 素材插入面板 + 确认层 */
+.insrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 2px;border-bottom:1px solid var(--line)}
+.insrow .il{display:flex;flex-direction:column;gap:4px;min-width:0}
+.insrow .il b{font-size:13px}
+.insrow .vr{display:flex;gap:6px;flex:none}
+.ins-form .frow{display:flex;align-items:center;gap:10px;margin:10px 0;font-size:13px}
+.ins-form .fl{width:76px;flex:none;color:var(--sub)}
+.ins-status{margin-top:10px;font-size:12.5px;color:var(--accent-deep);background:var(--accent-bg);border-radius:4px;padding:6px 10px}
+.ins-error{margin-top:10px;font-size:12.5px;color:var(--risk);background:var(--risk-bg);border-radius:4px;padding:6px 10px;display:flex;gap:10px;align-items:center;justify-content:space-between}
 .col-doc .ws-stage{flex:1;min-height:0;display:flex;flex-direction:column;background:#f4f6fa}
 .col-doc .office-editor{flex:1;min-height:0}
 .ws-stage .empty-state{margin:auto}

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import OfficeEditor from "../components/office/OfficeEditor.vue";
 import type { Material, PersonCard, Project, RiskItemT , HistCase } from "../api/types";
 import {
@@ -172,10 +172,231 @@ async function retrySync(): Promise<void> {
   }
 }
 
+/* ---------------- 素材插入（C-3c）：结束编辑 → 等 status=2 → 最新 base → insert → 重开 ---------------- */
+type InsState =
+  | "idle" | "confirming" | "closing_editor" | "waiting_save"
+  | "inserting" | "processing" | "reopening" | "done" | "error";
+const INS_BUSY = new Set<InsState>(["closing_editor", "waiting_save", "inserting", "processing", "reopening"]);
+const INS_SOURCE_MAP: Record<string, string> = {
+  material_insert: "素材插入", onlyoffice: "编辑保存", restore: "恢复",
+  extract: "原始提取", init: "初始版本", upload: "上传",
+};
+const INS_FEATURE_MAP: Record<string, string> = {
+  section_break: "分节符", footnote_endnote: "脚注/尾注", comments: "批注",
+  tracked_changes: "修订记录", ole_object: "OLE/嵌入对象", content_control: "内容控件",
+  internal_hyperlink: "内部锚点链接",
+};
+
+const insState = ref<InsState>("idle");
+const insBusy = computed(() => INS_BUSY.has(insState.value));
+const insMat = ref<Material | null>(null);
+const insVerId = ref("");
+const insVerList = ref<{ id: string; version: number; source: string; is_current: boolean }[]>([]);
+const insMsg = ref("");
+const insErr = ref("");
+const wsEditorMounted = ref(true);
+const wsMaterials = ref<Material[]>([]);
+
+const insVerLabel = (v: { version: number; source: string; is_current: boolean }): string =>
+  `v${v.version} ${v.is_current ? "当前版本 · " : ""}${INS_SOURCE_MAP[v.source] ?? v.source}`;
+
+async function loadWsMaterials(): Promise<void> {
+  const pid = cur.value?.id;
+  if (!pid) {
+    wsMaterials.value = [];
+    return;
+  }
+  try {
+    wsMaterials.value = (await api.materials()).items.filter((x) => x.project_id === pid);
+  } catch {
+    wsMaterials.value = [];
+  }
+}
+
+function openInsert(mat: Material): void {
+  // idle 正常入口；error 允许「重新确认」（刷新版本与基线后重来）
+  if ((insState.value !== "idle" && insState.value !== "error") || !mat.office_document_id
+      || !wsOid.value) {
+    return;
+  }
+  insMat.value = mat;
+  insVerId.value = "";
+  insVerList.value = [];
+  insMsg.value = "";
+  insErr.value = "";
+  insState.value = "confirming";
+  void (async () => {
+    try {
+      const r = await api.officeVersions(mat.office_document_id as string);
+      insVerList.value = r.items;
+      insVerId.value = (r.items.find((x) => x.is_current) ?? r.items[0])?.id ?? "";
+    } catch (e) {
+      insState.value = "error";
+      insErr.value = e instanceof Error ? e.message : "素材版本列表加载失败";
+    }
+  })();
+}
+
+function closeInsert(): void {
+  if (insBusy.value) return; // mutation 进行中不允许退出（防半途状态）
+  insMat.value = null;
+  insMsg.value = "";
+  insErr.value = "";
+  wsEditorMounted.value = true; // 错误路径退出时恢复编辑器
+  insState.value = "idle";
+}
+
+/** 等 DS 编辑会话结束（callback-state 不再处于编辑/保存中）。 */
+async function waitSessionSettled(oid: string, timeoutS: number): Promise<boolean> {
+  const ACTIVE = ["编辑中", "正在处理保存", "工作快照", "强制保存失败"];
+  const deadline = Date.now() + timeoutS * 1000;
+  while (Date.now() < deadline) {
+    try {
+      const cs = await api.officeCallbackState(oid);
+      if (!ACTIVE.some((k) => cs.state.includes(k))) return true;
+    } catch {
+      /* 轮询失败继续等 */
+    }
+    await new Promise((r2) => setTimeout(r2, 2000));
+  }
+  return false;
+}
+
+/** 等 WorkspaceProcessor 追平（derived_from == current）。 */
+async function waitDerivedSync(pid: string, oid: string, timeoutS: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutS * 1000;
+  while (Date.now() < deadline) {
+    try {
+      const st = await api.workspaceState(pid);
+      if (st.office_document_id === oid && st.derived_from_version_id
+          && st.derived_from_version_id === st.current_version_id) {
+        return true;
+      }
+    } catch {
+      /* 继续等 */
+    }
+    await new Promise((r2) => setTimeout(r2, 2000));
+  }
+  return false;
+}
+
+async function confirmInsert(): Promise<void> {
+  const mat = insMat.value;
+  const pid = cur.value?.id;
+  const oid = wsOid.value;
+  if (!mat || !pid || !oid || !mat.office_document_id || insState.value !== "confirming") return;
+  if (!insVerId.value) {
+    insErr.value = "请选择素材版本";
+    return;
+  }
+  insErr.value = "";
+  const baseAtConfirm = wsVersion.value;
+
+  // 1) 结束当前编辑会话（卸载 OfficeEditor → destroyEditor → DS 结算）
+  insState.value = "closing_editor";
+  wsEditorMounted.value = false;
+
+  // 2) 等待编辑会话稳定（可能的 status=2 落版）
+  insState.value = "waiting_save";
+  insMsg.value = "正在保存当前工作稿…";
+  if (!(await waitSessionSettled(oid, 90))) {
+    insState.value = "error";
+    insErr.value = "工作稿仍处于编辑状态，请稍后重试";
+    return;
+  }
+
+  // 3) 重新获取最新 current 作为并发基线（禁用弹窗打开时的旧 base）
+  let latest: Awaited<ReturnType<typeof api.workspaceState>>;
+  try {
+    latest = await api.workspaceState(pid);
+  } catch (e) {
+    insState.value = "error";
+    insErr.value = e instanceof Error ? e.message : "无法获取工作稿最新版本";
+    return;
+  }
+  if (!latest.current_version_id) {
+    insState.value = "error";
+    insErr.value = "无法获取工作稿最新版本，请重试";
+    return;
+  }
+  if (latest.version != null && baseAtConfirm != null && latest.version > baseAtConfirm) {
+    // 版本前进必须归因为刚结束的编辑保存，否则停止并要求重新确认
+    const versions = (await api.officeVersions(oid)).items;
+    const nv = versions.find((x) => x.id === latest.current_version_id);
+    if (!nv || nv.source !== "onlyoffice") {
+      insState.value = "error";
+      insErr.value = `工作稿在保存期间发生了非编辑类版本变化（v${latest.version}），请重新确认插入`;
+      return;
+    }
+    insMsg.value = `当前编辑已保存为 v${nv.version}，素材将插入到 v${nv.version} 末尾`;
+  }
+  const baseId = latest.current_version_id;
+
+  // 4) 执行插入（423 有限重试；409/422 停下交给用户）
+  insState.value = "inserting";
+  let done: { version: number; version_id: string } | null = null;
+  for (let attempt = 0; attempt < 3 && !done; attempt++) {
+    try {
+      done = await api.insertMaterial(oid, {
+        base_workspace_version_id: baseId,
+        material_id: mat.id,
+        material_office_document_id: mat.office_document_id,
+        material_version_id: insVerId.value,
+        insert_mode: "append_end",
+      });
+    } catch (e) {
+      const err = e as ApiError;
+      if (err.status === 423) {
+        insMsg.value = "工作稿仍在保存中…";
+        await new Promise((r2) => setTimeout(r2, 5000));
+        continue;
+      }
+      if (err.status === 409) {
+        insState.value = "error";
+        insErr.value = "工作稿在插入前发生了版本变化，已刷新到最新版本，请重新确认插入";
+        return;
+      }
+      if (err.status === 422) {
+        const feats: string[] =
+          (err.detail as { features?: string[] } | undefined)?.features ?? [];
+        const readable = feats.map((f) => INS_FEATURE_MAP[f.split(":")[0]] ?? f).join(" / ");
+        insState.value = "error";
+        insErr.value = `该素材暂不支持直接插入工作稿${readable ? `（检测到：${readable}）` : ""}`;
+        return;
+      }
+      insState.value = "error";
+      insErr.value = err.message || "插入失败";
+      return;
+    }
+  }
+  if (!done) {
+    insState.value = "error";
+    insErr.value = "工作稿仍处于编辑状态，请稍后重试";
+    return;
+  }
+
+  // 5) 等 WorkspaceProcessor 追平 → 重开编辑器（:key 变化 → 新 key 干净重开）
+  insState.value = "processing";
+  insMsg.value = "正在同步派生数据…";
+  await waitDerivedSync(pid, oid, 120);
+  insState.value = "reopening";
+  insMsg.value = "正在重新打开工作稿…";
+  wsVersion.value = done.version;
+  wsEditorMounted.value = true;
+  void loadWsVersions();
+  void pollWorkspace();
+
+  const selV = insVerList.value.find((x) => x.id === insVerId.value);
+  toast(`“${mat.title}” v${selV?.version ?? "?"} 已插入工作稿，工作稿已更新至 v${done.version}`);
+  insMat.value = null;
+  insState.value = "done";
+  insState.value = "idle";
+}
+
 const hasDoc = computed(() => !!cur.value && bidDocs.value.length > 0);
 
 /* ---------------- 检测面板 ---------------- */
-const tab = ref<"scan" | "score" | "cases" | "people">("scan");
+const tab = ref<"scan" | "score" | "cases" | "people" | "mats">("scan");
 const filter = ref<string>("all");
 const onlyOpen = ref(false);
 const doneOpen = ref(false);
@@ -360,10 +581,13 @@ watch(
   { immediate: true },
 );
 
+watch(() => store.activeProjectId, loadWsMaterials);
+
 onMounted(async () => {
   await initWorkspace();
   await loadPanels();
   await refreshCore();
+  void loadWsMaterials();
 });
 </script>
 
@@ -430,7 +654,7 @@ onMounted(async () => {
         </div>
         <div class="ws-stage">
           <template v-if="cur">
-            <OfficeEditor v-if="wsOid" :office-document-id="wsOid" mode="edit" />
+            <OfficeEditor v-if="wsOid && wsEditorMounted" :key="`${wsOid}-${wsVersion}`" :office-document-id="wsOid" mode="edit" />
             <div v-else class="empty-state" style="margin:auto"><b>工作稿初始化中…</b></div>
           </template>
           <div v-else class="empty-state" style="margin:auto"><b>请先在顶部选择项目</b></div>
@@ -442,7 +666,7 @@ onMounted(async () => {
               <div v-for="v in wsVerList" :key="v.id" class="verrow" :class="{ cur: v.is_current }">
                 <div class="vl">
                   <b>v{{ v.version }}</b>
-                  <span class="chip-tag">{{ { init: "初始化", onlyoffice: "编辑保存", restore: "恢复", upload: "上传" }[v.source] || v.source }}</span>
+                  <span class="chip-tag">{{ { init: "初始化", onlyoffice: "编辑保存", restore: "恢复", upload: "上传", extract: "原始提取", material_insert: "素材插入" }[v.source] || v.source }}</span>
                   <span class="vm">{{ v.created_at ? v.created_at.slice(0, 19).replace("T", " ") : "" }}{{ v.size ? " · " + Math.round(v.size / 1024) + " KB" : "" }}<template v-if="v.comment"> · “{{ v.comment }}”</template></span>
                 </div>
                 <div class="vr">
@@ -457,16 +681,59 @@ onMounted(async () => {
             <div class="m-foot"><button class="btn-ghost" @click="wsVerOpen = false">关闭</button></div>
           </div>
         </div>
+        <div v-if="insMat" class="modal-wrap" @click.self="closeInsert">
+          <div class="modal" role="dialog" aria-modal="true" aria-label="插入素材到工作稿">
+            <h3>插入素材到工作稿</h3>
+            <div class="ins-form">
+              <div class="frow"><span class="fl">素材</span><b>{{ insMat.title }}</b></div>
+              <div class="frow">
+                <span class="fl">素材版本</span>
+                <select v-model="insVerId" class="f-select" :disabled="insBusy">
+                  <option v-for="v in insVerList" :key="v.id" :value="v.id">{{ insVerLabel(v) }}</option>
+                </select>
+              </div>
+              <div class="frow"><span class="fl">插入位置</span><span>工作稿末尾</span></div>
+              <div class="frow"><span class="fl">当前工作稿</span><span>v{{ wsVersion ?? "—" }}</span></div>
+              <div v-if="insMsg" class="ins-status">{{ insMsg }}</div>
+              <div v-if="insErr" class="ins-error">
+                <span>{{ insErr }}</span>
+                <button v-if="insState === 'error' && insMat" class="mini-btn" @click="openInsert(insMat)">重新确认</button>
+              </div>
+            </div>
+            <div class="m-foot">
+              <button class="btn-ghost" :disabled="insBusy" @click="closeInsert">取消</button>
+              <button class="btn-primary" :disabled="insState !== 'confirming' || !insVerId" @click="confirmInsert">继续</button>
+            </div>
+          </div>
+        </div>
       </section>
 
 
       <!-- 右：检测面板 -->
       <section class="col col-panel">
         <div class="tabs">
-          <button v-for="t in [['scan', '废标检测'], ['score', '评分办法对照'], ['cases', '案例推荐'], ['people', '人员介绍']] as const"
+          <button v-for="t in [['scan', '废标检测'], ['score', '评分办法对照'], ['cases', '案例推荐'], ['people', '人员介绍'], ['mats', '素材']] as const"
                   :key="t[0]" class="tab" :class="{ on: tab === t[0] }" @click="tab = t[0]">{{ t[1] }}</button>
         </div>
         <div class="panel-body">
+          <!-- 素材插入（C-3c） -->
+          <div v-show="tab === 'mats'" class="tabpane">
+            <div v-if="!wsMaterials.length" class="empty-state"><b>本项目暂无素材</b></div>
+            <template v-else>
+              <div v-for="mt in wsMaterials" :key="mt.id" class="insrow">
+                <div class="il">
+                  <b>{{ mt.title }}</b>
+                  <span class="chip-tag">{{ mt.cat }} · {{ mt.type }}</span>
+                  <span v-if="!mt.office_document_id" class="chip-tag">未 Word 化</span>
+                </div>
+                <div class="vr">
+                  <button class="mini-btn" @click="navTo('mats')">预览</button>
+                  <button v-if="mt.office_document_id" class="mini-btn on" :disabled="insState !== 'idle' || !wsOid"
+                          @click="openInsert(mt)">插入工作稿</button>
+                </div>
+              </div>
+            </template>
+          </div>
           <!-- 废标检测 -->
           <div v-show="tab === 'scan'" class="tabpane">
             <div class="ov">

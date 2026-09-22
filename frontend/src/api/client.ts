@@ -16,9 +16,12 @@ import type {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** 非 2xx 响应体（可能是 {"code","features"} 等结构化错误），调用方按需读取 */
+  detail: unknown;
+  constructor(status: number, message: string, detail: unknown = null) {
     super(message);
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -26,13 +29,15 @@ async function handle<T>(resP: Response | Promise<Response>): Promise<T> {
   const res = await resP;
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
+    let parsed: unknown = null;
     try {
-      const body = await res.json();
+      const body = (await res.json()) as { detail?: unknown };
+      parsed = body.detail ?? null;
       if (typeof body.detail === "string") msg = body.detail;
     } catch {
       /* 保持默认信息 */
     }
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, parsed);
   }
   return (await res.json()) as T;
 }
@@ -170,6 +175,22 @@ export const api = {
   },
   async retryProcessor(oid: string): Promise<{ ok: boolean; version: number; retried: boolean }> {
     return handle(fetch(`/api/office-documents/${oid}/retry-processor`, { method: "POST" }));
+  },
+  async insertMaterial(
+    wsOid: string,
+    body: {
+      base_workspace_version_id: string;
+      material_id: string;
+      material_office_document_id: string;
+      material_version_id: string;
+      insert_mode: string;
+    },
+  ): Promise<{ ok: boolean; workspace_office_document_id: string; version: number; version_id: string; material_version_id: string; insert_mode: string }> {
+    return handle(fetch(`/api/office-documents/${wsOid}/material-insert`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }));
   },
   async officeVersions(oid: string): Promise<{ items: { id: string; version: number; source: string; created_at: string | null; is_current: boolean; size: number | null; comment: string | null; restored_from_version_id: string | null; editor_user: string | null; file_hash: string }[] }> {
     return handle(fetch(`/api/office-documents/${oid}/versions`));
