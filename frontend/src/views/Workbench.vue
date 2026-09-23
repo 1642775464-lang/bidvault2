@@ -399,7 +399,7 @@ const hasDoc = computed(() => !!cur.value && bidDocs.value.length > 0);
 type AiUiState =
   | "idle" | "egress_confirm" | "generating" | "draft_ready"
   | "closing_editor" | "waiting_save" | "applying" | "processing" | "reopening"
-  | "done" | "error";
+  | "rebind_confirm" | "done" | "error";
 const AI_BUSY_STATES = new Set<AiUiState>([
   "closing_editor", "waiting_save", "applying", "processing", "reopening",
 ]);
@@ -411,6 +411,9 @@ const aiInstruction = ref("");
 const aiMaterialId = ref("");
 const aiManual = ref("");
 const aiPid = ref<string | null>(null);
+/** 当前提案绑定的 Workspace 基线（生成时固定；关闭编辑器后据此比对，禁止静默改绑） */
+const aiBaseVid = ref("");
+const aiBaseVer = ref(0);
 const aiDraft = ref("");
 const aiModel = ref("");
 const aiMsg = ref("");
@@ -473,6 +476,11 @@ function aiBegin(): void {
     aiErr.value = "请先输入生成要求";
     return;
   }
+  // 契约：上下文必须显式提交（至少一项），不允许隐式读取整份文档
+  if (!aiMaterialId.value && !aiManual.value.trim()) {
+    aiErr.value = "请至少提供一项上下文（引用素材或补充上下文）";
+    return;
+  }
   aiErr.value = "";
   aiStep.value = "egress"; // 第一次确认：允许把选定上下文发往云端
   aiUi.value = "egress_confirm";
@@ -513,6 +521,8 @@ async function aiConfirmEgress(): Promise<void> {
     aiPid.value = r.proposal.id;
     aiDraft.value = r.proposal.text || "";
     aiModel.value = r.proposal.model || "";
+    aiBaseVid.value = st0.current_version_id ?? "";
+    aiBaseVer.value = st0.version ?? 0;
     aiStep.value = "result";
     aiUi.value = "draft_ready";
   } catch (e) {
@@ -554,13 +564,11 @@ function aiReset(): void {
   wsEditorMounted.value = true;
 }
 
-/** 写入工作稿：approve → 结束编辑会话 → base 校验（过期则基于最新版重建提案）→ apply → 重开。 */
+/** 写入工作稿：结束编辑会话 → 等真实 status=2 → 复查 base → 一致 approve/apply；不一致交用户重新确认。 */
 async function aiWrite(): Promise<void> {
   const pid = cur.value?.id;
   const oid = wsOid.value;
   if (!pid || !oid || !aiPid.value || aiBusy.value) return;
-  const stW = await api.workspaceState(pid);
-  const baseAtWrite = stW.current_version_id ?? "";
 
   aiUi.value = "closing_editor";
   wsEditorMounted.value = false; // 结束编辑会话 → DS status=2
@@ -573,55 +581,85 @@ async function aiWrite(): Promise<void> {
     return;
   }
 
+  // 关闭编辑器后重新取得 Workspace current —— 与提案基线比对（不假设 Ctrl+S = 正式保存）
+  const stNow = await api.workspaceState(pid);
+  const latestVid = stNow.current_version_id ?? "";
+  if (latestVid !== aiBaseVid.value) {
+    // 基线不一致：暂停自动写入，交用户显式重新确认（禁止静默重绑/自动写入）
+    aiUi.value = "rebind_confirm";
+    aiMsg.value = `当前工作稿已从 v${aiBaseVer.value} 更新至 v${stNow.version ?? "?"}，请重新确认写入。`;
+    return;
+  }
+
   aiUi.value = "applying";
   aiMsg.value = "正在写入 AI 内容…";
   let applied: { status: string; applied_version_id: string | null } | null = null;
-  let expired = false;
   try {
     // 人工确认 = approve（写入前必须显式审批，审批边界由 DB 层强制）
     await api.aiProposalAction(aiPid.value, "approve");
     applied = await api.aiProposalAction(aiPid.value, "apply");
   } catch (e) {
     const err = e as ApiError;
-    if (err.status === 409 && err.message.includes("前移")) {
-      expired = true; // 提案基线已过期（用户编辑落版）→ 基于最新版重建提案后重写
-    } else {
-      const d = err.detail as { message?: string } | undefined;
-      aiUi.value = "error";
-      aiErr.value = d?.message || err.message || "写入失败";
-      return;
-    }
+    const d = err.detail as { message?: string } | undefined;
+    aiUi.value = "error";
+    aiErr.value = d?.message || err.message || "写入失败";
+    return;
   }
+  await aiFinishWrite(pid, oid, applied);
+}
 
-  if (expired) {
-    aiMsg.value = "工作稿已更新，正在基于最新版本重建 AI 提案…";
-    try {
-      const stR = await api.workspaceState(pid);
-      const gen = await api.aiGenerate(oid, {
-        base_workspace_version_id: stR.current_version_id ?? "",
-        instruction: aiInstruction.value,
-        context: aiManual.value.trim()
-          ? [{ kind: "manual_input", ref: "manual", label: "人工补充", text: aiManual.value }]
-          : [],
-      });
-      aiPid.value = gen.proposal.id;
-      await api.aiProposalContent(aiPid.value, aiDraft.value); // 保留用户已编辑/已确认的内容
-      await api.aiProposalAction(aiPid.value, "approve");
-      applied = await api.aiProposalAction(aiPid.value, "apply");
-    } catch (e) {
-      const err = e as ApiError;
-      const d = err.detail as { message?: string } | undefined;
-      aiUi.value = "error";
-      aiErr.value = d?.message || err.message || "重建提案失败";
-      return;
-    }
+/** 用户点「基于最新版本重新确认」：新建绑定最新 base 的提案（来源关联原提案，不再调用云 AI）→ 重新审批 → 写入。 */
+async function aiRebindConfirm(): Promise<void> {
+  const pid = cur.value?.id;
+  const oid = wsOid.value;
+  const oldPid = aiPid.value;
+  if (!pid || !oid || !oldPid || aiBusy.value) return;
+  aiErr.value = "";
+  aiUi.value = "applying";
+  aiMsg.value = "正在基于最新工作稿重新确认…";
+  try {
+    const stNow = await api.workspaceState(pid);
+    // 新建提案：复用用户已确认的文本（无第二次云 AI 调用），保留原提案 id 作为来源关联
+    const created = await api.aiProposalCreate(oid, {
+      base_workspace_version_id: stNow.current_version_id ?? "",
+      title: `重新确认写入（原提案 ${oldPid.slice(0, 8)}）`,
+      text: aiDraft.value,
+      operation: "append_end",
+      model: aiModel.value || null,
+      derived_from_proposal_id: oldPid,
+    });
+    aiPid.value = created.id;
+    aiBaseVid.value = stNow.current_version_id ?? "";
+    aiBaseVer.value = stNow.version ?? 0;
+    await api.aiProposalAction(created.id, "approve"); // 重新经过人工审批
+    const applied = await api.aiProposalAction(created.id, "apply");
+    await aiFinishWrite(pid, oid, applied);
+  } catch (e) {
+    const err = e as ApiError;
+    const d = err.detail as { message?: string } | undefined;
+    aiUi.value = "error";
+    aiErr.value = d?.message || err.message || "重新确认写入失败";
   }
+}
+
+/** 用户点「取消写入」：保留草稿与用户修改内容，不创建任何版本。 */
+function aiCancelRebind(): void {
+  aiUi.value = "draft_ready";
+  aiMsg.value = "";
+  aiErr.value = "";
+  wsEditorMounted.value = true; // 恢复编辑器（工作稿内容已随 status=2 落版）
+  void pollWorkspace();
+}
+
+async function aiFinishWrite(
+  pid: string, oid: string,
+  applied: { status: string; applied_version_id: string | null } | null,
+): Promise<void> {
   if (!applied || !applied.applied_version_id) {
     aiUi.value = "error";
     aiErr.value = "写入未完成，请重试";
     return;
   }
-
   aiUi.value = "processing";
   aiMsg.value = "正在同步派生数据…";
   await waitDerivedSync(pid, oid, 120);
@@ -1018,10 +1056,18 @@ onMounted(async () => {
               <div class="ai-actions">
                 <button class="mini-btn" :disabled="aiBusy" @click="aiSaveDraft">保存修改</button>
                 <button class="mini-btn" :disabled="aiBusy" @click="aiReject">放弃</button>
-                <button class="btn-primary" :disabled="aiBusy" @click="aiWrite">写入工作稿</button>
+                <button class="btn-primary" :disabled="aiBusy || aiUi === 'rebind_confirm'" @click="aiWrite">写入工作稿</button>
               </div>
               <div v-if="aiMsg" class="ins-status">{{ aiMsg }}</div>
               <div v-if="aiErr" class="ins-error"><span>{{ aiErr }}</span></div>
+              <div v-if="aiUi === 'rebind_confirm'" class="ai-rebind">
+                <div>工作稿已在编辑会话结束时正式保存，AI 提案绑定的基线已过期。</div>
+                <div>重新确认将创建绑定最新工作稿版本的新提案（保留你已确认的内容与来源关联），并再次经过人工审批。</div>
+                <div class="ai-actions">
+                  <button class="mini-btn" @click="aiCancelRebind">取消写入</button>
+                  <button class="btn-primary" @click="aiRebindConfirm">基于最新版本重新确认</button>
+                </div>
+              </div>
             </template>
 
             <div v-if="aiBusy" class="ins-status" style="margin-top:10px">{{ aiMsg }}</div>

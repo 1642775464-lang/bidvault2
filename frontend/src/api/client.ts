@@ -208,6 +208,16 @@ export const api = {
       body: JSON.stringify(body),
     }));
   },
+  async aiProposalCreate(
+    wsOid: string,
+    body: { base_workspace_version_id: string; title: string; text: string; operation: string; model: string | null; derived_from_proposal_id?: string | null },
+  ): Promise<{ id: string; status: string; base_workspace_version_id: string; derived_from_proposal_id: string | null }> {
+    return handle(fetch(`/api/office-documents/${wsOid}/ai-proposals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }));
+  },
   async aiProposalGet(pid: string): Promise<{ id: string; status: string; text: string; model: string | null; applied_version_id: string | null; error: string | null }> {
     return handle(fetch(`/api/ai-proposals/${pid}`));
   },

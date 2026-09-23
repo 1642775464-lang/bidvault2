@@ -107,6 +107,7 @@ def _migrate(conn: Any) -> None:
         "ALTER TABLE materials ADD COLUMN source_document_version_id TEXT",
         "ALTER TABLE materials ADD COLUMN source_locator_json TEXT",
         "ALTER TABLE ai_proposals ADD COLUMN claim_generation INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE ai_proposals ADD COLUMN derived_from_proposal_id TEXT",
     ]
     for ddl in stmts:
         with contextlib.suppress(Exception):

@@ -411,6 +411,7 @@ class AiProposalIn(BaseModel):
     operation: str = "append_end"
     model: str | None = None
     context: Any = None
+    derived_from_proposal_id: str | None = None
 
 
 def _ai_service(session: Session) -> AiProposalService:
@@ -448,6 +449,7 @@ def create_ai_proposal(oid: str, body: AiProposalIn,
             operation=body.operation,
             model=body.model,
             context=body.context,
+            derived_from_proposal_id=body.derived_from_proposal_id,
         ))
     except WorkspaceMutationError as e:
         raise HTTPException(e.http_status, e.code) from e

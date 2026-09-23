@@ -278,6 +278,8 @@ class AiProposal(Base):
     model: Mapped[str | None] = mapped_column(String(100), default=None)
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     claim_generation: Mapped[int] = mapped_column(Integer, default=0)  # fencing token：每次 claim +1
+    # 来源关联：重新确认写入时，新提案指向原提案 id（审批与审计可追溯；不修改原提案任何字段）
+    derived_from_proposal_id: Mapped[str | None] = mapped_column(String(32), default=None)
     error: Mapped[str | None] = mapped_column(String(500), default=None)
     applied_version_id: Mapped[str | None] = mapped_column(String(32), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

@@ -305,6 +305,14 @@ def test_gateway_failure_isolated(client, monkeypatch):
                      "model": "test-model", "api_key_ref": "BIDVAULT_AI_KEY",
                      "timeout_s": 5})
 
+    # 确定性注入网络层失败（不依赖 DNS/代理环境，避免全量跑时的不稳定）
+    import app.services.ai_gateway as gw
+
+    def _boom(_url: str, _headers: dict, _payload: dict) -> dict:
+        raise gw.GatewayUnavailableError("AI 服务连接失败：ConnectTimeout（注入）")
+
+    monkeypatch.setattr(gw, "httpx_transport", _boom)
+
     ver_before = _ver_count(ws_oid)
     proposal_before = _db_session().query(AiProposal).count()
 

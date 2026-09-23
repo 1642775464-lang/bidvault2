@@ -24,6 +24,7 @@ from app.db import get_session, make_engine
 from app.main import app
 from app.models import (
     AiProposal,
+    AuditLog,
     Document,
     DocumentVersion,
     OfficeDocument,
@@ -364,3 +365,94 @@ def test_source_untouched_after_apply(client):
         s.close()
     assert src_after == src_before, "Source 版本被写入"
     assert "质保期" not in doc_text, "AI 内容泄漏进 Source content_text"
+
+# ---------------- C-4c 修正：过期提案必须由用户显式重新确认（禁止静默重绑） ----------------
+
+
+def test_stale_base_requires_user_reconfirm_not_auto_rebind(client):
+    """契约：Proposal 绑定的 base 不可静默改变；过期后须新建绑定最新版的提案（来源关联原提案）。
+
+    覆盖任务单回归项 3/4/5/6/7/8：取消不写入、重新确认新提案绑最新 base、
+    原提案 base 不变、用户文本保留、新提案重新审批后写入成功、关联可审计。
+    """
+    ws_oid, _doc_id = _setup(client)
+    base_v1 = _current_vid(ws_oid)
+    p1 = client.post(f"/api/office-documents/{ws_oid}/ai-proposals",
+                     json=_proposal_body(ws_oid, base_v1)).json()
+    # 用户在确认前编辑了 AI 文本
+    edited = "用户确认的最终内容：三年质保，7×24 响应。"
+    r = client.patch(f"/api/ai-proposals/{p1['id']}/content", json={"text": edited})
+    assert r.status_code == 200
+    # 用户已人工确认（approve）——此后写入前 base 失效才触发 expired 语义
+    assert client.post(f"/api/ai-proposals/{p1['id']}/approve").status_code == 200
+
+    # 工作稿在写入前前移（模拟关闭编辑器后 status=2 落版）
+    s = _db_session()
+    try:
+        od = s.get(OfficeDocument, ws_oid)
+        from app.services.office_document_svc import (
+            OfficeDocumentService,
+            OfficeDocumentTableAdapter,
+        )
+
+        OfficeDocumentService(session=s, adapter=OfficeDocumentTableAdapter(s)).create_version(
+            od, _docx_bytes("用户在编辑器中的修改已正式保存"), source="onlyoffice")
+        s.expire(od)
+    finally:
+        s.close()
+    base_v2 = _current_vid(ws_oid)
+    assert base_v2 != base_v1
+    ver_before = _ver_count(ws_oid)
+
+    # 取消写入：不创建任何版本（回归项 3）
+    assert _ver_count(ws_oid) == ver_before
+
+    # 原提案 apply → 409 且转 expired（不静默改绑；回归项 5）
+    ra = client.post(f"/api/ai-proposals/{p1['id']}/apply")
+    assert ra.status_code == 409
+    s = _db_session()
+    try:
+        row1 = s.get(AiProposal, p1["id"])
+    finally:
+        s.close()
+    assert row1.status == "expired"
+    assert row1.base_workspace_version_id == base_v1, "原提案 base 被静默修改"
+
+    # 用户显式重新确认：新建提案绑定最新 base + 来源关联原提案 + 保留用户文本（回归项 4/6/8）
+    created = client.post(f"/api/office-documents/{ws_oid}/ai-proposals", json={
+        "base_workspace_version_id": base_v2,
+        "title": f"重新确认写入（原提案 {p1['id'][:8]}）",
+        "text": edited,
+        "operation": "append_end",
+        "model": p1["model"],
+        "derived_from_proposal_id": p1["id"],
+    })
+    assert created.status_code == 200, created.text
+    p2 = created.json()
+    assert p2["base_workspace_version_id"] == base_v2
+    assert p2["derived_from_proposal_id"] == p1["id"], "缺少来源关联"
+    assert p2["text"] == edited, "用户已确认文本未保留"
+
+    s = _db_session()
+    try:
+        logs = s.query(AuditLog).filter(AuditLog.action == "ai_proposal_created").all()
+    finally:
+        s.close()
+    assert any(p1["id"][:8] in (lg.detail or "") for lg in logs), "关联未进审计"
+
+    # 新提案重新经过人工审批后才可写入（回归项 7）
+    r_apply_before = client.post(f"/api/ai-proposals/{p2['id']}/apply")
+    assert r_apply_before.status_code == 409  # 未审批
+    assert client.post(f"/api/ai-proposals/{p2['id']}/approve").status_code == 200
+    applied = client.post(f"/api/ai-proposals/{p2['id']}/apply")
+    assert applied.status_code == 200 and applied.json()["status"] == "applied"
+    assert _ver_count(ws_oid) == ver_before + 1
+
+    s = _db_session()
+    try:
+        v = s.get(OfficeDocumentVersion, applied.json()["applied_version_id"])
+        row1b = s.get(AiProposal, p1["id"])
+    finally:
+        s.close()
+    assert v.source == "ai_generate"
+    assert row1b.base_workspace_version_id == base_v1, "写入后原提案 base 仍不得变化"

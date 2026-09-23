@@ -71,6 +71,7 @@ class AiProposalRequest:
     operation: str = "append_end"
     model: str | None = None
     context: Any = None  # 出网边界：发送给云模型的上下文来源（JSON 可序列化）
+    derived_from_proposal_id: str | None = None  # 重新确认写入时指向原提案（审计关联）
 
 
 def _validate_content(req: AiProposalRequest) -> str:
@@ -118,13 +119,16 @@ class AiProposalService:
             context_json=(json.dumps(req.context, ensure_ascii=False)
                           if req.context is not None else None),
             model=req.model,
+            derived_from_proposal_id=req.derived_from_proposal_id,
             status="draft",
         )
         self.session.add(p)
         self.session.commit()
         self._audit("ai_proposal_created", p,
                     f"base v{base.version} · {req.operation} · {len(req.text)} 字"
-                    + (f" · model={p.model}" if p.model else " · model=（未记录）"))
+                    + (f" · model={p.model}" if p.model else " · model=（未记录）")
+                    + (f" · 重新确认自提案 {p.derived_from_proposal_id[:8]}"
+                       if p.derived_from_proposal_id else ""))
         if p.model == "mock":
             self._audit("ai_proposal_mock_provider", p, "provider=mock（开发/测试显式启用）")
         return self._view(p)
@@ -411,6 +415,7 @@ class AiProposalService:
             "title": p.title,
             "status": p.status,
             "model": p.model,
+            "derived_from_proposal_id": p.derived_from_proposal_id,
             "text": (json.loads(p.content_json).get("text") or "") if p.content_json else "",
             "applied_version_id": p.applied_version_id,
             "error": p.error,
