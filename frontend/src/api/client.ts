@@ -192,6 +192,35 @@ export const api = {
       body: JSON.stringify(body),
     }));
   },
+  async aiGatewayConfig(wsOid: string): Promise<{ provider: string; base_url: string; model: string; timeout_s: number; api_key_ref: string; has_key: boolean }> {
+    return handle(fetch(`/api/office-documents/${wsOid}/ai-gateway/config`));
+  },
+  async aiGatewayTest(wsOid: string): Promise<{ ok: boolean; provider: string; model: string; latency_ms: number; chars: number }> {
+    return handle(fetch(`/api/office-documents/${wsOid}/ai-gateway/test`, { method: "POST" }));
+  },
+  async aiGenerate(
+    wsOid: string,
+    body: { base_workspace_version_id: string; instruction: string; context: { kind: string; ref: string; label?: string; text?: string }[] },
+  ): Promise<{ proposal: { id: string; status: string; title: string; text: string; model: string | null }; egress_manifest: { provider: string; model: string; blocks: { kind: string; ref: string; label: string; chars: number }[] } }> {
+    return handle(fetch(`/api/office-documents/${wsOid}/ai-proposals/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }));
+  },
+  async aiProposalGet(pid: string): Promise<{ id: string; status: string; text: string; model: string | null; applied_version_id: string | null; error: string | null }> {
+    return handle(fetch(`/api/ai-proposals/${pid}`));
+  },
+  async aiProposalContent(pid: string, text: string, title?: string): Promise<{ id: string; status: string }> {
+    return handle(fetch(`/api/ai-proposals/${pid}/content`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, title }),
+    }));
+  },
+  async aiProposalAction(pid: string, action: "approve" | "reject" | "expire" | "apply"): Promise<{ id: string; status: string; applied_version_id: string | null; error: string | null }> {
+    return handle(fetch(`/api/ai-proposals/${pid}/${action}`, { method: "POST" }));
+  },
   async officeVersions(oid: string): Promise<{ items: { id: string; version: number; source: string; created_at: string | null; is_current: boolean; size: number | null; comment: string | null; restored_from_version_id: string | null; editor_user: string | null; file_hash: string }[] }> {
     return handle(fetch(`/api/office-documents/${oid}/versions`));
   },

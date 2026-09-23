@@ -129,6 +129,29 @@ class AiProposalService:
             self._audit("ai_proposal_mock_provider", p, "provider=mock（开发/测试显式启用）")
         return self._view(p)
 
+    # ---------------- C-4c：草稿内容修改与状态恢复查询 ----------------
+
+    def get_proposal(self, proposal_id: str) -> dict[str, Any]:
+        """单提案视图（含候选文本）——UI 响应丢失后按提案 id 恢复状态。"""
+        p = self._get(proposal_id)
+        return self._view(p)
+
+    def update_content(self, proposal_id: str, text: str, title: str | None = None) -> dict[str, Any]:
+        """修改 draft 候选内容（用户在确认前编辑 AI 文本）。仅 draft 可改。"""
+        p = self._get(proposal_id)
+        if p.status != "draft":
+            raise InvalidProposalStateError(f"仅 draft 可修改内容，当前 {p.status}")
+        if not isinstance(text, str) or not text.strip():
+            raise InvalidProposalContentError("AI 内容 text 不能为空")
+        content = json.loads(p.content_json)
+        content["text"] = text
+        p.content_json = json.dumps(content, ensure_ascii=False)
+        if title:
+            p.title = title[:300]
+        self.session.commit()
+        self._audit("ai_proposal_content_updated", p, f"人工编辑后 {len(text)} 字")
+        return self._view(p)
+
     # ---------------- 状态迁移 ----------------
 
     def approve_proposal(self, proposal_id: str) -> dict[str, Any]:
@@ -388,6 +411,7 @@ class AiProposalService:
             "title": p.title,
             "status": p.status,
             "model": p.model,
+            "text": (json.loads(p.content_json).get("text") or "") if p.content_json else "",
             "applied_version_id": p.applied_version_id,
             "error": p.error,
         }

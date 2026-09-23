@@ -395,8 +395,257 @@ async function confirmInsert(): Promise<void> {
 
 const hasDoc = computed(() => !!cur.value && bidDocs.value.length > 0);
 
+/* ---------------- AI 助手（C-4c）：出网确认 → 生成 → 草稿编辑 → 审批写入 ---------------- */
+type AiUiState =
+  | "idle" | "egress_confirm" | "generating" | "draft_ready"
+  | "closing_editor" | "waiting_save" | "applying" | "processing" | "reopening"
+  | "done" | "error";
+const AI_BUSY_STATES = new Set<AiUiState>([
+  "closing_editor", "waiting_save", "applying", "processing", "reopening",
+]);
+const aiUi = ref<AiUiState>("idle");
+const aiBusy = computed(() => AI_BUSY_STATES.has(aiUi.value));
+const aiStep = ref<"compose" | "egress" | "result">("compose");
+const aiCfg = ref<{ provider: string; model: string; has_key: boolean; base_url: string } | null>(null);
+const aiInstruction = ref("");
+const aiMaterialId = ref("");
+const aiManual = ref("");
+const aiPid = ref<string | null>(null);
+const aiDraft = ref("");
+const aiModel = ref("");
+const aiMsg = ref("");
+const aiErr = ref("");
+const aiTest = ref<{ ok: boolean; latency_ms: number } | null>(null);
+
+const AI_FEATURE_MAP: Record<string, string> = {
+  section_break: "分节符", footnote_endnote: "脚注/尾注", comments: "批注",
+  tracked_changes: "修订记录", ole_object: "OLE/嵌入对象", content_control: "内容控件",
+  internal_hyperlink: "内部锚点链接",
+};
+
+const aiMaterial = computed(() =>
+  wsMaterials.value.find((m) => m.id === aiMaterialId.value && m.office_document_id) ?? null);
+
+const aiEgressSummary = computed(() => ({
+  instruction: aiInstruction.value.length,
+  manual: aiManual.value.length,
+  material: aiMaterial.value ? (aiMaterial.value.text || "").length : 0,
+  model: aiCfg.value?.model || "—",
+  host: (() => {
+    try {
+      const u = new URL(aiCfg.value?.base_url || "https://pending");
+      return u.host;
+    } catch {
+      return "—";
+    }
+  })(),
+}));
+
+async function loadAiCfg(): Promise<void> {
+  if (!wsOid.value) {
+    aiCfg.value = null;
+    return;
+  }
+  try {
+    const c = await api.aiGatewayConfig(wsOid.value);
+    aiCfg.value = { provider: c.provider, model: c.model, has_key: c.has_key, base_url: c.base_url };
+  } catch {
+    aiCfg.value = null;
+  }
+}
+
+async function aiConnectionTest(): Promise<void> {
+  if (!wsOid.value) return;
+  aiTest.value = null;
+  aiErr.value = "";
+  try {
+    aiTest.value = await api.aiGatewayTest(wsOid.value);
+  } catch (e) {
+    const err = e as ApiError;
+    const d = err.detail as { message?: string } | undefined;
+    aiErr.value = d?.message || err.message || "连接测试失败";
+  }
+}
+
+function aiBegin(): void {
+  if (aiUi.value !== "idle" && aiUi.value !== "error") return;
+  if (!aiInstruction.value.trim()) {
+    aiErr.value = "请先输入生成要求";
+    return;
+  }
+  aiErr.value = "";
+  aiStep.value = "egress"; // 第一次确认：允许把选定上下文发往云端
+  aiUi.value = "egress_confirm";
+}
+
+const _AI_TEXT_MAX = 8000;
+const _AI_TOTAL_MAX = 16000;
+
+async function aiConfirmEgress(): Promise<void> {
+  const oid = wsOid.value;
+  const pid = cur.value?.id;
+  if (!oid || !pid) return;
+  const total = aiInstruction.value.length + aiManual.value.length
+    + (aiMaterial.value ? (aiMaterial.value.text || "").length : 0);
+  if (total > _AI_TOTAL_MAX) {
+    aiErr.value = `上下文合计 ${total} 字，超出 ${_AI_TOTAL_MAX} 字出网预算，请缩减`;
+    aiUi.value = "error";
+    return;
+  }
+  aiErr.value = "";
+  aiUi.value = "generating";
+  aiMsg.value = "正在请求云端模型…";
+  const st0 = await api.workspaceState(pid);
+  const context: { kind: string; ref: string; label?: string; text?: string }[] = [];
+  if (aiManual.value.trim()) {
+    context.push({ kind: "manual_input", ref: "manual", label: "人工补充", text: aiManual.value });
+  }
+  if (aiMaterial.value?.office_document_id) {
+    context.push({ kind: "material_excerpt", ref: aiMaterial.value.id,
+                   label: aiMaterial.value.title });
+  }
+  try {
+    const r = await api.aiGenerate(oid, {
+      base_workspace_version_id: st0.current_version_id ?? "",
+      instruction: aiInstruction.value,
+      context,
+    });
+    aiPid.value = r.proposal.id;
+    aiDraft.value = r.proposal.text || "";
+    aiModel.value = r.proposal.model || "";
+    aiStep.value = "result";
+    aiUi.value = "draft_ready";
+  } catch (e) {
+    const err = e as ApiError;
+    const d = err.detail as { message?: string; code?: string } | undefined;
+    aiUi.value = "error";
+    aiErr.value = d?.message || err.message || "生成失败";
+  }
+}
+
+async function aiSaveDraft(): Promise<void> {
+  if (!aiPid.value) return;
+  try {
+    await api.aiProposalContent(aiPid.value, aiDraft.value);
+    toast("草稿已保存修改");
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "保存修改失败");
+  }
+}
+
+async function aiReject(): Promise<void> {
+  if (!aiPid.value) return;
+  try {
+    await api.aiProposalAction(aiPid.value, "reject");
+    toast("AI 提案已放弃");
+  } catch {
+    /* 已是终态也视为放弃成功 */
+  }
+  aiReset();
+}
+
+function aiReset(): void {
+  aiPid.value = null;
+  aiDraft.value = "";
+  aiMsg.value = "";
+  aiErr.value = "";
+  aiStep.value = "compose";
+  aiUi.value = "idle";
+  wsEditorMounted.value = true;
+}
+
+/** 写入工作稿：approve → 结束编辑会话 → base 校验（过期则基于最新版重建提案）→ apply → 重开。 */
+async function aiWrite(): Promise<void> {
+  const pid = cur.value?.id;
+  const oid = wsOid.value;
+  if (!pid || !oid || !aiPid.value || aiBusy.value) return;
+  const stW = await api.workspaceState(pid);
+  const baseAtWrite = stW.current_version_id ?? "";
+
+  aiUi.value = "closing_editor";
+  wsEditorMounted.value = false; // 结束编辑会话 → DS status=2
+
+  aiUi.value = "waiting_save";
+  aiMsg.value = "正在保存当前工作稿…";
+  if (!(await waitSessionSettled(oid, 90))) {
+    aiUi.value = "error";
+    aiErr.value = "工作稿仍处于编辑状态，请稍后重试";
+    return;
+  }
+
+  aiUi.value = "applying";
+  aiMsg.value = "正在写入 AI 内容…";
+  let applied: { status: string; applied_version_id: string | null } | null = null;
+  let expired = false;
+  try {
+    // 人工确认 = approve（写入前必须显式审批，审批边界由 DB 层强制）
+    await api.aiProposalAction(aiPid.value, "approve");
+    applied = await api.aiProposalAction(aiPid.value, "apply");
+  } catch (e) {
+    const err = e as ApiError;
+    if (err.status === 409 && err.message.includes("前移")) {
+      expired = true; // 提案基线已过期（用户编辑落版）→ 基于最新版重建提案后重写
+    } else {
+      const d = err.detail as { message?: string } | undefined;
+      aiUi.value = "error";
+      aiErr.value = d?.message || err.message || "写入失败";
+      return;
+    }
+  }
+
+  if (expired) {
+    aiMsg.value = "工作稿已更新，正在基于最新版本重建 AI 提案…";
+    try {
+      const stR = await api.workspaceState(pid);
+      const gen = await api.aiGenerate(oid, {
+        base_workspace_version_id: stR.current_version_id ?? "",
+        instruction: aiInstruction.value,
+        context: aiManual.value.trim()
+          ? [{ kind: "manual_input", ref: "manual", label: "人工补充", text: aiManual.value }]
+          : [],
+      });
+      aiPid.value = gen.proposal.id;
+      await api.aiProposalContent(aiPid.value, aiDraft.value); // 保留用户已编辑/已确认的内容
+      await api.aiProposalAction(aiPid.value, "approve");
+      applied = await api.aiProposalAction(aiPid.value, "apply");
+    } catch (e) {
+      const err = e as ApiError;
+      const d = err.detail as { message?: string } | undefined;
+      aiUi.value = "error";
+      aiErr.value = d?.message || err.message || "重建提案失败";
+      return;
+    }
+  }
+  if (!applied || !applied.applied_version_id) {
+    aiUi.value = "error";
+    aiErr.value = "写入未完成，请重试";
+    return;
+  }
+
+  aiUi.value = "processing";
+  aiMsg.value = "正在同步派生数据…";
+  await waitDerivedSync(pid, oid, 120);
+
+  aiUi.value = "reopening";
+  aiMsg.value = "正在重新打开工作稿…";
+  const stF = await api.workspaceState(pid);
+  const finalV = stF.version ?? 0;
+  wsVersion.value = finalV;
+  wsEditorMounted.value = true;
+  void loadWsVersions();
+  void pollWorkspace();
+
+  toast(`AI 内容已写入工作稿（v${finalV}）`);
+  aiStep.value = "compose";
+  aiInstruction.value = "";
+  aiManual.value = "";
+  aiUi.value = "done";
+  aiUi.value = "idle";
+}
+
+
 /* ---------------- 检测面板 ---------------- */
-const tab = ref<"scan" | "score" | "cases" | "people" | "mats">("scan");
+const tab = ref<"scan" | "score" | "cases" | "people" | "mats" | "ai">("scan");
 const filter = ref<string>("all");
 const onlyOpen = ref(false);
 const doneOpen = ref(false);
@@ -582,12 +831,14 @@ watch(
 );
 
 watch(() => store.activeProjectId, loadWsMaterials);
+watch(() => store.activeProjectId, loadAiCfg);
 
 onMounted(async () => {
   await initWorkspace();
   await loadPanels();
   await refreshCore();
   void loadWsMaterials();
+  void loadAiCfg();
 });
 </script>
 
@@ -712,10 +963,69 @@ onMounted(async () => {
       <!-- 右：检测面板 -->
       <section class="col col-panel">
         <div class="tabs">
-          <button v-for="t in [['scan', '废标检测'], ['score', '评分办法对照'], ['cases', '案例推荐'], ['people', '人员介绍'], ['mats', '素材']] as const"
+          <button v-for="t in [['scan', '废标检测'], ['score', '评分办法对照'], ['cases', '案例推荐'], ['people', '人员介绍'], ['mats', '素材'], ['ai', 'AI 助手']] as const"
                   :key="t[0]" class="tab" :class="{ on: tab === t[0] }" @click="tab = t[0]">{{ t[1] }}</button>
         </div>
         <div class="panel-body">
+          <!-- AI 助手（C-4c） -->
+          <div v-show="tab === 'ai'" class="tabpane">
+            <div class="ai-status">
+              <span class="ai-dot" :class="aiCfg?.has_key && aiCfg.model ? 'on' : 'off'" />
+              <template v-if="aiCfg?.provider === 'openai_compatible' && aiCfg.model">
+                已连接 · {{ aiCfg.model }}
+              </template>
+              <template v-else-if="aiCfg?.provider === 'mock'">Mock Provider（开发/测试）</template>
+              <template v-else>AI 服务未配置</template>
+              <button class="mini-btn" :disabled="aiBusy || !wsOid" @click="aiConnectionTest">测试连接</button>
+            </div>
+            <div v-if="aiTest" class="ai-test">{{ aiTest.ok ? `连接正常（${aiTest.latency_ms}ms）` : "连接失败" }}</div>
+
+            <template v-if="aiStep === 'compose' || aiStep === 'egress'">
+              <div class="ai-form">
+                <label class="fl">生成要求</label>
+                <textarea v-model="aiInstruction" rows="3" :disabled="aiBusy"
+                          placeholder="例如：生成售后服务与质保承诺" />
+                <label class="fl">引用素材</label>
+                <select v-model="aiMaterialId" :disabled="aiBusy">
+                  <option value="">不引用素材</option>
+                  <option v-for="mt in wsMaterials.filter((x) => x.office_document_id)"
+                          :key="mt.id" :value="mt.id">{{ mt.title }}</option>
+                </select>
+                <label class="fl">补充上下文</label>
+                <textarea v-model="aiManual" rows="2" :disabled="aiBusy"
+                          placeholder="手动输入需要 AI 参考的要求或事实" />
+              </div>
+              <div v-if="aiStep === 'egress'" class="ai-egress">
+                <b>出网确认</b>
+                <div>以下内容将发送至云端模型（{{ aiEgressSummary.host }} · {{ aiEgressSummary.model }}）：</div>
+                <div>· 生成要求 {{ aiEgressSummary.instruction }} 字</div>
+                <div>· 补充上下文 {{ aiEgressSummary.manual }} 字</div>
+                <div v-if="aiMaterial">· 素材摘录「{{ aiMaterial.title }}」（发送前由服务端截断至 8000 字）</div>
+                <div class="ai-note">生成结果仅作为草稿提案，需人工确认后才会写入工作稿。</div>
+                <button class="btn-primary" :disabled="aiBusy" @click="aiConfirmEgress">确认出网并生成</button>
+              </div>
+              <div v-if="aiErr" class="ins-error"><span>{{ aiErr }}</span></div>
+              <button v-if="aiStep === 'compose'" class="btn-primary ai-gen"
+                      :disabled="aiBusy || !wsOid || !aiInstruction.trim()" @click="aiBegin">生成候选内容</button>
+            </template>
+
+            <template v-if="aiStep === 'result'">
+              <div class="ai-result-head">
+                <b>AI 生成结果</b>
+                <span class="chip-tag">待确认 · {{ aiModel || "mock" }}</span>
+              </div>
+              <textarea v-model="aiDraft" rows="6" class="ai-draft" :disabled="aiBusy" />
+              <div class="ai-actions">
+                <button class="mini-btn" :disabled="aiBusy" @click="aiSaveDraft">保存修改</button>
+                <button class="mini-btn" :disabled="aiBusy" @click="aiReject">放弃</button>
+                <button class="btn-primary" :disabled="aiBusy" @click="aiWrite">写入工作稿</button>
+              </div>
+              <div v-if="aiMsg" class="ins-status">{{ aiMsg }}</div>
+              <div v-if="aiErr" class="ins-error"><span>{{ aiErr }}</span></div>
+            </template>
+
+            <div v-if="aiBusy" class="ins-status" style="margin-top:10px">{{ aiMsg }}</div>
+          </div>
           <!-- 素材插入（C-3c） -->
           <div v-show="tab === 'mats'" class="tabpane">
             <div v-if="!wsMaterials.length" class="empty-state"><b>本项目暂无素材</b></div>

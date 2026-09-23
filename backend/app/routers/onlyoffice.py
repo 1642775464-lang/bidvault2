@@ -532,6 +532,36 @@ def ai_proposal_apply(pid: str, session: Session = Depends(get_session)) -> dict
         raise HTTPException(e.http_status, e.code) from e
 
 
+@ai_router.get("/{pid}")
+def ai_proposal_get(pid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """单提案视图（含候选文本）——UI 响应丢失后按提案 id 恢复状态。"""
+    from ..services.workspace_mutation import WorkspaceMutationError
+
+    svc = _proposal_service(session)
+    try:
+        return svc.get_proposal(pid)
+    except WorkspaceMutationError as e:
+        raise HTTPException(e.http_status, e.code) from e
+
+
+class AiProposalContentIn(BaseModel):
+    text: str
+    title: str | None = None
+
+
+@ai_router.patch("/{pid}/content")
+def ai_proposal_update_content(pid: str, body: AiProposalContentIn,
+                               session: Session = Depends(get_session)) -> dict[str, Any]:
+    """C-4c：修改 draft 候选内容（用户确认前编辑 AI 文本）。仅 draft 可改。"""
+    from ..services.workspace_mutation import WorkspaceMutationError
+
+    svc = _proposal_service(session)
+    try:
+        return svc.update_content(pid, body.text, body.title)
+    except WorkspaceMutationError as e:
+        raise HTTPException(e.http_status, e.code) from e
+
+
 # ---------------- C-4b-2A：AI Gateway（统一出网入口；Mock Provider 先行） ----------------
 
 
