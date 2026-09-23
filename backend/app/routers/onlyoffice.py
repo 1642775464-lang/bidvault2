@@ -532,6 +532,128 @@ def ai_proposal_apply(pid: str, session: Session = Depends(get_session)) -> dict
         raise HTTPException(e.http_status, e.code) from e
 
 
+# ---------------- C-4b-2A：AI Gateway（统一出网入口；Mock Provider 先行） ----------------
+
+
+class AiGenerateIn(BaseModel):
+    base_workspace_version_id: str
+    instruction: str
+    context: list[dict[str, Any]] = []
+
+
+class AiGatewayConfigIn(BaseModel):
+    provider: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    timeout_s: int | None = None
+    api_key_ref: str | None = None
+
+
+def _gateway_error(e: Any) -> HTTPException:
+    from ..services.ai_gateway import sanitize_error
+
+    return HTTPException(e.http_status, {"code": e.code, "message": sanitize_error(e)})
+
+
+@office_router.get("/{oid}/ai-gateway/config")
+def get_ai_gateway_config(oid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """AI 网关配置视图（永不返回密钥本体）。"""
+    from ..services.ai_gateway import load_gateway_config, public_config_view, resolve_secret_store
+
+    if session.get(OfficeDocument, oid) is None:
+        raise HTTPException(404, "OfficeDocument 不存在")
+    config = load_gateway_config(session)
+    store = resolve_secret_store()
+    has_key = config["provider"] == "mock" or bool(store.get_key(config["api_key_ref"]))
+    return public_config_view(config, has_key)
+
+
+@office_router.put("/{oid}/ai-gateway/config")
+def put_ai_gateway_config(oid: str, body: AiGatewayConfigIn,
+                          session: Session = Depends(get_session)) -> dict[str, Any]:
+    """更新 AI 网关配置（密钥本体不落库，仅可更新 api_key_ref 引用）。"""
+    from ..services.ai_gateway import (
+        load_gateway_config,
+        public_config_view,
+        resolve_secret_store,
+        save_gateway_config,
+    )
+
+    if session.get(OfficeDocument, oid) is None:
+        raise HTTPException(404, "OfficeDocument 不存在")
+    current = load_gateway_config(session)
+    updates = {k: v for k, v in {
+        "provider": body.provider, "base_url": body.base_url, "model": body.model,
+        "timeout_s": body.timeout_s, "api_key_ref": body.api_key_ref,
+    }.items() if v is not None}
+    timeout = updates.get("timeout_s")
+    if isinstance(timeout, int) and not (5 <= timeout <= 600):
+        raise HTTPException(400, {"code": "GATEWAY_INVALID_TIMEOUT",
+                                  "message": "timeout_s 取值范围 5~600"})
+    config = save_gateway_config(session, {**current, **updates})
+    store = resolve_secret_store()
+    has_key = config["provider"] == "mock" or bool(store.get_key(config["api_key_ref"]))
+    return public_config_view(config, has_key)
+
+
+@office_router.post("/{oid}/ai-proposals/generate")
+def generate_ai_proposal(oid: str, body: AiGenerateIn,
+                         session: Session = Depends(get_session)) -> dict[str, Any]:
+    """AI 生成提案候选（经 Gateway）：上下文显式提交 → 出网 → draft 提案（不进入任何正文落点）。"""
+    from ..services.ai_context import ContextCollector
+    from ..services.ai_gateway import (
+        AiGateway,
+        GatewayError,
+        load_gateway_config,
+        resolve_secret_store,
+    )
+    from ..services.ai_proposal import AiProposalRequest
+
+    od = session.get(OfficeDocument, oid)
+    if od is None or od.document_type != "workspace":
+        raise HTTPException(404, "OfficeDocument 不存在")
+    if not (body.instruction or "").strip():
+        raise HTTPException(400, {"code": "GATEWAY_INVALID_INSTRUCTION",
+                                  "message": "写作要求不能为空"})
+
+    from ..models import WorkspaceDocument
+
+    wd = session.query(WorkspaceDocument).filter(
+        WorkspaceDocument.office_document_id == oid).first()
+    project_id = wd.project_id if wd else None
+    if project_id is None:
+        raise HTTPException(404, "工作稿所属项目不存在")
+
+    import json
+
+    config = load_gateway_config(session)
+    gateway = AiGateway(config, resolve_secret_store())
+    try:
+        blocks = ContextCollector(session, project_id).collect(body.context)
+        text, manifest = gateway.generate_proposal_text(body.instruction.strip(), blocks)
+    except GatewayError as e:
+        raise _gateway_error(e) from e
+
+    from ..services.workspace_mutation import WorkspaceMutationError
+
+    svc = _ai_service(session)
+    try:
+        return {
+            "proposal": svc.create_proposal(AiProposalRequest(
+                workspace_office_document_id=oid,
+                base_workspace_version_id=body.base_workspace_version_id,
+                title=(body.instruction.strip()[:60]),
+                text=text,
+                operation="append_end",
+                model=manifest.model,
+                context=json.loads(manifest.to_json()),
+            )),
+            "egress_manifest": json.loads(manifest.to_json()),
+        }
+    except WorkspaceMutationError as e:
+        raise HTTPException(e.http_status, e.code) from e
+
+
 @office_router.post("/{oid}/retry-processor")
 def office_retry_processor(oid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
     """派生数据处理失败后重试（当前版本）。
