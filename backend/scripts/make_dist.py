@@ -6,10 +6,16 @@
 产物：<repo>/交付包/BidVault标书工作台/，整目录拷贝到客户机器即可运行
 （客户机器无需安装 Python / Node；数据落在包内 data/）。
 注意：首次图片 OCR 会联网下载 PaddleOCR 模型缓存。
+
+安全（S-0）：禁止交付包携带任何凭据——
+    不拷贝开发 .env；生成仅含非敏感默认值的 .env（JWT 密钥按包随机生成）；
+    构建末尾全量敏感信息扫描，命中即阻断（含哨兵密钥回归，见 test_make_dist_secret_scan.py）。
 """
 
 from __future__ import annotations
 
+import re
+import secrets
 import shutil
 import sys
 import time
@@ -79,10 +85,84 @@ README = """BidVault 标书工作台 v2 · 单机交付包
 数据：全部落在包内 data/ 目录（拷贝该目录即完成迁移/备份）。
 清空：双击「清空数据.bat」（不可恢复，请先确认）。
 
-大模型联网说明：智能抽取/识别的在线调用需要在本文件同目录的 .env 中
-配置 ZHIPU_API_KEY；未配置时系统仍可用（规则与本地 OCR 通道）。
+大模型联网说明：智能抽取/识别的在线调用需要云 AI 密钥。
+本包默认不携带任何密钥——需要 AI 联网能力时，请在本机以环境变量
+ZHIPU_API_KEY 配置你自己的云 AI 密钥后重启服务（密钥不落包内文件）。
+未配置时系统仍可用（规则与本地 OCR 通道）。
 首次使用图片 OCR 时会联网下载识别模型缓存。
 """
+
+# 敏感信息模式（S-0）：命中即阻断构建。哨兵值用于回归验证阻断机制本身。
+_SECRET_PATTERNS_GLOBAL = (
+    re.compile(rb"ZHIPU_API_KEY\s*[=:]\s*\S"),               # 云 AI 密钥赋值（高置信）
+    re.compile(rb"sk-[A-Za-z0-9]{16,}"),                     # OpenAI 风格密钥
+    re.compile(rb"BIDVAULT-SECRET-SENTINEL-[0-9]+"),         # 哨兵密钥（回归用）
+)
+# 泛模式仅用于配置类文件（.py 源码中合法的取钥代码会误报，故排除）
+_SECRET_PATTERNS_CONFIG = (
+    re.compile(rb"(?i)api[_-]?key\s*[=:]\s*['\"]?[A-Za-z0-9._-]{16,}"),
+    re.compile(rb"(?i)secret\s*[=:]\s*['\"]?[A-Za-z0-9._-]{24,}"),
+)
+# 文件名规则：禁止 .env 变体；生成的 backend/.env（机器本地配置，不含云凭据）豁免文件名规则、仍受内容扫描
+_SECRET_FILENAMES = {".env", ".env.local", ".env.production"}
+_SCAN_TEXT_SUFFIXES = {
+    ".txt", ".md", ".bat", ".cmd", ".ps1", ".py", ".json", ".toml",
+    ".ini", ".cfg", ".yaml", ".yml", ".xml", ".html", ".js", ".ts",
+}
+
+
+class SecretScanError(RuntimeError):
+    """交付包检出敏感信息——阻断构建。"""
+
+
+def scan_package_for_secrets(pkg: Path) -> None:
+    """全量扫描交付包：.env 变体文件名禁止（生成的 backend/.env 除外）；
+    内容命中密钥模式/哨兵即阻断。机器本地 JWT 行豁免（防自身误报）。"""
+    offenders: list[str] = []
+    jwt_allow = re.compile(rb"(?m)^ONLYOFFICE_JWT_SECRET=.*$")  # 机器本地随机值，允许交付
+    for f in sorted(pkg.rglob("*")):
+        if not f.is_file():
+            continue
+        rel = f.relative_to(pkg).as_posix()  # 统一 POSIX 分隔符（Windows 下豁免规则按 / 匹配）
+        if f.name in _SECRET_FILENAMES and rel != "backend/.env":
+            offenders.append(f"{rel}（禁止携带 .env 类文件）")
+            continue
+        if f.suffix.lower() not in _SCAN_TEXT_SUFFIXES and rel != "backend/.env":
+            continue  # 二进制/运行时文件不做文本语义扫描
+        try:
+            data = f.read_bytes()
+        except OSError:
+            continue
+        scanned = jwt_allow.sub(b"ONLYOFFICE_JWT_SECRET=<local>", data)
+        if b"BIDVAULT-SECRET-SENTINEL" in scanned:
+            offenders.append(f"{rel}：命中哨兵密钥")
+            continue
+        # 全局高置信模式（任何文本文件）
+        hit = next((p for p in _SECRET_PATTERNS_GLOBAL if p.search(scanned)), None)
+        # 泛模式仅扫一方与配置类文件（.py/库源码中合法的取钥与赋值代码会误报，故排除）
+        if hit is None and f.suffix.lower() != ".py" and not rel.startswith("runtime/"):
+            hit = next((p for p in _SECRET_PATTERNS_CONFIG if p.search(scanned)), None)
+        if hit is not None:
+            offenders.append(f"{rel}：命中敏感模式 {hit.pattern.decode(errors='replace')[:40]}")
+    if offenders:
+        raise SecretScanError(
+            "交付包含敏感信息，构建已阻断：\n  " + "\n  ".join(offenders[:20]))
+
+
+def write_env_template(pkg: Path) -> None:
+    """生成仅含非敏感默认值的 .env（JWT 密钥按包随机生成，不出网、不入库）。"""
+    onlyoffice_internal = "http://127.0.0.1:8000"
+    onlyoffice_public = "http://127.0.0.1:8080"
+    jwt_secret = secrets.token_urlsafe(32)
+    (pkg / "backend" / ".env").write_text(
+        "## BidVault 单机交付配置（本文件不含任何云 AI 密钥）\n"
+        "## AI 联网能力：请在本机以环境变量 ZHIPU_API_KEY 配置你自己的密钥后重启服务。\n"
+        f"ONLYOFFICE_DOCUMENT_SERVER_PUBLIC_URL={onlyoffice_public}\n"
+        f"ONLYOFFICE_BACKEND_INTERNAL_URL={onlyoffice_internal}\n"
+        f"ONLYOFFICE_JWT_SECRET={jwt_secret}\n"
+        "ONLYOFFICE_JWT_HEADER=Authorization\n",
+        encoding="utf-8",
+    )
 
 
 def main() -> int:
@@ -122,14 +202,16 @@ def main() -> int:
     print("4/5 拷贝前端成品与数据目录…")
     shutil.copytree(dist, pkg / "frontend" / "dist")
     (pkg / "data").mkdir(exist_ok=True)
-    env_src = BACKEND / ".env"
-    if env_src.is_file():
-        shutil.copy2(env_src, pkg / "backend" / ".env")
+    # S-0：禁止拷贝开发 .env（含真实云 AI 密钥）；改为生成不含凭据的机器本地配置
+    write_env_template(pkg)
 
     print("5/5 写入启动脚本与说明…")
     (pkg / "启动标书工作台.bat").write_text(BAT_RUN, encoding="utf-8")
     (pkg / "清空数据.bat").write_text(BAT_CLEAN, encoding="utf-8")
     (pkg / "交付说明.txt").write_text(README, encoding="utf-8")
+
+    print("6/6 敏感信息扫描（命中即阻断）…")
+    scan_package_for_secrets(pkg)
 
     total = sum(f.stat().st_size for f in pkg.rglob("*") if f.is_file())
     print(f"完成：{pkg}")
