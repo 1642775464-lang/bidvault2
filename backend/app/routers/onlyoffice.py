@@ -596,6 +596,35 @@ def put_ai_gateway_config(oid: str, body: AiGatewayConfigIn,
     return public_config_view(config, has_key)
 
 
+@office_router.post("/{oid}/ai-gateway/test")
+def test_ai_gateway(oid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """C-4b-2B：真实连接测试——用配置的端点/模型/密钥发一次最小补全请求。
+
+    返回 ok/model/latency_ms/chars 或脱敏错误；不创建提案、不触正文。
+    """
+    import time as _time
+
+    from ..services.ai_gateway import (
+        AiGateway,
+        GatewayError,
+        load_gateway_config,
+        resolve_secret_store,
+    )
+
+    if session.get(OfficeDocument, oid) is None:
+        raise HTTPException(404, "OfficeDocument 不存在")
+    config = load_gateway_config(session)
+    gateway = AiGateway(config, resolve_secret_store())
+    t0 = _time.perf_counter()
+    try:
+        text, manifest = gateway.generate_proposal_text(
+            "连接测试：请回复一个汉字「通」。", [])
+    except GatewayError as e:
+        raise _gateway_error(e) from e
+    return {"ok": True, "provider": manifest.provider, "model": manifest.model,
+            "latency_ms": int((_time.perf_counter() - t0) * 1000), "chars": len(text)}
+
+
 @office_router.post("/{oid}/ai-proposals/generate")
 def generate_ai_proposal(oid: str, body: AiGenerateIn,
                          session: Session = Depends(get_session)) -> dict[str, Any]:

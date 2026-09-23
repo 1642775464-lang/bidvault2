@@ -54,9 +54,9 @@ class GatewayContextError(GatewayError):
 
 _CONFIG_KEY = "ai_gateway_config"
 _DEFAULT_CONFIG = {
-    "provider": "mock",           # mock | openai_compatible
-    "base_url": "",               # 例 https://api.example.com/v1
-    "model": "",                  # 例 glm-4-flash / gpt-4o-mini
+    "provider": "",               # "" 未配置 | mock（仅开发/测试显式启用）| openai_compatible
+    "base_url": "",               # 例 https://open.bigmodel.cn/api/paas/v4
+    "model": "",                  # 例 glm-4-flash
     "timeout_s": 60,
     "api_key_ref": "",            # 密钥引用（环境变量名 / Windows 凭据名），非密钥本体
 }
@@ -203,14 +203,17 @@ Transport = Callable[[str, dict[str, str], dict[str, Any]], dict[str, Any]]
 
 
 def httpx_transport(url: str, headers: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
-    """生产 transport：OpenAI 风格 chat/completions（单次请求，不自动重试）。"""
+    """生产 transport：OpenAI 风格 chat/completions（单次请求，不自动重试、不跟随重定向）。"""
     import httpx
 
+    validate_egress_url(url)  # 传输层再次校验（防配置保存后被篡改/拼接绕过）
     try:
         resp = httpx.post(url, headers=headers, json=payload,
-                          timeout=_payload_timeout(payload))
+                          timeout=_payload_timeout(payload), follow_redirects=False)
     except Exception as e:  # 网络层失败：脱敏后转为明确错误
         raise GatewayUnavailableError(f"AI 服务连接失败：{type(e).__name__}") from e
+    if 300 <= resp.status_code < 400:
+        raise GatewayError("AI 服务返回重定向，已拒绝（出网地址固定为配置的端点）")
     if resp.status_code in (401, 403):
         raise GatewayError("AI 服务认证失败（请检查密钥配置）")
     if resp.status_code == 429:
@@ -247,6 +250,9 @@ class AiGateway:
         """生成提案候选文本。返回 (text, manifest)。失败抛 GatewayError（调用方零副作用）。"""
         provider = self._config["provider"]
         model = self._config["model"]
+        if provider not in ("mock", "openai_compatible"):
+            raise GatewayConfigError(
+                "AI 服务未配置（请在设置中选择 Provider：mock 仅限开发/测试显式启用）")
         manifest = EgressManifest(provider=provider, model=model,
                                   base_url=self._config["base_url"],
                                   blocks=[{"kind": b.kind, "ref": b.ref,

@@ -122,7 +122,11 @@ class AiProposalService:
         )
         self.session.add(p)
         self.session.commit()
-        self._audit("ai_proposal_created", p, f"base v{base.version} · {req.operation} · {len(req.text)} 字")
+        self._audit("ai_proposal_created", p,
+                    f"base v{base.version} · {req.operation} · {len(req.text)} 字"
+                    + (f" · model={p.model}" if p.model else " · model=（未记录）"))
+        if p.model == "mock":
+            self._audit("ai_proposal_mock_provider", p, "provider=mock（开发/测试显式启用）")
         return self._view(p)
 
     # ---------------- 状态迁移 ----------------
