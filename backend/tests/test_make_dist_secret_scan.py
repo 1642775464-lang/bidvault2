@@ -55,13 +55,18 @@ def json_dumps_api_key(key: str) -> str:
     return json.dumps({"api_key": key})
 
 
-def test_allows_clean_package(tmp_path):
-    _write(tmp_path, "backend/app/main.py", "app = 1\n")
-    _write(tmp_path, "backend/.env", "ONLYOFFICE_JWT_SECRET=abc123def456abc123def456\n")
-    _write(tmp_path, "交付说明.txt", "双击启动标书工作台.bat")
-    scan_package_for_secrets(tmp_path)  # 不抛错即通过（机器本地 JWT 豁免）
-
-
-def test_allows_machine_local_jwt(tmp_path):
+def test_blocks_packaged_jwt_secret(tmp_path):
+    """JWT 实例密钥按安装实例首启生成——交付包（含配置文件）携带 JWT_SECRET 即阻断。"""
     _write(tmp_path, "backend/.env", "ONLYOFFICE_JWT_SECRET=xY3abcDEFghiJKLmnoPQRstuVWXyz0123456789\n")
-    scan_package_for_secrets(tmp_path)  # 机器本地随机 JWT 允许交付
+    with pytest.raises(SecretScanError) as ei:
+        scan_package_for_secrets(tmp_path)
+    # 命中顺序可能是泛 secret 模式或 JWT 专项模式，两者均阻断
+    assert "JWT" in str(ei.value) or "secret" in str(ei.value).lower()
+
+
+def test_allows_clean_package(tmp_path):
+    """无密钥配置包放行：backend/.env 仅含本机 ONLYOFFICE 地址。"""
+    _write(tmp_path, "backend/app/main.py", "app = 1\n")
+    _write(tmp_path, "backend/.env", "ONLYOFFICE_DOCUMENT_SERVER_PUBLIC_URL=http://127.0.0.1:8080\n")
+    _write(tmp_path, "交付说明.txt", "双击启动标书工作台.bat")
+    scan_package_for_secrets(tmp_path)

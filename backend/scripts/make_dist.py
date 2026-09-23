@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import re
-import secrets
 import shutil
 import sys
 import time
@@ -102,6 +101,7 @@ _SECRET_PATTERNS_GLOBAL = (
 _SECRET_PATTERNS_CONFIG = (
     re.compile(rb"(?i)api[_-]?key\s*[=:]\s*['\"]?[A-Za-z0-9._-]{16,}"),
     re.compile(rb"(?i)secret\s*[=:]\s*['\"]?[A-Za-z0-9._-]{24,}"),
+    re.compile(rb"(?i)onlyoffice_jwt_secret\s*[=:]\s*\S"),   # JWT 实例密钥不得打包（首启生成）
 )
 # 文件名规则：禁止 .env 变体；生成的 backend/.env（机器本地配置，不含云凭据）豁免文件名规则、仍受内容扫描
 _SECRET_FILENAMES = {".env", ".env.local", ".env.production"}
@@ -117,9 +117,8 @@ class SecretScanError(RuntimeError):
 
 def scan_package_for_secrets(pkg: Path) -> None:
     """全量扫描交付包：.env 变体文件名禁止（生成的 backend/.env 除外）；
-    内容命中密钥模式/哨兵即阻断。机器本地 JWT 行豁免（防自身误报）。"""
+    内容命中密钥模式/哨兵/JWT 实例密钥即阻断（JWT 按安装实例首启生成，不按构建包打包）。"""
     offenders: list[str] = []
-    jwt_allow = re.compile(rb"(?m)^ONLYOFFICE_JWT_SECRET=.*$")  # 机器本地随机值，允许交付
     for f in sorted(pkg.rglob("*")):
         if not f.is_file():
             continue
@@ -133,7 +132,7 @@ def scan_package_for_secrets(pkg: Path) -> None:
             data = f.read_bytes()
         except OSError:
             continue
-        scanned = jwt_allow.sub(b"ONLYOFFICE_JWT_SECRET=<local>", data)
+        scanned = data
         if b"BIDVAULT-SECRET-SENTINEL" in scanned:
             offenders.append(f"{rel}：命中哨兵密钥")
             continue
@@ -143,23 +142,26 @@ def scan_package_for_secrets(pkg: Path) -> None:
         if hit is None and f.suffix.lower() != ".py" and not rel.startswith("runtime/"):
             hit = next((p for p in _SECRET_PATTERNS_CONFIG if p.search(scanned)), None)
         if hit is not None:
-            offenders.append(f"{rel}：命中敏感模式 {hit.pattern.decode(errors='replace')[:40]}")
+            offenders.append(f"{rel}：命中敏感模式 {hit.pattern.decode(errors='replace')[:48]}")
     if offenders:
         raise SecretScanError(
             "交付包含敏感信息，构建已阻断：\n  " + "\n  ".join(offenders[:20]))
 
 
 def write_env_template(pkg: Path) -> None:
-    """生成仅含非敏感默认值的 .env（JWT 密钥按包随机生成，不出网、不入库）。"""
+    """生成仅含非敏感默认值的 .env。
+
+    不含任何密钥：云 AI Key 由用户本机环境变量提供；JWT 实例密钥由后端
+    首次启动时生成到 data/config/jwt_secret（按安装实例生成，不按构建包打包）。
+    """
     onlyoffice_internal = "http://127.0.0.1:8000"
     onlyoffice_public = "http://127.0.0.1:8080"
-    jwt_secret = secrets.token_urlsafe(32)
     (pkg / "backend" / ".env").write_text(
-        "## BidVault 单机交付配置（本文件不含任何云 AI 密钥）\n"
+        "## BidVault 单机交付配置（本文件不含任何密钥）\n"
         "## AI 联网能力：请在本机以环境变量 ZHIPU_API_KEY 配置你自己的密钥后重启服务。\n"
+        "## ONLYOFFICE JWT 实例密钥由服务首次启动时自动生成（data/config/jwt_secret）。\n"
         f"ONLYOFFICE_DOCUMENT_SERVER_PUBLIC_URL={onlyoffice_public}\n"
         f"ONLYOFFICE_BACKEND_INTERNAL_URL={onlyoffice_internal}\n"
-        f"ONLYOFFICE_JWT_SECRET={jwt_secret}\n"
         "ONLYOFFICE_JWT_HEADER=Authorization\n",
         encoding="utf-8",
     )
