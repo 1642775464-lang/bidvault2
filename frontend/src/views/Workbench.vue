@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { ApiError, api } from "../api/client";
+import { ApiError, api, postNativeEditor } from "../api/client";
 import OfficeEditor from "../components/office/OfficeEditor.vue";
 import type { Material, PersonCard, Project, RiskItemT , HistCase } from "../api/types";
 import {
@@ -37,6 +37,11 @@ const tenderDoc = computed(() => myDocs.value.find((d) => d.kind === "tender") ?
 
 /* ---------------- Workspace 工作稿（C-2：正文唯一真源） ---------------- */
 const wsOid = ref<string | null>(null);
+/** D-1R4：请求编辑器壳以原生 DX 编辑器打开指定 OfficeDocument（仅壳内 WebView2 可用）。 */
+function openNative(oid: string | null): void {
+  if (!oid) return;
+  if (!postNativeEditor(oid)) toast("原生编辑需在 BidVault 编辑器壳内打开（当前为普通浏览器）");
+}
 const wsVersion = ref<number | null>(null);
 const wsSync = ref<"synced" | "staged" | "creating" | "saved" | "syncing" | "failed" | "idle">("idle");
 const wsVerOpen = ref(false);
@@ -939,6 +944,7 @@ onMounted(async () => {
           <span class="tool-sep" />
           <button class="mini-btn" :disabled="!wsOid" @click="wsVerOpen = !wsVerOpen; loadWsVersions()">历史版本</button>
           <button class="mini-btn" :disabled="!wsOid" @click="downloadWsCurrent">下载当前</button>
+          <button class="mini-btn" :disabled="!wsOid" @click="openNative(wsOid)">原生编辑</button>
           <button class="mini-btn" :disabled="!wsOid" @click="doExport()">导出 Word</button>
         </div>
         <div class="ws-stage">

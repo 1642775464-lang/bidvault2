@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "0")
+# D-1R4：测试默认关闭本机鉴权中间件（鉴权行为由 test_local_auth.py 专项覆盖）
+os.environ.setdefault("BIDVAULT_LOCAL_AUTH", "0")
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 os.environ.setdefault(

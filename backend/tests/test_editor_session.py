@@ -223,3 +223,64 @@ def test_session_rejects_invalid_package(client):
     rs = client.put(f"/api/editor-sessions/{sid}/file", content=b"not a zip")
     assert rs.status_code == 409
     assert "DOCX" in rs.json()["detail"]["detail"]
+
+
+def test_session_rejects_trial_contaminated_package(client):
+    """D-1R4：试用构建写入正文的产物不得落为业务版本（验收阻断在保存路径生效）。"""
+    import io as _io
+    import zipfile as _zf
+
+    from app.services.editor_session import detect_trial_content, validate_docx_package
+    from app.services.editor_session import EditorSessionError as ESE
+    from app.services.office_document_svc import (
+        OfficeDocumentService,
+        OfficeDocumentTableAdapter,
+    )
+
+    ws_oid = _setup_ws(client)
+    sid = client.post(f"/api/office-documents/{ws_oid}/editor-session").json()["session_id"]
+
+    s = _db_session()
+    try:
+        from app.models import OfficeDocument
+
+        od = s.get(OfficeDocument, ws_oid)
+        svc = OfficeDocumentService(session=s, adapter=OfficeDocumentTableAdapter(s))
+        cur = svc.get_current_version(od)
+        base_bytes = svc.adapter.read_file(cur.file_path)
+        cur_id = cur.id
+    finally:
+        s.close()
+
+    # 构造含试用标记的包（模拟试用构建保存产物）
+    zin = _zf.ZipFile(_io.BytesIO(base_bytes))
+    buf = _io.BytesIO()
+    with _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as zout:
+        for n in zin.namelist():
+            blob = zin.read(n)
+            if n == "word/document.xml":
+                blob = blob.replace(
+                    b"</w:body>",
+                    b"<w:p><w:r><w:t>For evaluation purposes only. "
+                    b"Please register an existing license (devexpress.com/DX1000)</w:t></w:r></w:p></w:body>",
+                )
+            zout.writestr(n, blob)
+    polluted = buf.getvalue()
+    assert detect_trial_content(polluted), "注入的试用标记应被检出"
+
+    rs = client.put(f"/api/editor-sessions/{sid}/file", content=polluted)
+    assert rs.status_code == 409
+    assert rs.json()["detail"]["detail"].startswith("TRIAL_CONTENT_REJECTED")
+
+    # 版本未被污染推进
+    s = _db_session()
+    try:
+        from app.models import OfficeDocument
+
+        od = s.get(OfficeDocument, ws_oid)
+        cur2 = OfficeDocumentService(session=s, adapter=OfficeDocumentTableAdapter(s)).get_current_version(od)
+        assert cur2.id == cur_id
+    finally:
+        s.close()
+    with pytest.raises(ESE):
+        validate_docx_package(polluted)

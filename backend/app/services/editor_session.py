@@ -164,10 +164,50 @@ class EditorSessionService:
         self.session.commit()
 
 
+TRIAL_MARKERS = (
+    "For evaluation purposes only",
+    "devexpress.com/DX1000",
+    "purchase a new license",
+)
+
+
+def detect_trial_content(data: bytes) -> list[str]:
+    """D-1R4 验收阻断：检出编辑器试用构建写入正文的试用文案（文本框/段落/页眉页脚均查）。
+
+    试用构建保存时会向 document.xml 注入试用横幅（浮动文本框+段落文本），
+    该产物不得成为业务基线——保存路径与构建/验收扫描共用本函数。
+    """
+    hits: list[str] = []
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        return hits
+    for n in z.namelist():
+        if not n.endswith((".xml", ".rels")):
+            continue
+        if not (n.startswith("word/") or n == "[Content_Types].xml"):
+            continue
+        try:
+            blob = z.read(n)
+        except KeyError:
+            continue
+        for m in TRIAL_MARKERS:
+            if m.encode() in blob:
+                hits.append(f"{n}:{m}")
+    return hits
+
+
 def validate_docx_package(data: bytes) -> None:
-    """受控 DOCX 包校验：ZIP 完整 + ContentTypes/document.xml 可安全解析 + python-docx 可开。"""
+    """受控 DOCX 包校验：ZIP 完整 + ContentTypes/document.xml 可安全解析 + python-docx 可开
+    + 试用内容阻断（TRIAL_CONTENT_REJECTED）。"""
     from docx import Document as Docx
 
+    hits = detect_trial_content(data)
+    if hits:
+        raise EditorSessionError(
+            "TRIAL_CONTENT_REJECTED：保存内容含编辑器试用版写入的试用文案"
+            f"（{'; '.join(hits[:3])}）。试用构建不得产生业务版本，请使用正式授权构建。"
+        )
     try:
         z = zipfile.ZipFile(io.BytesIO(data))
         names = set(z.namelist())

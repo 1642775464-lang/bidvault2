@@ -14,6 +14,14 @@ import type {
   WatchPathT,
 } from "./types";
 
+/** D-1R4：WebView2 → WPF 编辑器壳消息桥。返回 false 表示不在壳内（普通浏览器）。 */
+export function postNativeEditor(oid: string): boolean {
+  const wv = (window as unknown as { chrome?: { webview?: { postMessage: (m: unknown) => void } } }).chrome?.webview;
+  if (!wv) return false;
+  wv.postMessage({ type: "open-native-editor", oid });
+  return true;
+}
+
 export class ApiError extends Error {
   status: number;
   /** 非 2xx 响应体（可能是 {"code","features"} 等结构化错误），调用方按需读取 */

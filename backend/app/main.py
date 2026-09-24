@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
@@ -89,6 +89,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="标库 BidVault v2", version="2.0.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def local_access_guard(request: Request, call_next):
+    """D-1R4 安全收口：/api 仅环回可达；业务写接口必须携带实例令牌（头或 Cookie）。
+
+    读请求放行并在环回来源首次访问时下发 HttpOnly Cookie（同浏览器后续写请求自动携带）；
+    编辑器壳/脚本以 X-BidVault-Token 头携带（令牌文件位于数据目录 config/local_token）。
+    """
+    from fastapi.responses import JSONResponse
+
+    from .config import get_settings
+
+    path = request.url.path
+    if not path.startswith("/api"):
+        return await call_next(request)
+    settings = get_settings()
+    client = request.client.host if request.client else ""
+    # "testclient" 为 Starlette 测试宿主标识（仅测试进程内可达）
+    loopback = client in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "testclient")
+    if not loopback:
+        return JSONResponse({"detail": "FORBIDDEN_REMOTE：API 仅允许本机访问"}, status_code=403)
+    if not settings.local_auth_enabled or path == "/api/health":
+        return await call_next(request)
+    presented = request.headers.get("x-bidvault-token") or request.cookies.get("bv_token")
+    if request.method in ("POST", "PUT", "DELETE", "PATCH") and presented != settings.local_access_token:
+        return JSONResponse({"detail": "UNAUTHORIZED_LOCAL_TOKEN：缺少本机访问令牌"}, status_code=401)
+    response = await call_next(request)
+    if presented is None:
+        response.set_cookie("bv_token", settings.local_access_token, httponly=True, samesite="strict")
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],

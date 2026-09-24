@@ -44,6 +44,7 @@ export interface DocItem {
   ocr_conf: number | null;
   needs_review: number;
   created_at: string | null;
+  office_document_id: string | null;
 }
 
 export interface PersonCard {

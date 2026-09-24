@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { api } from "../api/client";
+import { api, postNativeEditor } from "../api/client";
 import type { DocItem, ExtractGroup } from "../api/types";
 import { CATS, INDUSTRIES, fmtSize, openUpload, refreshCore, store, toast } from "../store";
 import { isTableBlockV2, rowBlocks, twipsToPx } from "../utils/documentBlocks";
@@ -228,6 +228,12 @@ function catOf(name: string): string {
 }
 
 const sel = computed(() => docs.value.find((d) => d.id === selId.value) ?? null);
+/** D-1R4：以原生 DX 编辑器打开当前源文档（仅编辑器壳内可用）。 */
+function openNativeSel(): void {
+  const oid = sel.value?.office_document_id;
+  if (!oid) { toast("该文档尚未建立 Office 档案"); return; }
+  if (!postNativeEditor(oid)) toast("原生编辑需在 BidVault 编辑器壳内打开（当前为普通浏览器）");
+}
 const projName = computed(() => {
   const d = sel.value;
   if (!d) return "";
@@ -517,6 +523,7 @@ onMounted(async () => {
               <span v-else-if="sel.ocr_conf != null" class="chip-src">OCR 置信度 {{ ((sel.ocr_conf ?? 0) * 100).toFixed(0) }}%</span>
               <span v-if="sel.project_id" class="chip-proj">{{ projChipName(sel) }}</span>
               <span v-else class="chip-unbind">未绑定</span>
+              <button class="mini-btn" :disabled="!sel.office_document_id" @click="openNativeSel">原生编辑</button>
               <button class="act" @click="openBind()">绑定 / 换绑</button>
               <button v-if="sel.status !== 1" class="act pri" :disabled="!!extractingId" @click="doExtract()">
                 {{ sel.status === 2 ? "重新拆解" : extractingId === sel.id ? "拆解中…" : "拆解抽取" }}

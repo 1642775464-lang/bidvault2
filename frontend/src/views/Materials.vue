@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { api } from "../api/client";
+import { api, postNativeEditor } from "../api/client";
 import type { Material } from "../api/types";
 import { CATS, navTo, refreshCore, store, toast } from "../store";
 import PagePreview from "../components/PagePreview.vue";
@@ -104,6 +104,12 @@ watch([cat, search], () => {
 });
 
 const sel = computed(() => mats.value.find((m) => m.id === selId.value) ?? null);
+/** D-1R4：以原生 DX 编辑器打开当前素材的 OfficeDocument（仅编辑器壳内可用）。 */
+function openNativeSel(): void {
+  const oid = sel.value?.office_document_id;
+  if (!oid) { toast("该素材尚未建立 Office 档案，请先经克隆建档"); return; }
+  if (!postNativeEditor(oid)) toast("原生编辑需在 BidVault 编辑器壳内打开（当前为普通浏览器）");
+}
 const imgDocId = computed(() =>
   (sel.value?.file_name ?? "").startsWith("img/") ? sel.value!.file_name!.split("/")[1] : "",
 );
@@ -622,6 +628,7 @@ onMounted(async () => {
               </div>
             </span>
             <span class="sp">
+              <button class="act" :disabled="!sel.office_document_id" @click="openNativeSel">原生编辑</button>
               <button v-if="dirty" class="act pri" :disabled="saving" @click="saveInline">{{ saving ? "保存中…" : "保存修改" }}</button>
               <button class="act" @click="openUse(sel)">引用到项目</button>
               <button class="act danger" @click="openDel(sel)">删除</button>
