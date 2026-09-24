@@ -15,7 +15,13 @@ from sqlalchemy.orm import Session
 from ...config import get_settings
 from ...models import Document, ExtractItem, ExtractRow, Material
 from ..audit import audit
-from .parser import parse_any, read_source
+from .parser import (
+    OCR_UNAVAILABLE,
+    OCR_UNAVAILABLE_MSG,
+    OcrUnavailableError,
+    parse_any,
+    read_source,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +37,21 @@ class IngestResult:
 
 
 def load_pending(session: Session, limit: int = 1) -> list[Document]:
+    """队首待拆解文档。
+
+    D-1R3：OCR_UNAVAILABLE 阻塞态文档不参与自动重试——否则队首文档每 2 秒
+    失败一次，堵住其后全部文档（队头阻塞）。阻塞文档保持 status=0 + 提示文案，
+    由用户安装 OCR 扩展后经「重新拆解」（清除 error_msg）显式重排。
+    """
+    from sqlalchemy import or_
+
+    from .parser import OCR_UNAVAILABLE
+
+    blocked = Document.error_msg.like(f"{OCR_UNAVAILABLE}%")
     return list(
         session.query(Document)
         .filter(Document.status == 0)
+        .filter(or_(Document.error_msg.is_(None), ~blocked))
         .order_by(Document.created_at)
         .limit(limit)
         .all()
@@ -103,6 +121,14 @@ def process_document(session: Session, doc: Document, *, version_id: str | None 
             logger.warning("ensure_source_office_document failed: %s", doc.filename, exc_info=True)
         audit("doc_extracted", doc_id=doc.id, detail=f"结构项 {extracted} · 素材 {made + img_made}")
         return IngestResult(doc.id, 2, n, extracted, made + img_made)
+    except OcrUnavailableError:
+        # D-1R3：OCR 扩展未安装——显式落状态供前端提示，禁止静默假成功/禁止转云端 OCR
+        logger.warning("ocr unavailable: %s", doc.filename)
+        doc.status = 0
+        doc.error_msg = f"{OCR_UNAVAILABLE}::{OCR_UNAVAILABLE_MSG}"
+        session.commit()
+        audit("ocr_unavailable", doc_id=doc.id, detail="本地 OCR 扩展未安装")
+        return IngestResult(doc_id=doc.id, status=0, chunks=0, extracted=0, materials=0, error=OCR_UNAVAILABLE)
     except Exception as exc:
         logger.exception("ingest failed: %s", doc.filename)
         doc.status = 0

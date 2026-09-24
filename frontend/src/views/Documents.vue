@@ -492,6 +492,7 @@ onMounted(async () => {
             </span>
             <span v-if="d.status === 2" class="st-x x-done">已拆解</span>
             <span v-else-if="d.status === 1" class="st-x x-run"><span class="run-dot" /> 拆解中</span>
+            <span v-else-if="(d.error_msg ?? '').startsWith('OCR_UNAVAILABLE')" class="st-x x-miss">需要 OCR 扩展</span>
             <span v-else class="st-x x-none">未拆解</span>
           </button>
           <div v-if="!filtered.length" class="empty-state"><b>无匹配文档</b>调整筛选，或上传新文档</div>
@@ -591,6 +592,12 @@ onMounted(async () => {
                 <span>{{ grouped.reduce((n, x) => n + x.groups.reduce((m, g2) => m + g2.items.length, 0), 0) }} 个结构项</span>
               </div>
             </template>
+            <div v-else-if="sel.status === 0 && (sel.error_msg ?? '').startsWith('OCR_UNAVAILABLE')" class="xempty">
+              <b>需要本地 OCR 扩展包</b>
+              <p>{{ (sel.error_msg ?? "").replace("OCR_UNAVAILABLE::", "") }}</p>
+              <p class="sub-note">本文档为扫描版 PDF 或图片型文件，文字识别由本地 OCR 扩展包完成（不出网）。</p>
+              <button class="act pri" :disabled="!!extractingId" @click="doExtract()">安装扩展后重新拆解</button>
+            </div>
             <div v-else-if="sel.status === 0" class="xempty">
               <b>这份文档还没有拆解</b>
               <p>拆解抽取将按{{ sel.kind === "tender" ? "「投标人须知前附表 / 评标办法前附表 / 投标文件格式 / 章节内容」" : "「法定代表人身份证明 / 授权委托书 / 基本情况表 / 财务状况 / 类似业绩 / 在履约项目 / 团队简历」" }}的结构输出，供评分对照与写作复用。</p>

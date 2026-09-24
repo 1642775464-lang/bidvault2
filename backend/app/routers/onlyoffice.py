@@ -222,6 +222,11 @@ def restore_version(doc_id: str, version_id: str, body: RestoreIn | None = None,
     target = session.get(OfficeDocumentVersion, version_id)
     if target is None or target.office_document_id != od.id:
         raise HTTPException(404, "历史版本不存在")
+    # D-1R3：原生编辑会话进行中禁止恢复（会与编辑保存产生版本竞争）→ 423
+    from ..services.editor_session import active_session_exists
+
+    if active_session_exists(session, od.id):
+        raise HTTPException(423, "原生编辑会话进行中，请先保存并关闭编辑器再恢复历史版本")
     comment = body.comment if body else None
     editor = (body.editor_user if body else None) or "本地用户"
     svc = OfficeDocumentService(session=session, adapter=OfficeDocumentTableAdapter(session))
@@ -373,6 +378,11 @@ def office_material_insert(oid: str, body: MaterialInsertIn, session: Session = 
         raise HTTPException(404, "OfficeDocument 不存在")
 
     def _probe(doc_id: str) -> bool:
+        # D-1R3：原生编辑会话持有编辑锁 → AI/Material 写入一律 423（不得绕过审批/fencing）
+        from ..services.editor_session import active_session_exists
+
+        if active_session_exists(session, doc_id):
+            return True
         state = _office_cb_log.get(doc_id, "")
         return any(k in state for k in _ACTIVE_EDIT_STATES)
 
@@ -419,6 +429,11 @@ def _ai_service(session: Session) -> AiProposalService:
     from ..services.ooxml_insert import AiTextMutator
 
     def _probe(doc_id: str) -> bool:
+        # D-1R3：原生编辑会话持有编辑锁 → AI/Material 写入一律 423（不得绕过审批/fencing）
+        from ..services.editor_session import active_session_exists
+
+        if active_session_exists(session, doc_id):
+            return True
         state = _office_cb_log.get(doc_id, "")
         return any(k in state for k in _ACTIVE_EDIT_STATES)
 
@@ -894,6 +909,11 @@ def office_restore_version(oid: str, vid: str, body: OfficeRestoreIn | None = No
     target = session.get(OfficeDocumentVersion, vid)
     if target is None or target.office_document_id != oid:
         raise HTTPException(404, "历史版本不存在")
+    # D-1R3：原生编辑会话进行中禁止恢复（会与编辑保存产生版本竞争）→ 423
+    from ..services.editor_session import active_session_exists
+
+    if active_session_exists(session, oid):
+        raise HTTPException(423, "原生编辑会话进行中，请先保存并关闭编辑器再恢复历史版本")
     svc = OfficeDocumentService(session=session, adapter=OfficeDocumentTableAdapter(session))
     editor = (body.editor_user if body else None) or "本地用户"
     try:

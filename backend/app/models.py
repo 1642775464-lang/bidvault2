@@ -463,6 +463,26 @@ class DetectRuleVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class EditorSession(Base):
+    """D-1R3：原生编辑器（DX）编辑会话——替代 DS callback 的会话协议数据层。
+
+    一个 OfficeDocument 同时只允许一个 active 会话（编辑锁）：
+    AI/Material/restore 写入前必须探针检查（423）；保存按 base_version 做
+    乐观锁（fence），冲突返回 409 要求重开会话。异常退出靠 last_seen 过期回收。
+    """
+
+    __tablename__ = "editor_sessions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    office_document_id: Mapped[str] = mapped_column(String(32), index=True)
+    base_version_id: Mapped[str] = mapped_column(String(32))
+    base_version: Mapped[int] = mapped_column(Integer, default=0)
+    state: Mapped[str] = mapped_column(String(10), default="active")  # active | closed
+    editor_user: Mapped[str] = mapped_column(String(100), default="local")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 BUILTIN_PLATFORMS = ("上海市公共资源交易平台", "中招联合招标采购平台", "优质采购云平台", "政府采购云平台", "企业自建招标平台")
 STAGES = ("技术标制作", "商务标制作", "合标", "打印盖章", "上传")
 MATERIAL_CATS = ("资质文件", "财务状况", "业绩案例", "人员团队", "技术方案", "商务模板", "投标格式")

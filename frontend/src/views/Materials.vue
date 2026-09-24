@@ -498,7 +498,11 @@ async function saveCreate(): Promise<void> {
   if (eFile.value) {
     try {
       const r = await api.uploadMaterial(eFile.value, eCat.value);
-      toast(`素材「${eFile.value.name}」已上传（${r.type}）`);
+      if (r.ocr_unavailable) {
+        toast(r.ocr_message ?? "当前文件需要 OCR 文字识别。请安装本地 OCR 扩展包后继续处理。");
+      } else {
+        toast(`素材「${eFile.value.name}」已上传（${r.type}）`);
+      }
       editOpen.value = false;
       await load();
     } catch (e) {

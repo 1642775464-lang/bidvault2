@@ -15,6 +15,7 @@ from ..config import get_settings
 from ..db import get_session
 from ..models import MATERIAL_CATS, Document, Material, MaterialRef, Project
 from ..services import ooxml_clone, source_locator
+from ..services.ingest.parser import OCR_UNAVAILABLE_MSG, OcrUnavailableError
 from ..services.audit import audit
 from ..services.images import guess_cat
 
@@ -102,6 +103,7 @@ async def upload_material(
     mtype = "附件"
     text: str | None = None
     context = filename
+    ocr_unavailable = False
     if suffix in (".jpg", ".jpeg", ".png"):
         mtype = "图片"
         try:
@@ -110,6 +112,10 @@ async def upload_material(
             parsed = OCREngine.get().ocr_image(data)
             text = parsed.text
             context = f"{filename} {text}"
+        except OcrUnavailableError:
+            # D-1R3：OCR 扩展未安装——素材仍按图片附件入库，但必须显式提示，禁止静默假成功
+            text = None
+            ocr_unavailable = True
         except Exception:
             text = ""
     mat = Material(
@@ -124,8 +130,12 @@ async def upload_material(
     )
     session.add(mat)
     session.commit()
-    audit("material_uploaded", detail=f"{filename} · {mtype}")
-    return {"ok": True, "id": mat.id, "type": mtype, "cat": mat.cat}
+    audit("material_uploaded", detail=f"{filename} · {mtype}" + (" · OCR_UNAVAILABLE" if ocr_unavailable else ""))
+    resp: dict[str, Any] = {"ok": True, "id": mat.id, "type": mtype, "cat": mat.cat}
+    if ocr_unavailable:
+        resp["ocr_unavailable"] = True
+        resp["ocr_message"] = OCR_UNAVAILABLE_MSG
+    return resp
 
 
 @router.post("")

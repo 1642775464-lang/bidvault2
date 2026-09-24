@@ -16,6 +16,7 @@ from .routers import (
     backup,
     detect,
     documents,
+    editor_sessions,
     materials,
     onlyoffice,
     paths,
@@ -104,6 +105,7 @@ app.include_router(search.router)
 app.include_router(people.router)
 app.include_router(preview.router)
 app.include_router(detect.router)
+app.include_router(editor_sessions.router)
 app.include_router(onlyoffice.router)
 app.include_router(onlyoffice.office_router)
 app.include_router(onlyoffice.ai_router)

@@ -14,6 +14,14 @@ from typing import Any
 # Windows CPU + paddle 3.x 兼容：mkldnn PIR 指令未实现，须在 paddle 首次导入前禁用
 os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "0")
 
+# D-1R3：OCR 为独立离线扩展——主包不含 paddle/cv2，缺失时必须显式失败而非静默假成功
+OCR_UNAVAILABLE = "OCR_UNAVAILABLE"
+OCR_UNAVAILABLE_MSG = "当前文件需要 OCR 文字识别。请安装本地 OCR 扩展包后继续处理。"
+
+
+class OcrUnavailableError(RuntimeError):
+    """本地 OCR 扩展未安装（paddle/cv2 缺失）——由管线落 OCR_UNAVAILABLE 状态并提示用户。"""
+
 
 @dataclass
 class TableBlock:
@@ -355,7 +363,20 @@ class OCREngine:
 
             # Windows CPU + paddle 3.x：mkldnn PIR 指令未实现（ConvertPirAttribute2RuntimeAttribute），禁用后走普通核
             os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "0")
-            from paddleocr import PaddleOCR
+            # D-1R3：OCR 扩展包随包携带模型 → 指向本机模型目录，识别全程离线
+            try:
+                from ...config import get_settings
+
+                ocr_models = get_settings().data_dir / "ocr_models"
+                if ocr_models.is_dir():
+                    os.environ.setdefault("PADDLE_PDX_CACHE_HOME", str(ocr_models))
+            except Exception:  # noqa: BLE001 配置不可用不阻断（回退默认缓存目录）
+                pass
+            try:
+                from paddleocr import PaddleOCR
+            except ImportError as exc:
+                self._ocr = None
+                raise OcrUnavailableError(OCR_UNAVAILABLE_MSG) from exc
 
             self._ocr = PaddleOCR(
                 lang="ch",
@@ -370,8 +391,11 @@ class OCREngine:
 
     def ocr_image(self, data: bytes) -> ParsedDoc:
         """单张图片 OCR（JPG/PNG 上传链路）。"""
-        import cv2
-        import numpy as np
+        try:
+            import cv2
+            import numpy as np
+        except ImportError as exc:
+            raise OcrUnavailableError(OCR_UNAVAILABLE_MSG) from exc
 
         ocr = self._load()
         arr = np.frombuffer(data, dtype=np.uint8)
@@ -390,8 +414,12 @@ class OCREngine:
         )
 
     def ocr_pdf(self, data: bytes) -> ParsedDoc:
-        import fitz
-        import numpy as np
+        try:
+            import fitz
+            import numpy as np
+        except ImportError as exc:
+            # OCR 路径依赖（numpy/cv2 等）随扩展包提供——缺失一律显式 OCR_UNAVAILABLE
+            raise OcrUnavailableError(OCR_UNAVAILABLE_MSG) from exc
 
         ocr = self._load()
         pages: list[str] = []

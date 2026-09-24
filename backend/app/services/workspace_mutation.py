@@ -142,6 +142,9 @@ class WorkspaceMutationService:
         ws_od = self.session.get(OfficeDocument, req.workspace_office_document_id)
         if ws_od is None:
             raise RelatedEntityNotFoundError("workspace OfficeDocument 不存在")
+        # D-1R3：编辑锁 fail-fast——任何写入前置校验之前先探针（423 优先于 404/422）
+        if self._has_active_edit(ws_od):
+            raise WorkspaceEditingError("存在活跃编辑会话或未落版本的工作快照，请先结束编辑")
         if ws_od.document_type != "workspace":
             raise WorkspaceVersionMismatchError("目标 OfficeDocument 不是 workspace")
         material_od = self.session.get(OfficeDocument, req.material_office_document_id)
@@ -161,9 +164,6 @@ class WorkspaceMutationService:
         mat_ver = self.session.get(OfficeDocumentVersion, req.material_version_id)
         if mat_ver is None or mat_ver.office_document_id != material_od.id:
             raise MaterialVersionMismatchError("material_version_id 不属于该 material OfficeDocument")
-
-        if self._has_active_edit(ws_od):
-            raise WorkspaceEditingError("存在活跃编辑会话或未落版本的工作快照，请先结束编辑")
 
         current = ws_od.current_version_id
         if current != req.base_workspace_version_id:

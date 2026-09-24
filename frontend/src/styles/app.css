@@ -412,6 +412,7 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .chip-src{font-size:10.5px;color:var(--dim);background:#f4f7fb;border-radius:4px;padding:1px 6px;white-space:nowrap}
 .st-x{font-size:11px;font-weight:600;padding:1px 8px;border-radius:4px;white-space:nowrap}
 .x-done{color:var(--ok);background:var(--ok-bg)}
+.x-miss{color:var(--risk);background:var(--risk-bg)}
 .x-none{color:var(--dim);background:var(--hint-bg)}
 .x-run{color:var(--accent-deep);background:var(--accent-bg)}
 .run-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 1s ease infinite alternate}

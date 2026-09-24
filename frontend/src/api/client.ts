@@ -281,7 +281,7 @@ export const api = {
   },
 
   /* ---- 素材库 ---- */
-  async uploadMaterial(file: File, cat: string): Promise<{ ok: boolean; id: string; type: string; cat: string }> {
+  async uploadMaterial(file: File, cat: string): Promise<{ ok: boolean; id: string; type: string; cat: string; ocr_unavailable?: boolean; ocr_message?: string }> {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("cat", cat);
