@@ -483,6 +483,42 @@ class EditorSession(Base):
     last_seen: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class WorkspaceRegistry(Base):
+    """E-1A：标书工作区注册表（单工作区，active 唯一）。
+
+    工作区根路径是用户真实资产所在；数据库只存索引与分析结果（投影模型，
+    E-0 契约 §1.2）。schema_version 用于目录协议升级判断。
+    """
+
+    __tablename__ = "workspace_registry"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    root_path: Mapped[str] = mapped_column(String(500))
+    name: Mapped[str] = mapped_column(String(200), default="")
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
+    active: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class WorkspaceEvent(Base):
+    """E-1A：工作区文件变化事件（监视器产出，供 E-1B/C 摄入与确认消费）。
+
+    kind: added | modified | deleted；status: detected（待处理）| confirmed | dismissed。
+    忽略规则（~$ 锁文件/.bidvault/隐藏临时）与稳定判定（hash 两次一致）在监视器侧完成。
+    """
+
+    __tablename__ = "workspace_events"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    workspace_id: Mapped[str] = mapped_column(String(32), index=True)
+    rel_path: Mapped[str] = mapped_column(String(700))
+    kind: Mapped[str] = mapped_column(String(10))
+    file_hash: Mapped[str | None] = mapped_column(String(64), default=None)
+    status: Mapped[str] = mapped_column(String(10), default="detected")
+    detail: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 BUILTIN_PLATFORMS = ("上海市公共资源交易平台", "中招联合招标采购平台", "优质采购云平台", "政府采购云平台", "企业自建招标平台")
 STAGES = ("技术标制作", "商务标制作", "合标", "打印盖章", "上传")
 MATERIAL_CATS = ("资质文件", "财务状况", "业绩案例", "人员团队", "技术方案", "商务模板", "投标格式")

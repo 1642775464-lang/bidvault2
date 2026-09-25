@@ -22,6 +22,27 @@ export function postNativeEditor(oid: string): boolean {
   return true;
 }
 
+/* ---- E-1A：标书工作区 ---- */
+export interface WorkspaceInfo {
+  active: boolean;
+  id?: string;
+  root?: string;
+  name?: string;
+  schema_version?: number;
+  skeleton_ok?: boolean;
+  repaired?: string[];
+  created_at?: string | null;
+}
+
+export interface WorkspaceEventT {
+  id: string;
+  rel_path: string;
+  kind: "added" | "modified" | "deleted";
+  file_hash: string | null;
+  status: string;
+  created_at: string | null;
+}
+
 export class ApiError extends Error {
   status: number;
   /** 非 2xx 响应体（可能是 {"code","features"} 等结构化错误），调用方按需读取 */
@@ -60,6 +81,17 @@ function qs(params: Record<string, string | number | undefined>): string {
 }
 
 export const api = {
+  /* ---- E-1A：标书工作区 ---- */
+  async getWorkspace(): Promise<WorkspaceInfo> {
+    return handle(fetch("/api/workspace"));
+  },
+  async createWorkspace(path: string, name: string): Promise<WorkspaceInfo> {
+    return handle(fetch("/api/workspace", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, name }),
+    }));
+  },
   /* ---- 项目库 ---- */
   async projects(mode: "active" | "archived", q = ""): Promise<{ total: number; items: Project[] }> {
     return handle(fetch(`/api/projects${qs({ mode, q })}`));

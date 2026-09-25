@@ -5,13 +5,15 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from .config import get_settings
-from .db import make_engine
+from .db import get_session, make_engine
 from .routers import (
     backup,
     detect,
@@ -24,6 +26,7 @@ from .routers import (
     preview,
     projects,
     search,
+    workspace,
 )
 from .services.archive.watcher import WatchService
 from .services.backup import apply_pending_restore, start_backup_scheduler
@@ -72,6 +75,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _watcher = WatchService()
     _watcher.restart()
     app.state.watcher = _watcher
+    # E-1A：标书工作区监视（有活动工作区时启动）
+    from sqlalchemy.orm import Session as _Session
+
+    with _Session(bind=get_engine()) as _ws:
+        _ws_row = _ws.execute(
+            text("SELECT id, root_path FROM workspace_registry WHERE active = 1 LIMIT 1")
+        ).first()
+    if _ws_row is not None:
+        from .services.workspace_monitor import WorkspaceMonitor
+
+        _ws_monitor = WorkspaceMonitor(get_session)
+        _ws_monitor.start(Path(_ws_row.root_path), _ws_row.id)
+        app.state.workspace_monitor = _ws_monitor
     try:  # F2.2 存量向量回填（无缺失时零开销）
         from sqlalchemy.orm import Session
 
@@ -83,6 +99,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logging.getLogger(__name__).warning("embed backfill skipped")
     yield
+    _ws_mon = getattr(app.state, "workspace_monitor", None)
+    if _ws_mon is not None:
+        _ws_mon.stop()
     if _watcher is not None:
         _watcher.stop()
     stop_workers()
@@ -135,6 +154,7 @@ app.include_router(backup.router)
 app.include_router(documents.router)
 app.include_router(materials.router)
 app.include_router(search.router)
+app.include_router(workspace.router)
 app.include_router(people.router)
 app.include_router(preview.router)
 app.include_router(detect.router)

@@ -760,3 +760,6 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .ai-draft{width:100%;border:1px solid var(--line);border-radius:6px;padding:8px;font-size:13px;font-family:inherit;resize:vertical}
 .ai-actions{display:flex;gap:8px;margin:10px 0;justify-content:flex-end}
 .ai-rebind{border:1px solid var(--risk);background:var(--risk-bg);border-radius:6px;padding:10px;font-size:12.5px;display:flex;flex-direction:column;gap:6px;margin-top:10px}
+/* E-1A 工作区首启引导 */
+.ipt{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;color:var(--ink);background:#fff;outline:none}
+.ipt:focus{border-color:var(--accent)}

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ApiError, api, postNativeEditor } from "../api/client";
+import type { WorkspaceInfo } from "../api/client";
 import OfficeEditor from "../components/office/OfficeEditor.vue";
 import type { Material, PersonCard, Project, RiskItemT , HistCase } from "../api/types";
 import {
@@ -877,16 +878,51 @@ watch(() => store.activeProjectId, loadWsMaterials);
 watch(() => store.activeProjectId, loadAiCfg);
 
 onMounted(async () => {
+  try {
+    wsSetup.value = await api.getWorkspace();
+  } catch { /* 健康检查失败时下次再试 */ }
   await initWorkspace();
   await loadPanels();
   await refreshCore();
   void loadWsMaterials();
   void loadAiCfg();
 });
+
+/* ---------------- E-1A：工作区首启引导 ---------------- */
+const wsSetup = ref<WorkspaceInfo | null>(null);
+const wsSetupPath = ref("D:\\标书工作区");
+const wsSetupName = ref("我的标书工作区");
+const wsSetupBusy = ref(false);
+async function createWs(): Promise<void> {
+  if (wsSetupBusy.value) return;
+  wsSetupBusy.value = true;
+  try {
+    wsSetup.value = await api.createWorkspace(wsSetupPath.value.trim(), wsSetupName.value.trim());
+    toast("工作区已创建，文件将按目录协议归档");
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "创建失败");
+  } finally {
+    wsSetupBusy.value = false;
+  }
+}
 </script>
 
 <template>
   <div class="viewscroll">
+    <!-- E-1A：工作区首启引导（未创建工作区时强制先行） -->
+    <div v-if="wsSetup && !wsSetup.active" class="xempty" style="position:fixed;inset:60px 0 0 0;z-index:60;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px">
+      <b style="font-size:16px">欢迎使用标书工作台 · 创建您的标书工作区</b>
+      <p class="sub-note" style="max-width:520px;text-align:center">
+        工作区是您存放所有标书文件的本地文件夹（项目招标/投标文件、素材、中转）。
+        系统在此文件夹内按目录协议组织文件，数据库仅保存索引与分析结果，您的文件始终归您所有。
+      </p>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input v-model="wsSetupPath" class="ipt" style="width:320px" placeholder="例如 D:\标书工作区" />
+        <input v-model="wsSetupName" class="ipt" style="width:160px" placeholder="工作区名称" />
+        <button class="act pri" :disabled="wsSetupBusy" @click="createWs">{{ wsSetupBusy ? "创建中…" : "创建工作区" }}</button>
+      </div>
+      <p class="sub-note">建议选择独立目录（如 D:\标书工作区），不要放在系统或应用安装目录内。</p>
+    </div>
     <!-- 项目上下文条 -->
     <header class="ctx">
       <span class="ctx-label">项目</span>
