@@ -141,6 +141,8 @@ class Settings:
     # D-1R4 本机鉴权：业务写接口需携带实例令牌；BIDVAULT_LOCAL_AUTH=0 仅用于测试/开发关闭
     local_auth_enabled: bool = field(default_factory=lambda: _env("BIDVAULT_LOCAL_AUTH", default="1") != "0")
     local_access_token: str = field(default_factory=lambda: _resolve_local_token(_data_dir()))
+    # E-1C：单文件上传上限（与导入管线条目上限一致）
+    max_upload_bytes: int = field(default_factory=lambda: int(_env("MAX_UPLOAD_BYTES", default=str(200 * 1024 * 1024))))
     # 阶段三 callback 落地前默认只读；置 1 仅限开发模式（页面会明确提示“修改不会保存”）
     onlyoffice_edit_enabled: bool = field(default_factory=lambda: _env("ONLYOFFICE_EDIT_ENABLED", default="0") == "1")
     # B-1c-3 迁移维护模式：禁止 Source 编辑/保存/恢复（读取链切换窗口）

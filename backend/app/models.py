@@ -520,7 +520,10 @@ class WorkspaceEvent(Base):
 
 
 class ImportBatch(Base):
-    """E-1B：历史资料导入批次（中转暂存 → 分类建议 → 用户确认 → 归档注册）。"""
+    """E-1B/C：历史资料导入批次。
+
+    status: pending_confirm（建议就绪待确认）| archiving | done | discarded | failed。
+    """
 
     __tablename__ = "import_batches"
 
@@ -528,17 +531,19 @@ class ImportBatch(Base):
     workspace_id: Mapped[str] = mapped_column(String(32), index=True)
     label: Mapped[str] = mapped_column(String(200), default="")
     source_desc: Mapped[str] = mapped_column(String(500), default="")
-    status: Mapped[str] = mapped_column(String(12), default="ready")  # ready | archiving | done | failed
+    status: Mapped[str] = mapped_column(String(16), default="pending_confirm")
     error: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 class ImportItem(Base):
-    """E-1B：导入条目（中转区单个文件的分类建议与归档结果）。
+    """E-1B/C：导入条目（状态机经项目负责人冻结）。
 
-    status: staged(暂存) | classified(已建议) | archived(已归档) | duplicate(重复) |
-            discarded(用户放弃) | failed
-    分类只给建议（本地规则优先），归档必须用户确认（E-1B 边界：系统建议→用户确认→执行）。
+    pending_confirm（分类建议就绪，含重复候选）→ confirmed（用户裁决已记录）
+    → archived（已移动归档）→ registered（Document/Material 已建档）
+    | skipped（重复选择跳过/未知暂留中转）| discarded（放弃，暂存清理）| failed。
+
+    dup_note：扫描时与既有版本/已归档文件 hash 一致的提示（由用户选 跳过/保留副本）。
     """
 
     __tablename__ = "import_items"
@@ -556,7 +561,8 @@ class ImportItem(Base):
     confidence: Mapped[int] = mapped_column(Integer, default=0)  # 0..100
     reasons_json: Mapped[str | None] = mapped_column(Text, default=None)
     decided_kind: Mapped[str | None] = mapped_column(String(12), default=None)  # 用户确认的分类
-    status: Mapped[str] = mapped_column(String(12), default="classified")
+    status: Mapped[str] = mapped_column(String(16), default="pending_confirm")
+    dup_note: Mapped[str | None] = mapped_column(Text, default=None)
     doc_id: Mapped[str | None] = mapped_column(String(32), default=None)
     material_id: Mapped[str | None] = mapped_column(String(32), default=None)
     error: Mapped[str | None] = mapped_column(Text, default=None)

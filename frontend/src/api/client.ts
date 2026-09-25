@@ -43,6 +43,40 @@ export interface WorkspaceEventT {
   created_at: string | null;
 }
 
+/* ---- E-1C：历史资料导入 ---- */
+export interface ImportItemT {
+  id: string;
+  file_name: string;
+  staging_rel: string;
+  size: number;
+  kind: "tender" | "bid" | "material" | "unknown";
+  confidence: number;
+  reasons: string[];
+  status: "pending_confirm" | "confirmed" | "archived" | "registered" | "skipped" | "discarded" | "failed";
+  decided_kind: string | null;
+  dup_note: string | null;
+  target_rel: string | null;
+  doc_id: string | null;
+  material_id: string | null;
+  error: string | null;
+}
+
+export interface ImportBatchT {
+  batch_id: string;
+  label: string;
+  status: string;
+  created_at: string | null;
+  counts: Record<string, number>;
+  total: number;
+}
+
+export interface ImportBatchDetailT {
+  batch_id: string;
+  status: string;
+  error: string | null;
+  items: ImportItemT[];
+}
+
 export class ApiError extends Error {
   status: number;
   /** 非 2xx 响应体（可能是 {"code","features"} 等结构化错误），调用方按需读取 */
@@ -91,6 +125,31 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path, name }),
     }));
+  },
+  async uploadImportFiles(files: File[], label: string): Promise<{ batch_id: string; status: string }> {
+    const fd = new FormData();
+    for (const f of files) fd.append("files", f);
+    fd.append("label", label);
+    return handle(fetch("/api/workspace/imports/upload", { method: "POST", body: fd }));
+  },
+  async importBatches(): Promise<{ items: ImportBatchT[] }> {
+    return handle(fetch("/api/workspace/imports"));
+  },
+  async importBatch(batchId: string): Promise<ImportBatchDetailT> {
+    return handle(fetch(`/api/workspace/imports/${batchId}`));
+  },
+  async confirmImport(batchId: string, decisions: Array<Record<string, unknown>>): Promise<{ results: Array<Record<string, unknown>> }> {
+    return handle(fetch(`/api/workspace/imports/${batchId}/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decisions }),
+    }));
+  },
+  async discardImportBatch(batchId: string): Promise<{ ok: boolean; removed_files: number; status: string }> {
+    return handle(fetch(`/api/workspace/imports/${batchId}/discard`, { method: "POST" }));
+  },
+  async undoImportItem(batchId: string, itemId: string): Promise<{ ok: boolean; detail?: string }> {
+    return handle(fetch(`/api/workspace/imports/${batchId}/items/${itemId}/undo`, { method: "POST" }));
   },
   /* ---- 项目库 ---- */
   async projects(mode: "active" | "archived", q = ""): Promise<{ total: number; items: Project[] }> {

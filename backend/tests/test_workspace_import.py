@@ -169,9 +169,102 @@ def test_duplicate_hash_flagged_not_deleted(client, tmp_path):
         {"item_id": item2["id"], "kind": "tender", "project_name": "项目B"},
     ]})
     results = r.json()["results"]
-    assert results[0]["status"] == "duplicate"
+    assert results[0]["status"] == "skipped", results
+    assert "hash 一致" in results[0].get("detail", "")
     # 原件仍在暂存区（未删除）
     assert (tmp_path / "ws" / item2["staging_rel"]).is_file()
+
+
+def test_duplicate_keep_copy_archives_suffix(client, tmp_path):
+    """E-1C 验收④：已归档文件再次导入 → 用户可选「保留副本」归档（-2 后缀）。"""
+    ws = _setup_ws(client, tmp_path)
+    d1 = tmp_path / "招标文件A.docx"
+    d1.write_bytes(_docx("招标文件 评标办法"))
+    r = client.post("/api/workspace/imports", json={"paths": [str(d1)]})
+    batch1 = r.json()["batch_id"]
+    item1 = client.get(f"/api/workspace/imports/{batch1}").json()["items"][0]
+    client.post(f"/api/workspace/imports/{batch1}/confirm", json={"decisions": [
+        {"item_id": item1["id"], "kind": "tender", "project_name": "项目A"},
+    ]})
+
+    d2 = tmp_path / "招标文件B.docx"
+    d2.write_bytes(d1.read_bytes())
+    r = client.post("/api/workspace/imports", json={"paths": [str(d2)]})
+    batch2 = r.json()["batch_id"]
+    item2 = client.get(f"/api/workspace/imports/{batch2}").json()["items"][0]
+    assert item2["dup_note"], "扫描期应提示重复"
+    r = client.post(f"/api/workspace/imports/{batch2}/confirm", json={"decisions": [
+        {"item_id": item2["id"], "kind": "tender", "project_name": "项目A",
+         "duplicate_action": "keep_copy"},
+    ]})
+    assert r.json()["results"][0]["status"] == "archived"
+    # 保留副本：以用户上传名归档（与 A 不同名不触发 -2；同名才加后缀）
+    assert (tmp_path / "ws" / "项目" / "项目A" / "招标文件" / "招标文件B.docx").is_file()
+
+
+def test_discard_batch_cleans_staging(client, tmp_path):
+    """E-1C 验收③：放弃导入——中转暂存副本清理，条目 discarded，用户原件不受影响。"""
+    ws = _setup_ws(client, tmp_path)
+    src = tmp_path / "用户原件.docx"
+    src.write_bytes(_docx("招标文件 评标办法"))
+    r = client.post("/api/workspace/imports", json={"paths": [str(src)]})
+    batch_id = r.json()["batch_id"]
+    assert src.is_file()  # 用户原件不被触碰
+
+    r = client.post(f"/api/workspace/imports/{batch_id}/discard")
+    assert r.status_code == 200
+    assert r.json()["status"] == "discarded"
+    staging = tmp_path / "ws" / "中转"
+    assert not any(staging.rglob("*.docx")) if staging.exists() else True
+    detail = client.get(f"/api/workspace/imports/{batch_id}").json()
+    assert detail["status"] == "discarded"
+    assert all(i["status"] == "discarded" for i in detail["items"])
+
+
+def test_undo_archived_item_back_to_staging(client, tmp_path):
+    """E-1C 验收①回退面：投标文件仅归档未建档 → 撤销归档移回中转。"""
+    ws = _setup_ws(client, tmp_path)
+    zp = tmp_path / "mix.zip"
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("投标文件.docx", _docx("投标文件 投标函"))
+    batch_id = client.post("/api/workspace/imports", json={"paths": [str(zp)]}).json()["batch_id"]
+    item = client.get(f"/api/workspace/imports/{batch_id}").json()["items"][0]
+    client.post(f"/api/workspace/imports/{batch_id}/confirm", json={"decisions": [
+        {"item_id": item["id"], "kind": "bid", "project_name": "项目U", "decompose": False},
+    ]})
+    # 投标询问式未建档 → archived，可撤销
+    r = client.post(f"/api/workspace/imports/{batch_id}/items/{item['id']}/undo")
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert (tmp_path / "ws" / item["staging_rel"]).is_file()
+    assert not (tmp_path / "ws" / "项目" / "项目U" / "投标文件" / "投标文件.docx").exists()
+    detail = client.get(f"/api/workspace/imports/{batch_id}").json()
+    assert detail["items"][0]["status"] == "pending_confirm"
+
+
+def test_upload_multipart_flow(client, tmp_path):
+    """E-1C：浏览器 multipart 上传入口（uuid 容器名，用户文件名作分类信号）。"""
+    ws = _setup_ws(client, tmp_path)
+    r = client.post("/api/workspace/imports/upload",
+                    files=[("files", ("招标文件.docx", _docx("招标文件 评标办法 前附表"), "application/octet-stream")),
+                           ("files", ("营业执照.pdf", "fake pdf 营业执照".encode(), "application/octet-stream"))],
+                    data={"label": "上传验收"})
+    assert r.status_code == 201, r.text
+    batch_id = r.json()["batch_id"]
+    detail = client.get(f"/api/workspace/imports/{batch_id}").json()
+    names = {i["file_name"] for i in detail["items"]}
+    assert names == {"招标文件.docx", "营业执照.pdf"}
+    kinds = {i["file_name"]: i["kind"] for i in detail["items"]}
+    assert kinds["招标文件.docx"] == "tender" and kinds["营业执照.pdf"] == "material"
+
+
+def test_import_list_batches(client, tmp_path):
+    ws = _setup_ws(client, tmp_path)
+    src = tmp_path / "招标文件.docx"
+    src.write_bytes(_docx("招标文件 评标办法"))
+    client.post("/api/workspace/imports", json={"paths": [str(src)]})
+    lst = client.get("/api/workspace/imports").json()["items"]
+    assert len(lst) == 1 and lst[0]["status"] == "pending_confirm"
+    assert lst[0]["counts"].get("pending_confirm", 0) == 1
 
 
 def test_scanned_tender_pdf_degrades_without_ocr(client, tmp_path, monkeypatch):

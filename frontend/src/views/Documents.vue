@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { api, postNativeEditor } from "../api/client";
+import type { ImportBatchDetailT, ImportItemT } from "../api/client";
 import type { DocItem, ExtractGroup } from "../api/types";
 import { CATS, INDUSTRIES, fmtSize, openUpload, refreshCore, store, toast } from "../store";
 import { isTableBlockV2, rowBlocks, twipsToPx } from "../utils/documentBlocks";
@@ -233,6 +234,107 @@ function openNativeSel(): void {
   const oid = sel.value?.office_document_id;
   if (!oid) { toast("该文档尚未建立 Office 档案"); return; }
   if (!postNativeEditor(oid)) toast("原生编辑需在 BidVault 编辑器壳内打开（当前为普通浏览器）");
+}
+
+/* ---------------- E-1C：历史资料导入 · 分类确认工作台 ---------------- */
+const impOpen = ref(false);
+const impBusy = ref(false);
+const impBatches = ref<Array<{ batch_id: string; label: string; status: string; counts: Record<string, number>; total: number }>>([]);
+const impBatch = ref<string | null>(null);
+const impDetail = ref<ImportBatchDetailT | null>(null);
+const impProject = ref("导入项目");
+const impEdit = ref<Record<string, { kind: string; material_cat: string; duplicate_action: string }>>({});
+
+function kindLabel(k: string): string {
+  return { tender: "招标文件", bid: "投标文件", material: "素材", unknown: "待人工" }[k] ?? k;
+}
+function statusLabel(s: string): string {
+  return {
+    pending_confirm: "待确认", confirmed: "已确认", archived: "已归档",
+    registered: "已建档", skipped: "已跳过", discarded: "已放弃", failed: "失败",
+  }[s] ?? s;
+}
+const impPendingCount = computed(() =>
+  (impDetail.value?.items ?? []).filter((x) => x.status === "pending_confirm").length);
+
+async function openImp(): Promise<void> {
+  impOpen.value = true;
+  try {
+    impBatches.value = (await api.importBatches()).items;
+  } catch { /* 未建工作区时由引导层负责 */ }
+}
+function editOf(i: ImportItemT): { kind: string; material_cat: string; duplicate_action: string } {
+  if (!impEdit.value[i.id]) {
+    impEdit.value[i.id] = {
+      kind: i.kind === "unknown" ? "unknown" : i.kind,
+      material_cat: "企业资质",
+      duplicate_action: "skip",
+    };
+  }
+  return impEdit.value[i.id];
+}
+async function onImpFiles(e: Event): Promise<void> {
+  const input = e.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  if (!files.length) return;
+  impBusy.value = true;
+  try {
+    const r = await api.uploadImportFiles(files, "历史资料导入");
+    impBatch.value = r.batch_id;
+    await loadImpBatch(r.batch_id);
+    toast(`已导入 ${files.length} 个文件，请确认分类后归档`);
+  } catch (err) {
+    toast(err instanceof Error ? err.message : "导入失败");
+  } finally {
+    impBusy.value = false;
+    input.value = "";
+  }
+}
+async function loadImpBatch(batchId: string): Promise<void> {
+  impBatch.value = batchId;
+  impDetail.value = await api.importBatch(batchId);
+  impEdit.value = {};
+  for (const i of impDetail.value.items) editOf(i);
+}
+async function confirmImpAll(): Promise<void> {
+  if (!impBatch.value || !impDetail.value) return;
+  const decisions = impDetail.value.items
+    .filter((x) => x.status === "pending_confirm")
+    .map((x) => {
+      const e = editOf(x);
+      const d: Record<string, unknown> = {
+        item_id: x.id, kind: e.kind, project_name: impProject.value.trim() || "导入项目",
+        material_cat: e.material_cat, decompose: false, duplicate_action: e.duplicate_action,
+      };
+      if (e.kind === "tender") d.decompose = true;  // 招标：归档即自动拆解（既有规则）
+      return d;
+    });
+  if (!decisions.length) { toast("没有待确认条目"); return; }
+  impBusy.value = true;
+  try {
+    await api.confirmImport(impBatch.value, decisions);
+    await loadImpBatch(impBatch.value);
+    await refreshCore();
+    toast("归档完成：招标文件已自动拆解，投标文件与素材按确认落位");
+  } catch (err) {
+    toast(err instanceof Error ? err.message : "确认失败");
+  } finally {
+    impBusy.value = false;
+  }
+}
+async function discardImp(): Promise<void> {
+  if (!impBatch.value) return;
+  if (!window.confirm("放弃本次导入？中转暂存副本将被清理（您的原件不受影响）。")) return;
+  await api.discardImportBatch(impBatch.value);
+  impBatch.value = null;
+  impDetail.value = null;
+  toast("导入已放弃，暂存已清理");
+}
+async function undoImp(itemId: string): Promise<void> {
+  if (!impBatch.value) return;
+  const r = await api.undoImportItem(impBatch.value, itemId);
+  if (r.ok) { await loadImpBatch(impBatch.value); }
+  else toast(r.detail ?? "不可撤销");
 }
 const projName = computed(() => {
   const d = sel.value;
@@ -483,6 +585,7 @@ onMounted(async () => {
         <option v-for="p in store.projects" :key="p.id" :value="p.id">{{ p.name }}</option>
       </select></span>
       <button class="mini-btn" @click="openUpload(null, 'tender')">上传文档</button>
+      <button class="mini-btn" @click="openImp">历史资料导入</button>
     </div>
 
     <div class="xwork">
@@ -678,6 +781,91 @@ onMounted(async () => {
         <div class="m-foot">
           <button class="btn-ghost" @click="bindOpen = false">取消</button>
           <button class="btn-primary" @click="saveBind()">确认</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- E-1C：历史资料导入 · 分类确认工作台 -->
+    <div v-if="impOpen" class="modal-mask" @click.self="impOpen = false">
+      <div class="modal" style="width:860px;max-width:94vw;max-height:86vh;display:flex;flex-direction:column">
+        <div class="m-head" style="display:flex;justify-content:space-between;align-items:center">
+          <h3 style="margin:0">历史资料导入 · 分类确认</h3>
+          <button class="mini-btn" @click="impOpen = false">关闭</button>
+        </div>
+        <div style="padding:10px 14px;overflow:auto;flex:1">
+          <template v-if="!impBatch">
+            <div v-if="impBatches.length" style="margin-bottom:10px">
+              <div class="sub-note" style="margin-bottom:6px">待处理 / 历史批次</div>
+              <button v-for="b in impBatches" :key="b.batch_id"
+                      class="mini-btn" style="display:block;width:100%;text-align:left;margin-bottom:6px"
+                      @click="loadImpBatch(b.batch_id)">
+                {{ b.label }} · {{ b.status }} · 共 {{ b.total }} 个
+                <span v-if="b.counts.pending_confirm">（待确认 {{ b.counts.pending_confirm }}）</span>
+              </button>
+            </div>
+            <label class="upzone" style="display:block;text-align:center;padding:26px;cursor:pointer">
+              <input type="file" multiple accept=".zip,.docx,.doc,.pdf,.xlsx,.xls,.csv,.txt,.jpg,.jpeg,.png,.bmp"
+                     @change="onImpFiles" />
+              <b>选择文件或压缩包开始导入</b>
+              <p class="sub-note">支持 zip / Word / PDF / Excel / 图片；系统仅给出分类建议，归档以您确认为准。</p>
+            </label>
+          </template>
+          <template v-else>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+              <span class="sub-note">归档项目名：</span>
+              <input v-model="impProject" class="ipt" style="width:180px" />
+              <button class="act pri" :disabled="impBusy || !impPendingCount" @click="confirmImpAll">
+                {{ impBusy ? "执行中…" : `全部确认（${impPendingCount}）` }}
+              </button>
+              <button class="mini-btn" :disabled="impBusy" @click="discardImp">放弃导入</button>
+              <button class="mini-btn" @click="impBatch = null; impDetail = null">返回列表</button>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+              <thead>
+                <tr style="text-align:left;color:var(--dim)">
+                  <th style="padding:4px 6px">文件</th>
+                  <th style="padding:4px 6px">系统建议</th>
+                  <th style="padding:4px 6px">确认分类</th>
+                  <th style="padding:4px 6px">状态</th>
+                  <th style="padding:4px 6px">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="i in impDetail?.items ?? []" :key="i.id" style="border-top:1px solid var(--line)">
+                  <td style="padding:4px 6px">
+                    {{ i.file_name }}
+                    <div class="sub-note">{{ (i.size / 1024).toFixed(0) }} KB<span v-if="i.dup_note"> · {{ i.dup_note }}</span></div>
+                  </td>
+                  <td style="padding:4px 6px">
+                    {{ kindLabel(i.kind) }} {{ i.confidence }}%
+                    <div class="sub-note">{{ i.reasons.join("；") }}</div>
+                  </td>
+                  <td style="padding:4px 6px">
+                    <template v-if="i.status === 'pending_confirm'">
+                      <select v-model="impEdit[i.id].kind" style="width:110px">
+                        <option value="tender">招标文件</option>
+                        <option value="bid">投标文件</option>
+                        <option value="material">素材</option>
+                        <option value="unknown">待人工</option>
+                      </select>
+                      <select v-if="impEdit[i.id].kind === 'material'" v-model="impEdit[i.id].material_cat" style="width:110px;margin-left:4px">
+                        <option>企业资质</option><option>人员简历</option><option>项目案例</option><option>技术方案</option>
+                      </select>
+                      <label v-if="i.dup_note" class="sub-note" style="display:block;margin-top:2px">
+                        <input type="radio" :value="'skip'" v-model="impEdit[i.id].duplicate_action" /> 跳过
+                        <input type="radio" :value="'keep_copy'" v-model="impEdit[i.id].duplicate_action" /> 保留副本
+                      </label>
+                    </template>
+                    <template v-else>{{ kindLabel(i.decided_kind || i.kind) }}</template>
+                  </td>
+                  <td style="padding:4px 6px">{{ statusLabel(i.status) }}<div v-if="i.error" class="sub-note">{{ i.error }}</div></td>
+                  <td style="padding:4px 6px">
+                    <button v-if="i.status === 'archived'" class="mini-btn" @click="undoImp(i.id)">撤销归档</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
         </div>
       </div>
     </div>

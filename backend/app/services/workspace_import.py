@@ -62,28 +62,32 @@ def safe_join(base: Path, rel: str) -> Path:
 # ---------------- 批次创建：暂存 + 扫描 + 分类建议 ----------------
 
 def create_batch(session: Session, workspace_id: str, ws_root: Path, paths: list[str],
-                 label: str = "") -> ImportBatch:
+                 label: str = "", names: list[str] | None = None) -> ImportBatch:
+    """创建导入批次。names：与 paths 对齐的原始文件名（浏览器上传走 uuid 容器名时传此参数，
+    保证分类与暂存名使用用户文件名而非容器名）。"""
     batch = ImportBatch(workspace_id=workspace_id, label=label or "历史资料导入",
-                        source_desc="; ".join(Path(p).name for p in paths[:5]))
+                        source_desc="; ".join((names[i] if names and i < len(names) else Path(p).name)
+                                              for i, p in enumerate(paths[:5])))
     session.add(batch)
     session.commit()
 
     staging = safe_join(ws_root, f"中转/导入-{batch.id[:8]}")
     staging.mkdir(parents=True, exist_ok=True)
     try:
-        for raw in paths:
+        for i, raw in enumerate(paths):
             src = Path(raw)
             if not src.is_file():
                 raise ImportError_(f"源文件不存在：{src}")
-            if src.suffix.lower() not in ALLOWED_EXTS:
-                raise ImportError_(f"不支持的类型：{src.name}")
-            if src.suffix.lower() == ".zip":
+            display = (names[i] if names and i < len(names) else src.name)
+            if Path(display).suffix.lower() not in ALLOWED_EXTS:
+                raise ImportError_(f"不支持的类型：{display}")
+            if Path(display).suffix.lower() == ".zip":
                 try:
                     _extract_zip_guarded(src, staging)
                 except ValueError as e:  # zip-slip 等可疑条目 → 400 语义
                     raise ImportError_(str(e)) from e
             else:
-                _copy_guarded(src, safe_join(staging, src.name))
+                _copy_guarded(src, safe_join(staging, Path(display).name))
     except Exception as e:
         batch.status = "failed"
         batch.error = str(e)
@@ -138,6 +142,9 @@ def _scan_and_suggest(session: Session, batch: ImportBatch, staging: Path) -> No
 
     from .workspace_fs import file_hash
 
+    archived_hashes = {h for (h,) in session.query(ImportItem.file_hash)
+                       .filter(ImportItem.status.in_(["archived", "registered"])).all()
+                       if h}
     for p in sorted(staging.rglob("*")):
         if not p.is_file():
             continue
@@ -153,13 +160,26 @@ def _scan_and_suggest(session: Session, batch: ImportBatch, staging: Path) -> No
         elif p.suffix.lower() == ".pdf":
             content = _pdf_text(p.read_bytes())
         kind, conf, reasons = classify_import(p.name, p.suffix, content)
+        # E-1C：重复检测前移到扫描期——提示用户，由其选 跳过/保留副本
+        dup_note = None
+        if data_hash in archived_hashes:
+            dup_note = "与已归档文件 hash 一致"
+        else:
+            from ..models import OfficeDocumentVersion
+
+            dup = (session.query(OfficeDocumentVersion)
+                   .filter(OfficeDocumentVersion.file_hash == data_hash).first())
+            if dup is not None:
+                dup_note = f"与既有版本重复（v{dup.version}）"
+        if dup_note:
+            reasons = list(reasons) + [dup_note]
         reasons_json = json.dumps(reasons, ensure_ascii=False)
         session.add(ImportItem(
             batch_id=batch.id, workspace_id=batch.workspace_id,
             file_name=p.name, staging_rel=f"中转/导入-{batch.id[:8]}/{rel}",
             file_hash=data_hash, size=p.stat().st_size, ext=p.suffix.lower(),
             kind_suggested=kind, confidence=conf, reasons_json=reasons_json,
-            status="classified",
+            status="pending_confirm", dup_note=dup_note,
         ))
         session.add(ClassificationLog(
             file_hash=data_hash, kind=kind, confidence=conf,
@@ -203,7 +223,7 @@ def _archive_project_doc(session: Session, ws_root: Path, item: ImportItem,
     item.decided_kind = kind
     item.target_rel = dest.relative_to(ws_root).as_posix()
     item.doc_id = doc.id if doc is not None else None
-    item.status = "archived"
+    item.status = "registered" if doc is not None else "archived"
     return item.target_rel
 
 
@@ -256,15 +276,17 @@ def _archive_material(session: Session, ws_root: Path, item: ImportItem,
     item.decided_kind = "material"
     item.target_rel = dest.relative_to(ws_root).as_posix()
     item.material_id = mat.id
-    item.status = "archived"
+    item.status = "registered"
     return item.target_rel
 
 
 def confirm_batch(session: Session, ws_root: Path, batch: ImportBatch,
                   decisions: list[dict], settings_files_dir: Path) -> list[dict]:
-    """按用户裁决归档。返回逐条结果。重复/未知不移动（留在中转）。"""
-    from ..models import OfficeDocumentVersion
+    """按用户裁决执行：状态机 pending_confirm → confirmed → archived → registered | skipped | failed。
 
+    重复条目由用户选：skip（留中转）/ keep_copy（允许归档副本，-2 后缀）。
+    未知条目不移动（留在中转等人工）。
+    """
     batch.status = "archiving"
     session.commit()
     results: list[dict] = []
@@ -275,28 +297,38 @@ def confirm_batch(session: Session, ws_root: Path, batch: ImportBatch,
             if item is None or item.batch_id != batch.id:
                 results.append({"item_id": d.get("item_id", ""), "status": "failed", "error": "条目不存在"})
                 continue
-            if item.status == "duplicate":
-                results.append({"item_id": item.id, "status": "duplicate"})
+            if item.status not in ("pending_confirm", "confirmed"):
+                results.append({"item_id": item.id, "status": item.status})
                 continue
+            item.status = "confirmed"
             kind = d.get("kind") or item.kind_suggested
+            if item.dup_note and d.get("duplicate_action", "skip") == "skip":
+                item.status = "skipped"  # 重复：用户选跳过，文件留在中转
+                results.append({"item_id": item.id, "status": "skipped", "detail": item.dup_note})
+                continue
+            allow_dup = item.dup_note is not None and d.get("duplicate_action") == "keep_copy"
             if item.file_hash in seen_hashes:
-                item.status = "duplicate"
+                item.status = "skipped"
                 item.error = "批次内 hash 重复"
-                results.append({"item_id": item.id, "status": "duplicate"})
+                results.append({"item_id": item.id, "status": "skipped", "detail": "批次内 hash 重复"})
                 continue
-            dup = (session.query(OfficeDocumentVersion)
-                   .filter(OfficeDocumentVersion.file_hash == item.file_hash).first())
-            prev = (session.query(ImportItem)
-                    .filter(ImportItem.status == "archived",
-                            ImportItem.file_hash == item.file_hash,
-                            ImportItem.batch_id != batch.id)
-                    .first())
-            if (dup is not None or prev is not None) and d.get("allow_duplicate") is not True:
-                item.status = "duplicate"
-                item.error = (f"与既有版本重复（v{dup.version}）" if dup is not None
-                              else f"与已归档文件重复（{prev.file_name}）")
-                results.append({"item_id": item.id, "status": "duplicate"})
-                continue
+            if not allow_dup:
+                from ..models import OfficeDocumentVersion
+
+                dup = (session.query(OfficeDocumentVersion)
+                       .filter(OfficeDocumentVersion.file_hash == item.file_hash).first())
+                prev = (session.query(ImportItem)
+                        .filter(ImportItem.status.in_(["archived", "registered"]),
+                                ImportItem.file_hash == item.file_hash,
+                                ImportItem.batch_id != batch.id)
+                        .first())
+                if dup is not None or prev is not None:
+                    item.status = "skipped"
+                    item.dup_note = (f"与既有版本重复（v{dup.version}）" if dup is not None
+                                     else f"与已归档文件重复（{prev.file_name}）")
+                    results.append({"item_id": item.id, "status": "skipped",
+                                    "detail": item.dup_note})
+                    continue
             seen_hashes.add(item.file_hash)
             try:
                 if kind in ("tender", "bid"):
@@ -308,7 +340,7 @@ def confirm_batch(session: Session, ws_root: Path, batch: ImportBatch,
                                                d.get("material_cat") or "",
                                                settings_files_dir)
                 else:
-                    item.status = "classified"  # unknown：留在中转等人工
+                    item.status = "pending_confirm"  # unknown：留在中转等人工
                     results.append({"item_id": item.id, "status": "skipped_unknown"})
                     continue
                 session.add(ClassificationLog(
@@ -330,3 +362,44 @@ def confirm_batch(session: Session, ws_root: Path, batch: ImportBatch,
         batch.error = str(e)[:500]
         session.commit()
         raise
+
+
+def discard_batch(session: Session, batch: ImportBatch, ws_root: Path) -> int:
+    """放弃导入（E-1C 验收③）：清理中转暂存副本（均为系统拷贝，不碰用户原件），
+    未处理条目置 discarded，批次置 discarded。返回清理文件数。"""
+    from ..models import ImportItem
+
+    staging = ws_root / f"中转/导入-{batch.id[:8]}"
+    removed = 0
+    if staging.is_dir():
+        for p in staging.rglob("*"):
+            if p.is_file():
+                removed += 1
+        shutil.rmtree(staging, ignore_errors=True)
+    (session.query(ImportItem)
+     .filter(ImportItem.batch_id == batch.id,
+             ImportItem.status.in_(["pending_confirm", "confirmed", "skipped"]))
+     .update({ImportItem.status: "discarded"}, synchronize_session=False))
+    batch.status = "discarded"
+    session.commit()
+    return removed
+
+
+def undo_item(session: Session, batch: ImportBatch, item: ImportItem, ws_root: Path) -> dict:
+    """撤销归档（E-1C 验收①的回退面）：仅限 archived 未建档条目——文件移回中转，
+    状态回 pending_confirm。已注册（registered，即已建档）条目拒绝（版本链牵连，走历史恢复）。"""
+    if item.status == "registered":
+        return {"ok": False, "detail": "已注册建档（Document/Material 已创建），请走历史版本恢复，不能直接撤销"}
+    if item.status != "archived" or not item.target_rel:
+        return {"ok": False, "detail": f"状态 {item.status} 不可撤销"}
+    target = safe_join(ws_root, item.target_rel)
+    back = safe_join(ws_root, item.staging_rel)
+    if target.is_file():
+        back.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(target), str(back))
+    item.status = "pending_confirm"
+    item.target_rel = None
+    item.doc_id = None
+    item.material_id = None
+    session.commit()
+    return {"ok": True}
