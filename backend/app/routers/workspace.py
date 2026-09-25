@@ -84,3 +84,85 @@ def dismiss_event(event_id: str, session: Session = Depends(get_session)) -> dic
     e.status = "dismissed"
     session.commit()
     return {"ok": True}
+
+
+# ---------------- E-1B：历史资料导入 ----------------
+
+from pydantic import Field  # noqa: E402
+
+
+class ImportIn(BaseModel):
+    paths: list[str] = Field(min_length=1)
+    label: str = ""
+
+
+class ConfirmIn(BaseModel):
+    decisions: list[dict[str, Any]]
+
+
+def _active(session: Session):
+    row = workspace_fs.get_active(session)
+    if row is None:
+        raise HTTPException(409, {"code": "WORKSPACE_ERROR", "detail": "尚未创建工作区"})
+    return row
+
+
+@router.post("/imports", status_code=201)
+def create_import(body: ImportIn, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """创建导入批次：源文件/压缩包 → 中转暂存（安全解包）→ 扫描+分类建议。"""
+    from ..services.workspace_import import ImportError_, create_batch
+    from pathlib import Path
+
+    row = _active(session)
+    try:
+        batch = create_batch(session, row.id, Path(row.root_path), body.paths, body.label)
+    except ImportError_ as e:
+        raise HTTPException(400, {"code": "IMPORT_ERROR", "detail": str(e)}) from e
+    return {"batch_id": batch.id, "status": batch.status}
+
+
+@router.get("/imports/{batch_id}")
+def get_import(batch_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """批次详情：逐条分类建议（kind/confidence/reasons）与状态。"""
+    import json
+
+    from ..models import ImportBatch, ImportItem
+
+    row = _active(session)
+    batch = session.get(ImportBatch, batch_id)
+    if batch is None or batch.workspace_id != row.id:
+        raise HTTPException(404, "导入批次不存在")
+    items = (session.query(ImportItem)
+             .filter(ImportItem.batch_id == batch_id)
+             .order_by(ImportItem.created_at).all())
+    return {
+        "batch_id": batch.id, "status": batch.status, "error": batch.error,
+        "items": [{
+            "id": i.id, "file_name": i.file_name, "staging_rel": i.staging_rel,
+            "size": i.size, "kind": i.kind_suggested, "confidence": i.confidence,
+            "reasons": json.loads(i.reasons_json) if i.reasons_json else [],
+            "status": i.status, "target_rel": i.target_rel,
+            "doc_id": i.doc_id, "material_id": i.material_id, "error": i.error,
+        } for i in items],
+    }
+
+
+@router.post("/imports/{batch_id}/confirm")
+def confirm_import(batch_id: str, body: ConfirmIn,
+                   session: Session = Depends(get_session)) -> dict[str, Any]:
+    """用户确认归档：逐条 kind/project/material_cat/decompose 裁决 → 移动归档+注册建档。"""
+    from pathlib import Path
+
+    from ..config import get_settings
+    from ..models import ImportBatch
+    from ..services.workspace_import import confirm_batch
+
+    row = _active(session)
+    batch = session.get(ImportBatch, batch_id)
+    if batch is None or batch.workspace_id != row.id:
+        raise HTTPException(404, "导入批次不存在")
+    if batch.status not in ("ready", "done"):  # done 允许补确认未知条目
+        raise HTTPException(409, f"批次状态 {batch.status} 不允许确认")
+    results = confirm_batch(session, Path(row.root_path), batch, body.decisions,
+                            get_settings().files_dir)
+    return {"results": results}

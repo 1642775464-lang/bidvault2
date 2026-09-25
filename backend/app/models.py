@@ -519,6 +519,82 @@ class WorkspaceEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class ImportBatch(Base):
+    """E-1B：历史资料导入批次（中转暂存 → 分类建议 → 用户确认 → 归档注册）。"""
+
+    __tablename__ = "import_batches"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    workspace_id: Mapped[str] = mapped_column(String(32), index=True)
+    label: Mapped[str] = mapped_column(String(200), default="")
+    source_desc: Mapped[str] = mapped_column(String(500), default="")
+    status: Mapped[str] = mapped_column(String(12), default="ready")  # ready | archiving | done | failed
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class ImportItem(Base):
+    """E-1B：导入条目（中转区单个文件的分类建议与归档结果）。
+
+    status: staged(暂存) | classified(已建议) | archived(已归档) | duplicate(重复) |
+            discarded(用户放弃) | failed
+    分类只给建议（本地规则优先），归档必须用户确认（E-1B 边界：系统建议→用户确认→执行）。
+    """
+
+    __tablename__ = "import_items"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    batch_id: Mapped[str] = mapped_column(String(32), index=True)
+    workspace_id: Mapped[str] = mapped_column(String(32), index=True)
+    file_name: Mapped[str] = mapped_column(String(300))
+    staging_rel: Mapped[str] = mapped_column(String(700))   # 中转/导入/<batch>/ 内的暂存位置
+    target_rel: Mapped[str | None] = mapped_column(String(700), default=None)  # 归档后工作区内位置
+    file_hash: Mapped[str] = mapped_column(String(64), index=True)
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    ext: Mapped[str] = mapped_column(String(16), default="")
+    kind_suggested: Mapped[str] = mapped_column(String(12), default="unknown")  # tender|bid|material|unknown
+    confidence: Mapped[int] = mapped_column(Integer, default=0)  # 0..100
+    reasons_json: Mapped[str | None] = mapped_column(Text, default=None)
+    decided_kind: Mapped[str | None] = mapped_column(String(12), default=None)  # 用户确认的分类
+    status: Mapped[str] = mapped_column(String(12), default="classified")
+    doc_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    material_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class ClassificationLog(Base):
+    """E-0 契约 §3：分类留痕（规则/AI/人工，可审计）。"""
+
+    __tablename__ = "classification_log"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    file_hash: Mapped[str] = mapped_column(String(64), index=True)
+    kind: Mapped[str] = mapped_column(String(12))
+    confidence: Mapped[int] = mapped_column(Integer, default=0)
+    reasons_json: Mapped[str | None] = mapped_column(Text, default=None)
+    decided_by: Mapped[str] = mapped_column(String(10), default="rule")  # rule | ai | user
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class DocumentWorkspaceLink(Base):
+    """E-0 契约 §3：OfficeDocument ↔ 工作区投影路径绑定（投影一致性锚）。
+
+    E-1B 仅建表；link 写入随 W-3 写回编排启用（导入登记先记 import_items.doc_id）。
+    """
+
+    __tablename__ = "document_workspace_link"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    oid: Mapped[str] = mapped_column(String(32), index=True)
+    workspace_id: Mapped[str] = mapped_column(String(32), index=True)
+    rel_path: Mapped[str] = mapped_column(String(700))
+    kind: Mapped[str] = mapped_column(String(12))
+    last_synced_hash: Mapped[str | None] = mapped_column(String(64), default=None)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    origin: Mapped[str] = mapped_column(String(12), default="import")
+
+
 BUILTIN_PLATFORMS = ("上海市公共资源交易平台", "中招联合招标采购平台", "优质采购云平台", "政府采购云平台", "企业自建招标平台")
 STAGES = ("技术标制作", "商务标制作", "合标", "打印盖章", "上传")
 MATERIAL_CATS = ("资质文件", "财务状况", "业绩案例", "人员团队", "技术方案", "商务模板", "投标格式")
