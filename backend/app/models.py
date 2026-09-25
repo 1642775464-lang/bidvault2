@@ -49,6 +49,8 @@ class Project(Base):
     stage: Mapped[int] = mapped_column(Integer, default=0)
     # C-1：项目投标工作稿（OfficeDocument type=workspace，唯一真源）
     workspace_office_document_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    # E-1D：工作区投影目录（相对标书工作区根，例 项目/XX医院项目）；空=未接入工作区
+    workspace_rel: Mapped[str | None] = mapped_column(String(500), default=None)
     is_archived: Mapped[int] = mapped_column(Integer, default=0)
     result: Mapped[str | None] = mapped_column(String(10), default=None)  # 中标 | 未中标
     result_note: Mapped[str | None] = mapped_column(String(300), default=None)

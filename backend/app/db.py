@@ -109,6 +109,7 @@ def _migrate(conn: Any) -> None:
         "ALTER TABLE ai_proposals ADD COLUMN claim_generation INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE ai_proposals ADD COLUMN derived_from_proposal_id TEXT",
         "ALTER TABLE import_items ADD COLUMN dup_note TEXT",
+        "ALTER TABLE projects ADD COLUMN workspace_rel TEXT",
     ]
     for ddl in stmts:
         with contextlib.suppress(Exception):

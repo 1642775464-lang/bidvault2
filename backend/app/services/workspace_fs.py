@@ -187,3 +187,79 @@ def remove_workspace_tree(root: Path) -> None:
         except OSError:
             pass
     shutil.rmtree(root / ".bidvault", ignore_errors=True)
+
+
+# ---------------- E-1D：项目文件夹 ----------------
+
+PROJECT_SUBDIRS = ("招标文件", "投标文件", "输出文件")
+
+
+def safe_join(base: Path, rel: str) -> Path:
+    """把相对路径拼到 base 下，并校验结果仍在 base 内（拒绝绝对路径/盘符/../）。"""
+    rel_posix = rel.replace("\\", "/")
+    if rel_posix.startswith("/") or re.match(r"^[A-Za-z]:", rel_posix) or ".." in Path(rel_posix).parts:
+        raise WorkspaceError(f"非法路径：{rel}")
+    base_r = base.resolve()
+    target = (base_r / rel_posix).resolve()
+    if target != base_r and base_r not in target.parents:
+        raise WorkspaceError(f"路径越出目标目录：{rel}")
+    return target
+
+
+def active_root(session: Session) -> Path | None:
+    """活动工作区根（无工作区返回 None）。"""
+    row = get_active(session)
+    return Path(row.root_path) if row is not None else None
+
+
+def ensure_project_folder(session: Session, project_name: str,
+                          existing_rel: str | None = None) -> tuple[str, Path] | None:
+    """为项目创建/补齐工作区投影目录（幂等）：项目/<名>/{招标文件,投标文件,输出文件}。
+
+    existing_rel：项目已绑定的相对路径——直接补齐子目录，不加后缀。
+    新建时撞非空目录 → -2 后缀（不复用他人目录）。无活动工作区返回 None。
+    """
+    root = active_root(session)
+    if root is None:
+        return None
+    base = sanitize_dir_name(project_name) or "未命名项目"
+    if existing_rel:
+        rel = existing_rel
+        folder = root / rel
+        folder.mkdir(parents=True, exist_ok=True)
+    else:
+        rel = f"项目/{base}"
+        folder = root / rel
+        i = 2
+        while folder.exists() and any(folder.iterdir()):
+            rel = f"项目/{base}-{i}"
+            folder = root / rel
+            i += 1
+    for sub in ("", *PROJECT_SUBDIRS):
+        (folder / sub).mkdir(parents=True, exist_ok=True)
+    return rel, folder
+
+
+def _unique_dest(folder: Path, name: str) -> Path:
+    dest = folder / name
+    stem, ext = dest.stem, dest.suffix
+    i = 2
+    while dest.exists():
+        dest = folder / f"{stem}-{i}{ext}"
+        i += 1
+    return dest
+
+
+def project_upload_projection(session: Session, project_rel: str, kind_dir: str,
+                              filename: str, data: bytes) -> str:
+    """上传投影：把上传文件字节写入项目子文件夹（唯一名），返回相对路径。"""
+    root = active_root(session)
+    if root is None:
+        raise WorkspaceError("无活动工作区")
+    folder = safe_join(root, f"{project_rel}/{kind_dir}")
+    folder.mkdir(parents=True, exist_ok=True)
+    src_name = Path(filename)
+    safe_stem = sanitize_dir_name(src_name.stem) or "未命名"
+    dest = _unique_dest(folder, safe_stem + src_name.suffix.lower())
+    dest.write_bytes(data)
+    return dest.relative_to(root).as_posix()

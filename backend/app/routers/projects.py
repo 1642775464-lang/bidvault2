@@ -100,10 +100,16 @@ def create_project(body: ProjectIn, session: Session = Depends(get_session)) -> 
         open_at=body.open_at, platform=body.platform,
         cust=body.cust, contact=body.contact, sales=body.sales,
     )
+    # E-1D：接入标书工作区——生成项目目录（招标/投标/输出文件）
+    from ..services.workspace_fs import ensure_project_folder
+
+    folder = ensure_project_folder(session, p.name)
+    if folder is not None:
+        p.workspace_rel = folder[0]
     session.add(p)
     session.commit()
     audit("project_created", detail=f"{p.code} {p.name}")
-    return {"id": p.id, "code": p.code}
+    return {"id": p.id, "code": p.code, "workspace_folder": p.workspace_rel}
 
 
 @router.get("/cases")

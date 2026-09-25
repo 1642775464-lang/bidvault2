@@ -207,6 +207,44 @@ def undo_import_item(batch_id: str, item_id: str,
     return undo_item(session, batch, item, Path(row.root_path))
 
 
+class DecomposeIn(BaseModel):
+    rel_path: str
+    project_id: str | None = None
+
+
+@router.post("/decompose", status_code=201)
+def decompose_workspace_file(body: DecomposeIn,
+                             session: Session = Depends(get_session)) -> dict[str, Any]:
+    """E-1D：确认拆解工作区内已归档的投标/招标文件（询问式的 [拆解] 动作）。
+
+    rel_path 须位于工作区 项目/*/招标文件|投标文件 下；建档 kind 由所在目录推断；
+    建档后由既有队列自动拆解（扫描件无 OCR 扩展时显式 OCR_UNAVAILABLE 降级）。
+    """
+    import re
+    from pathlib import Path
+
+    from ..models import Document as Doc
+
+    row = _active(session)
+    root = Path(row.root_path)
+    rel = body.rel_path.replace("\\", "/")
+    m = re.match(r"^项目/([^/]+)/(招标文件|投标文件)/(.+)$", rel)
+    if not m:
+        raise HTTPException(400, "rel_path 须为 项目/<项目>/招标文件|投标文件/<文件>")
+    kind = "tender" if m.group(2) == "招标文件" else "bid"
+    target = root / rel
+    if not target.is_file():
+        raise HTTPException(404, "文件不存在（可能已被移动或删除）")
+    doc = Doc(
+        filename=target.name[:500], kind=kind, source="path", origin_path=str(target),
+        file_type=target.suffix.lower().lstrip("."), size=target.stat().st_size,
+        project_id=body.project_id or None, status=0,
+    )
+    session.add(doc)
+    session.commit()
+    return {"doc_id": doc.id, "kind": kind, "status": doc.status}
+
+
 @router.post("/imports", status_code=201)
 def create_import(body: ImportIn, session: Session = Depends(get_session)) -> dict[str, Any]:
     """创建导入批次：源文件/压缩包 → 中转暂存（安全解包）→ 扫描+分类建议。"""

@@ -277,6 +277,7 @@ async def upload(
     files: list[UploadFile] = File(...),
     kind: str = Form("tender"),
     project_id: str | None = Form(None),
+    decompose: str = Form("true"),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     if kind not in ("tender", "bid", "notice"):
@@ -287,11 +288,27 @@ async def upload(
         if ext not in allowed:
             raise HTTPException(415, f"不支持的文件类型：{f.filename}（允许：docx/pdf/txt/xlsx/xls/csv/jpg/png/zip）")
     settings = get_settings()
+    # E-1D：项目已接入工作区时，上传文件投影到项目目录（招标→招标文件/，投标→投标文件/）
+    proj_rel: str | None = None
+    if project_id:
+        from ..models import Project
+        from ..services.workspace_fs import project_upload_projection
+
+        proj = session.get(Project, project_id)
+        proj_rel = proj.workspace_rel if proj is not None else None
     created: list[dict[str, Any]] = []
     for f in files:
         data = await f.read()
         if len(data) > 200 * 1024 * 1024:
             raise HTTPException(413, f"{f.filename} 超过 200MB 限制")
+        # 投标文件 + 项目已接工作区 + 用户选择暂不拆解 → 仅归档投影，不建档（询问式）
+        if kind == "bid" and decompose.lower() == "false" and proj_rel:
+            from ..services.workspace_fs import project_upload_projection
+
+            rel = project_upload_projection(session, proj_rel, "投标文件", f.filename or "unnamed.docx", data)
+            created.append({"filename": f.filename, "status": -1, "archived_only": True,
+                            "rel_path": rel})
+            continue
         stored = uuid.uuid4().hex + Path(f.filename or "unnamed").suffix.lower()
         (settings.files_dir / stored).write_bytes(data)
         from ..models import Document as Doc
@@ -308,9 +325,17 @@ async def upload(
         )
         session.add(doc)
         session.commit()
+        # E-1D：工作区投影（招标→招标文件/，投标→投标文件/）
+        if proj_rel and kind in ("tender", "bid"):
+            from ..services.workspace_fs import project_upload_projection
+
+            rel = project_upload_projection(session, proj_rel,
+                                            "招标文件" if kind == "tender" else "投标文件",
+                                            f.filename or "unnamed", data)
+            audit("workspace_projection", doc_id=doc.id, detail=rel)
         created.append({"id": doc.id, "filename": doc.filename, "status": doc.status})
     audit("upload", detail=f"{len(created)} 份{('招标' if kind == 'tender' else '投标')}文件")
-    return {"created": created, "queued": len(created)}
+    return {"created": created, "queued": sum(1 for c in created if "id" in c)}
 
 
 def detect_file_type(filename: str) -> str:
