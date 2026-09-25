@@ -603,6 +603,23 @@ class DocumentWorkspaceLink(Base):
     origin: Mapped[str] = mapped_column(String(12), default="import")
 
 
+class DocumentOutline(Base):
+    """E-2A：统一章节树（DocumentOutline），按版本不可变存储（E-0 契约 §4）。
+
+    消费方：阅读器导航 / 素材引用定位（target_locator）/ 废标风险依据引用。
+    懒构建：首次查询时从版本文件构建并持久化；新版本产生新树（旧树保留供漂移比对）。
+    """
+
+    __tablename__ = "document_outlines"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    version_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    oid: Mapped[str] = mapped_column(String(32), index=True)
+    node_count: Mapped[int] = mapped_column(Integer, default=0)
+    nodes_json: Mapped[str] = mapped_column(Text)
+    built_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 BUILTIN_PLATFORMS = ("上海市公共资源交易平台", "中招联合招标采购平台", "优质采购云平台", "政府采购云平台", "企业自建招标平台")
 STAGES = ("技术标制作", "商务标制作", "合标", "打印盖章", "上传")
 MATERIAL_CATS = ("资质文件", "财务状况", "业绩案例", "人员团队", "技术方案", "商务模板", "投标格式")

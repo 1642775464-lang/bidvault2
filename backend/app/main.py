@@ -25,6 +25,7 @@ from .routers import (
     people,
     preview,
     projects,
+    outline,
     search,
     workspace,
 )
@@ -155,6 +156,7 @@ app.include_router(documents.router)
 app.include_router(materials.router)
 app.include_router(search.router)
 app.include_router(workspace.router)
+app.include_router(outline.router)
 app.include_router(people.router)
 app.include_router(preview.router)
 app.include_router(detect.router)
