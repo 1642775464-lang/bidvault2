@@ -44,6 +44,16 @@ def get_outline(oid: str, session: Session = Depends(get_session)) -> dict[str, 
             "node_count": len(tree["nodes"]), "nodes": tree["nodes"]}
 
 
+@router.get("/{oid}/reader")
+def get_reader_blocks(oid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """E-2B：结构保真阅读块（heading/para/image/table，para_no 与 outline.para_index 同口径）。"""
+    from ..services.document_reader import build_reading_blocks
+
+    od, cur = _current(session, oid)
+    data = build_reading_blocks(_version_bytes(session, cur))
+    return {"oid": od.id, "version_id": cur.id, "version": cur.version, "blocks": data["blocks"]}
+
+
 @router.get("/{oid}/outline/drift")
 def outline_drift(oid: str, against_version_id: str,
                   session: Session = Depends(get_session)) -> dict[str, Any]:

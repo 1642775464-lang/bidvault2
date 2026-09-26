@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { api, postNativeEditor } from "../api/client";
-import type { ImportBatchDetailT, ImportItemT } from "../api/client";
+import type { ImportBatchDetailT, ImportItemT, OutlineNodeT, ReaderBlockT } from "../api/client";
+import type { RiskItemT, SearchHit } from "../api/types";
 import type { DocItem, ExtractGroup } from "../api/types";
 import { CATS, INDUSTRIES, fmtSize, openUpload, refreshCore, store, toast } from "../store";
 import { isTableBlockV2, rowBlocks, twipsToPx } from "../utils/documentBlocks";
@@ -335,6 +336,89 @@ async function undoImp(itemId: string): Promise<void> {
   const r = await api.undoImportItem(impBatch.value, itemId);
   if (r.ok) { await loadImpBatch(impBatch.value); }
   else toast(r.detail ?? "不可撤销");
+}
+
+/* ---------------- E-2B：结构保真阅读器 ---------------- */
+const rdOpen = ref(false);
+const rdBusy = ref(false);
+const rdOid = ref("");
+const rdTitle = ref("");
+const rdNodes = ref<OutlineNodeT[]>([]);
+const rdBlocks = ref<ReaderBlockT[]>([]);
+const rdQuery = ref("");
+const rdActive = ref<string | null>(null);
+const rdRecs = ref<SearchHit[]>([]);
+const rdRisks = ref<RiskItemT[]>([]);
+const rdNav = ref<Record<string, number>>({});
+
+async function openReader(): Promise<void> {
+  const oid = sel.value?.office_document_id;
+  if (!oid) { toast("该文档尚未建立 Office 档案"); return; }
+  rdOid.value = oid;
+  rdTitle.value = sel.value?.filename ?? "";
+  rdOpen.value = true;
+  rdBusy.value = true;
+  rdRisks.value = [];
+  rdRecs.value = [];
+  try {
+    const [o, r] = await Promise.all([api.officeOutline(oid), api.readerBlocks(oid)]);
+    rdNodes.value = o.nodes;
+    rdBlocks.value = r.blocks;
+    buildRdNav();
+    if (sel.value?.project_id) {
+      try {
+        rdRisks.value = ((await api.risks(sel.value.project_id)) as unknown as { items: RiskItemT[] }).items ?? [];
+      } catch { /* 未运行检测时无风险数据 */ }
+    }
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "阅读器加载失败");
+  } finally {
+    rdBusy.value = false;
+  }
+}
+function buildRdNav(): void {
+  const m: Record<string, number> = {};
+  let bi = 0;
+  for (const n of rdNodes.value) {
+    while (bi < rdBlocks.value.length && rdBlocks.value[bi].para_no < n.para_index) bi++;
+    m[n.id] = rdBlocks.value[bi]?.i ?? 0;
+  }
+  rdNav.value = m;
+}
+function rdHit(n: OutlineNodeT): void {
+  const el = document.getElementById(`rd-b-${rdNav.value[n.id] ?? 0}`);
+  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  rdActive.value = n.id;
+  void rdRecommend(n.title);
+}
+function rdMatchesQ(b: ReaderBlockT): boolean {
+  const q = rdQuery.value.trim();
+  if (!q || b.type === "table" || b.type === "image") return false;
+  return b.text.includes(q);
+}
+function rdRiskFor(text: string): RiskItemT | null {
+  // 条款级风险标记（启发式）：风险标题/要求前 6 字命中正文块 → 标 ★（锚定在 E-2C 打通）
+  for (const r of rdRisks.value) {
+    const key = (r.title || r.req || "").replace(/\s/g, "").slice(0, 6);
+    if (key.length >= 4 && text.replace(/\s/g, "").includes(key)) return r;
+  }
+  return null;
+}
+function rdCopyCitation(n: OutlineNodeT): void {
+  const cite = `《${rdTitle.value}》 ${n.title}（章节引用 ${n.id}）`;
+  void navigator.clipboard?.writeText(cite);
+  toast("已复制条款引用");
+}
+async function rdRecommend(title: string): Promise<void> {
+  try { rdRecs.value = (await api.search(title, "", "fts")).hits.slice(0, 5); }
+  catch { rdRecs.value = []; }
+}
+const rdHitCount = computed(() => rdQuery.value.trim() ? rdBlocks.value.filter(rdMatchesQ).length : 0);
+function rdLevelStyle(n: OutlineNodeT): Record<string, string> {
+  return { marginLeft: (n.level - 1) * 14 + "px", fontWeight: n.level === 1 ? "600" : "400" };
+}
+function rdNodeByPara(paraNo: number): OutlineNodeT | null {
+  return rdNodes.value.find((n) => n.para_index === paraNo) ?? null;
 }
 const projName = computed(() => {
   const d = sel.value;
@@ -866,6 +950,76 @@ onMounted(async () => {
               </tbody>
             </table>
           </template>
+        </div>
+      </div>
+    </div>
+    <!-- E-2B：结构保真阅读器（只读；章节导航/搜索/条款引用/风险标记/素材推荐入口） -->
+    <div v-if="rdOpen" style="position:fixed;inset:0;z-index:70;background:var(--bg);display:flex;flex-direction:column">
+      <div style="display:flex;gap:10px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line)">
+        <b>{{ rdTitle }} · 结构阅读</b>
+        <span class="search"><input v-model="rdQuery" placeholder="文内搜索…" /><span v-if="rdQuery">{{ rdHitCount }} 处</span></span>
+        <span style="flex:1" />
+        <button class="mini-btn" @click="rdOpen = false">关闭阅读器</button>
+      </div>
+      <div style="flex:1;display:flex;overflow:hidden">
+        <!-- 章节导航 -->
+        <div style="width:250px;border-right:1px solid var(--line);overflow:auto;padding:8px 4px">
+          <div class="sub-note" style="padding:0 8px 4px">目录（{{ rdNodes.length }}）</div>
+          <button v-for="n in rdNodes" :key="n.id"
+                  style="display:block;width:100%;text-align:left;background:none;border:none;padding:3px 8px;cursor:pointer;color:var(--ink)"
+                  :style="rdLevelStyle(n)"
+                  :class="{ 'rd-on': rdActive === n.id }"
+                  @click="rdHit(n)">{{ n.title }}</button>
+        </div>
+        <!-- 正文块 -->
+        <div ref="rdBodyEl" style="flex:1;overflow:auto;padding:18px 30px" class="rd-body">
+          <div v-if="rdBusy" class="empty-state"><b>解析中…</b></div>
+          <template v-else>
+            <div v-for="b in rdBlocks" :key="b.i" :id="`rd-b-${b.i}`"
+                 :class="{ 'rd-hit': rdMatchesQ(b) }"
+                 style="margin-bottom:10px">
+              <div v-if="b.type === 'heading'" style="display:flex;align-items:center;gap:8px">
+                <component :is="'h' + Math.min(b.level + 1, 6)"
+                           :style="{ margin: '10px 0 4px', fontSize: 20 - b.level * 1.5 + 'px' }">
+                  {{ b.text }}
+                </component>
+                <button v-if="rdNodeByPara(b.para_no)" class="mini-btn"
+                        @click="rdCopyCitation(rdNodeByPara(b.para_no) as OutlineNodeT)">复制引用</button>
+                <span v-if="rdRiskFor(b.text)" class="chip-miss" :title="rdRiskFor(b.text)?.title">★ 废标风险</span>
+              </div>
+              <p v-else-if="b.type === 'para'" style="margin:4px 0;line-height:1.8">{{ b.text }}</p>
+              <div v-else-if="b.type === 'image'" class="sub-note" style="border:1px dashed var(--line);padding:12px;text-align:center">🖼 {{ b.text }}</div>
+              <table v-else-if="b.type === 'table'" style="border-collapse:collapse;width:100%;font-size:12.5px">
+                <tbody>
+                  <tr v-for="(row, ri) in b.rows" :key="ri">
+                    <td v-for="(c, ci) in row.cells" :key="ci"
+                        :colspan="c.gridspan > 1 ? c.gridspan : undefined"
+                        :rowspan="c.vmerge === 'restart' ? undefined : undefined"
+                        :style="{ border: '1px solid var(--line)', padding: '4px 6px', background: c.vmerge === 'continue' ? 'var(--hint-bg)' : undefined }">
+                      {{ c.vmerge === 'continue' ? "" : c.text }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+        </div>
+        <!-- 右侧：素材推荐入口 + 废标风险 -->
+        <div style="width:260px;border-left:1px solid var(--line);overflow:auto;padding:10px">
+          <div class="sub-note" style="margin-bottom:6px">素材推荐（当前章节）</div>
+          <template v-if="rdRecs.length">
+            <div v-for="h in rdRecs" :key="h.document_id" style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px">
+              <b style="font-size:12.5px">{{ h.filename }}</b>
+              <div class="sub-note">匹配 {{ (h.score * 100).toFixed(0) }}%</div>
+              <button class="mini-btn" disabled title="引用写回在 E-2C 启用">引用</button>
+            </div>
+          </template>
+          <div v-else class="sub-note">点击左侧章节标题查看推荐</div>
+          <div class="sub-note" style="margin:12px 0 6px">废标风险（{{ rdRisks.length }}）</div>
+          <div v-for="r in rdRisks.slice(0, 20)" :key="r.id" style="border:1px solid var(--risk-line);border-radius:8px;padding:6px;margin-bottom:6px;font-size:12px">
+            <b>{{ r.sev === "fatal" ? "❌" : r.sev === "risk" ? "⚠" : "💡" }} {{ r.title }}</b>
+            <div class="sub-note">{{ r.req ?? "" }}</div>
+          </div>
         </div>
       </div>
     </div>

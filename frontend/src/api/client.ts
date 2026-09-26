@@ -77,6 +77,27 @@ export interface ImportBatchDetailT {
   items: ImportItemT[];
 }
 
+/* ---- E-2B：结构保真阅读器 ---- */
+export interface OutlineNodeT {
+  id: string;
+  parent_id: string | null;
+  level: number;
+  title: string;
+  order: number;
+  para_index: number;
+  anchor_hash: string;
+}
+
+export type ReaderBlockT = {
+  i: number;
+  para_no: number;
+} & (
+  | { type: "heading"; level: number; text: string }
+  | { type: "para"; text: string }
+  | { type: "image"; text: string }
+  | { type: "table"; rows: Array<{ cells: Array<{ text: string; gridspan: number; vmerge: string }>; blank: boolean }> }
+);
+
 export class ApiError extends Error {
   status: number;
   /** 非 2xx 响应体（可能是 {"code","features"} 等结构化错误），调用方按需读取 */
@@ -150,6 +171,12 @@ export const api = {
   },
   async undoImportItem(batchId: string, itemId: string): Promise<{ ok: boolean; detail?: string }> {
     return handle(fetch(`/api/workspace/imports/${batchId}/items/${itemId}/undo`, { method: "POST" }));
+  },
+  async officeOutline(oid: string): Promise<{ oid: string; version_id: string; version: number; node_count: number; nodes: OutlineNodeT[] }> {
+    return handle(fetch(`/api/office-documents/${oid}/outline`));
+  },
+  async readerBlocks(oid: string): Promise<{ oid: string; version_id: string; version: number; blocks: ReaderBlockT[] }> {
+    return handle(fetch(`/api/office-documents/${oid}/reader`));
   },
   /* ---- 项目库 ---- */
   async projects(mode: "active" | "archived", q = ""): Promise<{ total: number; items: Project[] }> {

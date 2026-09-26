@@ -763,3 +763,5 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 /* E-1A 工作区首启引导 */
 .ipt{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;color:var(--ink);background:#fff;outline:none}
 .ipt:focus{border-color:var(--accent)}
+.rd-on{background:var(--accent-bg);border-radius:6px}
+.rd-hit{outline:2px solid var(--accent);border-radius:4px}
