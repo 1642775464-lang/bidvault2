@@ -620,6 +620,32 @@ class DocumentOutline(Base):
     built_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class MaterialReference(Base):
+    """E-2C：素材引用台账（引用闭环的核心记录）。
+
+    status: active(正常) | drifted(漂移：标题在锚点变) | lost(丢失：标题删除) |
+            pending_writeback(目标文件占用，候选在中转) | superseded(已重新引用)
+    物理插入复用 C-3b（append_end，引擎唯一模式）；章节锚点记录在
+    outline_node_id/anchor_hash，章节级物理定位属引擎增强（本阶段不修改 C-3）。
+    """
+
+    __tablename__ = "material_references"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    project_id: Mapped[str | None] = mapped_column(String(32), index=True, default=None)
+    source_material_id: Mapped[str] = mapped_column(String(32), index=True)
+    source_version_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    target_document_id: Mapped[str] = mapped_column(String(32), index=True)
+    target_version_id: Mapped[str] = mapped_column(String(32))
+    outline_node_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    anchor_hash: Mapped[str | None] = mapped_column(String(64), default=None)
+    node_title: Mapped[str | None] = mapped_column(String(300), default=None)  # 插入时章节标题（漂移回退依据）
+    purpose: Mapped[str] = mapped_column(String(100), default="")
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    writeback_note: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 BUILTIN_PLATFORMS = ("上海市公共资源交易平台", "中招联合招标采购平台", "优质采购云平台", "政府采购云平台", "企业自建招标平台")
 STAGES = ("技术标制作", "商务标制作", "合标", "打印盖章", "上传")
 MATERIAL_CATS = ("资质文件", "财务状况", "业绩案例", "人员团队", "技术方案", "商务模板", "投标格式")

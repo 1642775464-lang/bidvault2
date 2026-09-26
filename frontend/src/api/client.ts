@@ -178,6 +178,13 @@ export const api = {
   async readerBlocks(oid: string): Promise<{ oid: string; version_id: string; version: number; blocks: ReaderBlockT[] }> {
     return handle(fetch(`/api/office-documents/${oid}/reader`));
   },
+  async insertReference(payload: { oid: string; node_id: string | null; material_id: string; purpose: string; project_id?: string | null }): Promise<{ reference_id: string; version_id: string; writeback: string; note?: string }> {
+    return handle(fetch("/api/workspace/references/insert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }));
+  },
   /* ---- 项目库 ---- */
   async projects(mode: "active" | "archived", q = ""): Promise<{ total: number; items: Project[] }> {
     return handle(fetch(`/api/projects${qs({ mode, q })}`));

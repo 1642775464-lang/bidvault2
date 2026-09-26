@@ -98,7 +98,7 @@ def get_or_build(session: Session, oid: str, version_id: str, docx_bytes: bytes)
 
     row = session.query(DocumentOutline).filter(DocumentOutline.version_id == version_id).first()
     if row is not None:
-        return {"version": 1, "nodes": json.loads(row.nodes_json)}
+        return {"version": 1, "nodes": json.loads(row.nodes_json)["nodes"]}
     tree = build_outline(docx_bytes)
     session.add(DocumentOutline(
         version_id=version_id, oid=oid, node_count=len(tree["nodes"]),

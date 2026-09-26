@@ -348,6 +348,10 @@ const rdBlocks = ref<ReaderBlockT[]>([]);
 const rdQuery = ref("");
 const rdActive = ref<string | null>(null);
 const rdRecs = ref<SearchHit[]>([]);
+const rdMats = ref<Array<{ id: string; title: string; office_document_id: string | null }>>([]);
+const rdPurpose = ref("项目负责人");
+const rdInsertBusy = ref(false);
+const rdActiveNode = computed(() => rdNodes.value.find((n) => n.id === rdActive.value) ?? null);
 const rdRisks = ref<RiskItemT[]>([]);
 const rdNav = ref<Record<string, number>>({});
 
@@ -410,8 +414,29 @@ function rdCopyCitation(n: OutlineNodeT): void {
   toast("已复制条款引用");
 }
 async function rdRecommend(title: string): Promise<void> {
-  try { rdRecs.value = (await api.search(title, "", "fts")).hits.slice(0, 5); }
-  catch { rdRecs.value = []; }
+  try {
+    const r = await api.materials("", title);
+    rdMats.value = r.items.filter((m) => !!m.office_document_id || !!m.file_name).slice(0, 6);
+  } catch { rdMats.value = []; }
+}
+async function doInsertRef(m: { id: string; title: string }): Promise<void> {
+  if (!rdOid.value || !rdActiveNode.value) { toast("请先在目录中选择章节"); return; }
+  rdInsertBusy.value = true;
+  try {
+    const r = await api.insertReference({
+      oid: rdOid.value, node_id: rdActiveNode.value?.id ?? null, material_id: m.id,
+      purpose: rdPurpose.value, project_id: sel.value?.project_id ?? null,
+    });
+    if (r.writeback === "pending_writeback") {
+      toast(`引用已生成新版本；目标文件被占用，候选已存中转：${r.note ?? ""}`);
+    } else {
+      toast(`引用插入完成，已生成新版本（用途：${rdPurpose.value}）`);
+    }
+  } catch (err) {
+    toast(err instanceof Error ? err.message : "引用插入失败");
+  } finally {
+    rdInsertBusy.value = false;
+  }
 }
 const rdHitCount = computed(() => rdQuery.value.trim() ? rdBlocks.value.filter(rdMatchesQ).length : 0);
 function rdLevelStyle(n: OutlineNodeT): Record<string, string> {
@@ -1006,15 +1031,21 @@ onMounted(async () => {
         </div>
         <!-- 右侧：素材推荐入口 + 废标风险 -->
         <div style="width:260px;border-left:1px solid var(--line);overflow:auto;padding:10px">
-          <div class="sub-note" style="margin-bottom:6px">素材推荐（当前章节）</div>
-          <template v-if="rdRecs.length">
-            <div v-for="h in rdRecs" :key="h.document_id" style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px">
-              <b style="font-size:12.5px">{{ h.filename }}</b>
-              <div class="sub-note">匹配 {{ (h.score * 100).toFixed(0) }}%</div>
-              <button class="mini-btn" disabled title="引用写回在 E-2C 启用">引用</button>
+          <div class="sub-note" style="margin-bottom:4px">引用用途</div>
+          <select v-model="rdPurpose" style="width:100%;margin-bottom:8px" class="ipt">
+            <option>项目负责人</option><option>技术人员</option><option>售后服务</option>
+            <option>业绩案例</option><option>企业资质</option>
+          </select>
+          <div class="sub-note" style="margin-bottom:6px">素材推荐（当前章节：{{ rdActiveNode?.title ?? "未选择" }}）</div>
+          <template v-if="rdMats.length">
+            <div v-for="m in rdMats" :key="m.id" style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px">
+              <b style="font-size:12.5px">{{ m.title }}</b>
+              <div style="margin-top:4px">
+                <button class="mini-btn" :disabled="rdInsertBusy" @click="doInsertRef(m)">引用到本章</button>
+              </div>
             </div>
           </template>
-          <div v-else class="sub-note">点击左侧章节标题查看推荐</div>
+          <div v-else class="sub-note">点击左侧章节标题检索推荐素材</div>
           <div class="sub-note" style="margin:12px 0 6px">废标风险（{{ rdRisks.length }}）</div>
           <div v-for="r in rdRisks.slice(0, 20)" :key="r.id" style="border:1px solid var(--risk-line);border-radius:8px;padding:6px;margin-bottom:6px;font-size:12px">
             <b>{{ r.sev === "fatal" ? "❌" : r.sev === "risk" ? "⚠" : "💡" }} {{ r.title }}</b>

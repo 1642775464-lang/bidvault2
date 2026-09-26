@@ -212,6 +212,91 @@ class DecomposeIn(BaseModel):
     project_id: str | None = None
 
 
+class ReferenceIn(BaseModel):
+    oid: str
+    node_id: str | None = None
+    material_id: str
+    purpose: str = ""
+    project_id: str | None = None
+
+
+class RelocateIn(BaseModel):
+    node_id: str
+
+
+@router.post("/references/insert", status_code=201)
+def insert_reference(body: ReferenceIn, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """E-2C：素材引用插入——C-3 链 append_end 新版本 + 台账 + 工作区投影写回（占用走中转候选）。"""
+    from pathlib import Path
+
+    from ..services.material_reference import ReferenceError_, insert_reference
+
+    row = _active(session)
+    try:
+        result = insert_reference(session, ws_root=Path(row.root_path),
+                                  target_oid=body.oid, node_id=body.node_id,
+                                  material_id=body.material_id, purpose=body.purpose,
+                                  project_id=body.project_id)
+    except ReferenceError_ as e:
+        raise HTTPException(409, {"code": "REFERENCE_ERROR", "detail": str(e)}) from e
+    return result
+
+
+@router.get("/references")
+def list_references(target_oid: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """引用台账 + 漂移刷新（正常/漂移/丢失）。"""
+    from pathlib import Path
+
+    from ..services.material_reference import refresh_drift
+
+    row = _active(session)
+    refreshed = refresh_drift(session, target_oid, Path(row.root_path))
+    from ..models import MaterialReference
+
+    refs = (session.query(MaterialReference)
+            .filter(MaterialReference.target_document_id == target_oid)
+            .order_by(MaterialReference.created_at.desc()).all())
+    return {"items": [{
+        "id": r.id, "purpose": r.purpose, "status": r.status,
+        "outline_node_id": r.outline_node_id, "target_version_id": r.target_version_id,
+        "material_id": r.source_material_id, "writeback_note": r.writeback_note,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    } for r in refs], "drift": refreshed}
+
+
+@router.post("/references/{reference_id}/relocate")
+def relocate_reference(reference_id: str, body: RelocateIn,
+                       session: Session = Depends(get_session)) -> dict[str, Any]:
+    from pathlib import Path
+
+    from ..models import MaterialReference
+    from ..services.material_reference import ReferenceError_, relocate
+
+    row = _active(session)
+    ref = session.get(MaterialReference, reference_id)
+    if ref is None:
+        raise HTTPException(404, "引用不存在")
+    try:
+        return relocate(session, ref, body.node_id, Path(row.root_path))
+    except ReferenceError_ as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.post("/references/{reference_id}/writeback")
+def retry_writeback(reference_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """C4：占用候选重试写回。"""
+    from pathlib import Path
+
+    from ..models import MaterialReference
+    from ..services.material_reference import retry_writeback
+
+    row = _active(session)
+    ref = session.get(MaterialReference, reference_id)
+    if ref is None:
+        raise HTTPException(404, "引用不存在")
+    return retry_writeback(session, ref, Path(row.root_path))
+
+
 @router.post("/decompose", status_code=201)
 def decompose_workspace_file(body: DecomposeIn,
                              session: Session = Depends(get_session)) -> dict[str, Any]:
