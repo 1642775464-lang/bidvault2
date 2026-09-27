@@ -22,7 +22,11 @@ from typing import Any
 
 from lxml import etree
 
-from .workspace_mutation import InsertPlan, UnsupportedMaterialStructureError
+from .workspace_mutation import (
+    ChapterLocatorError,
+    InsertPlan,
+    UnsupportedMaterialStructureError,
+)
 from .xml_safety import safe_parse_xml
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -93,7 +97,7 @@ def _add_rel(rels_root: Any, rid: str, rel_type: str, target: str, mode: str) ->
 class OOXMLInsertEngine:
     """MutationEngine 协议实现：mutate(plan, workspace_bytes, material_bytes) -> 新 DOCX bytes。"""
 
-    def mutate(self, plan: InsertPlan, workspace_bytes: bytes, material_bytes: bytes) -> bytes:  # noqa: ARG002
+    def mutate(self, plan: InsertPlan, workspace_bytes: bytes, material_bytes: bytes) -> bytes:
         ws_zip = zipfile.ZipFile(io.BytesIO(workspace_bytes))
         mat_zip = zipfile.ZipFile(io.BytesIO(material_bytes))
         ws_names = set(ws_zip.namelist())
@@ -106,6 +110,54 @@ class OOXMLInsertEngine:
             raise UnsupportedMaterialStructureError(
                 ["workspace_final_sectpr_missing"], "Workspace 缺少合法 final sectPr，拒绝盲插")
         final_sectpr = ws_children[-1]
+
+        # ---------------- 1.5 V3-1：章节级定位（chapter 模式三道闸） ----------------
+        # para_index 是 doc.paragraphs 序号（表格不占号），禁止直接当 body 子元素索引——
+        # 解析期遍历子元素建立 {段落序号 → w:p 元素} 映射，标题/边界元素均经映射解析。
+        # plan=None（C-3b 既有引擎直测契约）视为 append_end。
+        anchor_target = final_sectpr
+        if plan is not None and plan.request.insert_mode == "chapter":
+            loc = plan.request.target_locator
+            if not isinstance(loc, dict):
+                raise ChapterLocatorError("CHAPTER_LOCATOR_INVALID", "chapter 模式缺少章节定位信息")
+            for key in ("para_index", "title", "anchor_hash"):
+                if key not in loc:
+                    raise ChapterLocatorError("CHAPTER_LOCATOR_INVALID", f"locator 缺少 {key}")
+
+            def _el_text(el) -> str:  # noqa: ANN001
+                return "".join(t.text or "" for t in el.iter(_W + "t")).strip()
+
+            para2el: dict[int, Any] = {}
+            counter = -1
+            for child in ws_children:
+                if child.tag == _W + "p":
+                    counter += 1
+                    para2el[counter] = child
+
+            title_el = para2el.get(int(loc["para_index"]))
+            if title_el is None or _el_text(title_el) != str(loc["title"]).strip():
+                raise ChapterLocatorError("ANCHOR_DRIFT",
+                                          "目标章节标题定位失败（文档内容已变化），请刷新章节树重新选择")
+            b_idx = loc.get("boundary_para_index")
+            if b_idx is None:
+                boundary_el = final_sectpr  # 末章：章节末尾即文档末尾
+            else:
+                boundary_el = para2el.get(int(b_idx))
+                if boundary_el is None:
+                    raise ChapterLocatorError("ANCHOR_DRIFT", "章节边界定位失败（文档已变化）")
+                if loc.get("boundary_title") and _el_text(boundary_el) != str(loc["boundary_title"]).strip():
+                    raise ChapterLocatorError("ANCHOR_DRIFT", "章节边界内容已变化，请刷新章节树重新选择")
+            # 边界闸：范围内段级 sectPr → 拒绝（不跨分节符插入）
+            for k in range(int(loc["para_index"]) + 1, int(loc.get("boundary_para_index") or counter + 1)):
+                el = para2el.get(k)
+                if el is None:
+                    continue
+                ppr = el.find(_W + "pPr")
+                if ppr is not None and ppr.find(_W + "sectPr") is not None:
+                    raise ChapterLocatorError("SECTION_BREAK_IN_RANGE",
+                                              "目标章节内包含分节符，无法安全精准插入")
+            anchor_target = boundary_el
+
         ws_grid_before = sum(1 for _ in ws_body.iter(_W + "gridSpan"))
         ws_vmerge_before = sum(1 for _ in ws_body.iter(_W + "vMerge"))
 
@@ -320,13 +372,13 @@ class OOXMLInsertEngine:
                 replaced["word/numbering.xml"] = etree.tostring(
                     ws_num, xml_declaration=True, encoding="UTF-8", standalone=True)
 
-        # ---------------- 7. 应用重映射并插入 final sectPr 之前 ----------------
+        # ---------------- 7. 应用重映射并插入目标位置（append_end=final sectPr 之前；chapter=章节边界之前） ----------------
         for block in blocks:
             cp = copy.deepcopy(block)
             _walk_rids(cp, rid_map)
             _walk_styles(cp, style_map if style_refs else {})
             _walk_nums(cp, num_map)
-            final_sectpr.addprevious(cp)
+            anchor_target.addprevious(cp)
 
         replaced["word/document.xml"] = etree.tostring(
             ws_root, xml_declaration=True, encoding="UTF-8", standalone=True)

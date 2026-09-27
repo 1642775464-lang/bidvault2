@@ -18,7 +18,7 @@ from typing import Any, Protocol
 
 from ..models import Material, OfficeDocument, OfficeDocumentVersion, WorkspaceMutation
 
-ALLOWED_INSERT_MODES = ("append_end",)
+ALLOWED_INSERT_MODES = ("append_end", "chapter")  # V3-1：chapter=章节级精准插入（section_end）
 
 
 class WorkspaceMutationError(Exception):
@@ -26,6 +26,20 @@ class WorkspaceMutationError(Exception):
 
     code = "WORKSPACE_MUTATION_ERROR"
     http_status = 400
+
+
+class ChapterLocatorError(WorkspaceMutationError):
+    """V3-1：章节定位三道闸失败（锚点漂移/边界变化/范围内分节符）。
+
+    code: ANCHOR_DRIFT | SECTION_BREAK_IN_RANGE | CHAPTER_LOCATOR_INVALID
+    语义约束：SECTION_BREAK_IN_RANGE 不得静默回退 append_end，由用户显式选择。
+    """
+
+    http_status = 409
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class RelatedEntityNotFoundError(WorkspaceMutationError):
@@ -138,6 +152,11 @@ class WorkspaceMutationService:
     def prepare_insert(self, req: MaterialInsertRequest) -> InsertPlan:
         if req.insert_mode not in ALLOWED_INSERT_MODES:
             raise InvalidInsertModeError(f"insert_mode 仅支持：{ALLOWED_INSERT_MODES}")
+        if req.insert_mode == "chapter" and (
+            not isinstance(req.target_locator, dict)
+            or any(k not in req.target_locator for k in ("para_index", "title", "anchor_hash"))
+        ):
+            raise InvalidInsertModeError("chapter 模式缺少章节定位信息（para_index/title/anchor_hash）")
 
         ws_od = self.session.get(OfficeDocument, req.workspace_office_document_id)
         if ws_od is None:

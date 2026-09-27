@@ -100,10 +100,11 @@ def ensure_material_od(session: Session, material: Any) -> str:
 
 
 def insert_reference(session: Session, *, ws_root: Path, target_oid: str, node_id: str | None,
-                     material_id: str, purpose: str, project_id: str | None) -> dict[str, Any]:
-    """阅读器 [引用]：素材 → 目标文档章节（append_end）→ 新版本 → 台账 + 投影写回。"""
+                     material_id: str, purpose: str, project_id: str | None,
+                     insert_mode: str = "chapter") -> dict[str, Any]:
+    """E-2C/V3-1 阅读器 [引用]：素材 → 目标章节（chapter=章节末尾精准插入 / append_end=文档末尾）
+    → 新版本（C-3a/C-3b 链）→ 台账 + 全量引用统一重估 + 投影写回。"""
     from ..models import (
-        ImportItem,
         Material,
         MaterialReference,
         OfficeDocument,
@@ -119,19 +120,23 @@ def insert_reference(session: Session, *, ws_root: Path, target_oid: str, node_i
         raise ReferenceError_("素材不存在")
     mat_oid = ensure_material_od(session, mat)
 
-    # 章节锚点：outline 节点（记录标题与锚点；物理插入 append_end 为引擎唯一模式）
-    node_title = None
-    anchor_hash = None
-    if node_id:
+    base = (session.query(OfficeDocumentVersion)
+            .filter(OfficeDocumentVersion.id == target.current_version_id).first() if target.current_version_id else None)
+
+    # 章节定位（服务端权威构建）：node_id 必须命中当前树；不命中→要求刷新重选（同名不自动误配）
+    node = node_title = boundary = None
+    tree = None
+    if insert_mode == "chapter":
+        if not node_id:
+            raise ReferenceError_("请先选择目标章节")
         tree = _outline_for_target(session, target, ws_root)
         node = next((n for n in tree["nodes"] if n["id"] == node_id), None)
         if node is None:
-            raise ReferenceError_("章节节点不存在（文档可能已更新），请刷新章节树")
-        anchor_hash = node["anchor_hash"]
+            raise ReferenceError_("章节节点不存在或已更新，请刷新章节树重新选择")
+        after = tree["nodes"][node["order"] + 1:]
+        boundary = next((n for n in after if n["level"] <= node["level"]), None)
         node_title = node["title"]
 
-    base = (session.query(OfficeDocumentVersion)
-            .filter(OfficeDocumentVersion.id == target.current_version_id).first() if target.current_version_id else None)
     svc = _ws_service(session)
     req = __import__("app.services.workspace_mutation", fromlist=["MaterialInsertRequest"]).MaterialInsertRequest(
         workspace_office_document_id=target_oid,
@@ -141,8 +146,14 @@ def insert_reference(session: Session, *, ws_root: Path, target_oid: str, node_i
         material_version_id=(session.query(OfficeDocumentVersion)
                              .filter(OfficeDocumentVersion.office_document_id == mat_oid)
                              .order_by(OfficeDocumentVersion.version.desc()).first().id),
-        insert_mode="append_end",
-        target_locator=None,
+        insert_mode=insert_mode,
+        target_locator=({
+            "type": "chapter", "node_id": node["id"], "title": node["title"],
+            "anchor_hash": node["anchor_hash"], "para_index": node["para_index"],
+            "boundary_para_index": boundary["para_index"] if boundary else None,
+            "boundary_title": boundary["title"] if boundary else None,
+            "position": "section_end",
+        } if insert_mode == "chapter" else None),
     )
     result = svc.insert_material(req)
     new_version_id = result["version_id"]
@@ -154,8 +165,9 @@ def insert_reference(session: Session, *, ws_root: Path, target_oid: str, node_i
         project_id=project_id_eff, source_material_id=mat.id,
         source_version_id=req.material_version_id if hasattr(req, "material_version_id") else None,
         target_document_id=target_oid, target_version_id=new_version_id,
-        outline_node_id=node_id, anchor_hash=anchor_hash,
+        outline_node_id=node_id, anchor_hash=node["anchor_hash"] if node else None,
         node_title=node_title, purpose=(purpose or "")[:100], status="active",
+        insert_mode=insert_mode,
     )
     session.add(ref)
     session.commit()
@@ -166,9 +178,83 @@ def insert_reference(session: Session, *, ws_root: Path, target_oid: str, node_i
         ref.status = "pending_writeback"
         ref.writeback_note = note
         session.commit()
+
+    # V3-1 约束②：新版本生成后统一重估该文档全部受影响引用（系统写入自愈，不误报外部漂移）
+    _ = MaterialReference  # 保持导入面
+    reeval = _reevaluate_after_insert(session, target_oid, ws_root,
+                                      base_version_id=base.id if base else None,
+                                      new_version_id=new_version_id,
+                                      new_ref=ref)
+    _ = reeval
     return {"reference_id": ref.id, "version_id": new_version_id,
             "writeback": "ok" if note is None else "pending_writeback",
             "note": note or ""}
+
+
+def _reevaluate_after_insert(session: Session, target_oid: str, ws_root: Path,
+                             *, base_version_id: str | None, new_version_id: str,
+                             new_ref: Any) -> dict[str, Any]:
+    """V3-1 约束②：插入后对该文档全部引用统一重估。
+
+    分类（相对 base 树）：active（锚点命中）/ drifted（标题命中锚点变）/ lost（标题消失）；
+    新树落位：active → 重绑新节点 + last_system_anchor_hash=新锚点 + active（系统写入非漂移）；
+    drifted → 重绑 id 保留 drifted（外部基线不变）；lost → 维持。
+    """
+    import json
+
+    from ..models import MaterialReference, OfficeDocumentVersion
+    from .document_outline import get_or_build
+    from .office_document_svc import (
+        OfficeDocumentService,
+        OfficeDocumentTableAdapter,
+    )
+
+    target = session.get(__import__("app.models", fromlist=["OfficeDocument"]).OfficeDocument, target_oid)
+    svc = OfficeDocumentService(session=session, adapter=OfficeDocumentTableAdapter(session))
+
+    base_tree: dict[str, Any] = {"nodes": []}
+    if base_version_id:
+        base_ver = session.get(OfficeDocumentVersion, base_version_id)
+        if base_ver is not None:
+            base_tree = get_or_build(session, target_oid, base_version_id,
+                                     svc.adapter.read_file(base_ver.file_path))
+    new_ver = session.get(OfficeDocumentVersion, new_version_id)
+    new_tree = get_or_build(session, target_oid, new_version_id,
+                            svc.adapter.read_file(new_ver.file_path))
+
+    def _find(nodes: list[dict], *, by_id: str | None = None, by_title: str | None = None):
+        if by_id:
+            return next((n for n in nodes if n["id"] == by_id), None)
+        hits = [n for n in nodes if by_title and n["title"] == by_title]
+        return hits[0] if len(hits) == 1 else None  # 同名多候选 → None（不自动误配）
+
+    out = []
+    refs = (session.query(MaterialReference)
+            .filter(MaterialReference.target_document_id == target_oid,
+                    MaterialReference.status.in_(["active", "drifted", "pending_writeback"])).all())
+    for ref in refs:
+        pre_node = next((n for n in base_tree["nodes"] if n["id"] == ref.outline_node_id), None)
+        pre_active = pre_node is not None and pre_node["anchor_hash"] == ref.anchor_hash
+        title = ref.node_title or (pre_node["title"] if pre_node else "")
+        post_node = _find(new_tree["nodes"], by_title=title) if title else None
+
+        if post_node is None:
+            ref.outline_node_id = None
+            ref.status = "lost"
+            out.append({"reference_id": ref.id, "status": "lost"})
+            continue
+        ref.outline_node_id = post_node["id"]
+        if pre_active:
+            # 系统写入自愈：重绑新锚点（系统写入不产生 drifted）
+            ref.anchor_hash = post_node["anchor_hash"]
+            ref.last_system_anchor_hash = post_node["anchor_hash"]
+            ref.status = "active" if ref.status != "pending_writeback" else "pending_writeback"
+        else:
+            ref.status = "drifted"  # 外部漂移基线保持，提示用户重定位
+        out.append({"reference_id": ref.id, "status": ref.status})
+    _ = json
+    session.commit()
+    return {"items": out}
 
 
 def _sync_projection(session: Session, ws_root: Path, target_oid: str,
@@ -302,3 +388,17 @@ def _outline_for_target(session: Session, target: Any, ws_root: Path) -> dict[st
         raise ReferenceError_("目标文档尚无版本")
     data = svc.adapter.read_file(cur.file_path)
     return get_or_build(session, target.id, cur.id, data)
+
+
+def _version_file(session: Session, version_id: str) -> bytes:
+    """读版本字节（引擎输入需要文件对象包装前的 bytes）。"""
+    from ..models import OfficeDocumentVersion
+    from ..services.office_document_svc import (
+        OfficeDocumentService,
+        OfficeDocumentTableAdapter,
+    )
+
+    s = session if isinstance(session, Session) else None
+    v = session.get(OfficeDocumentVersion, version_id)
+    svc = OfficeDocumentService(session=session, adapter=OfficeDocumentTableAdapter(session))
+    return svc.adapter.read_file(v.file_path)

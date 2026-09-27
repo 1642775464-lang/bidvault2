@@ -640,6 +640,8 @@ class MaterialReference(Base):
     outline_node_id: Mapped[str | None] = mapped_column(String(32), default=None)
     anchor_hash: Mapped[str | None] = mapped_column(String(64), default=None)
     node_title: Mapped[str | None] = mapped_column(String(300), default=None)  # 插入时章节标题（漂移回退依据）
+    last_system_anchor_hash: Mapped[str | None] = mapped_column(String(64), default=None)  # 系统写入后锚点基线
+    insert_mode: Mapped[str] = mapped_column(String(12), default="append_end")  # append_end | chapter
     purpose: Mapped[str] = mapped_column(String(100), default="")
     status: Mapped[str] = mapped_column(String(20), default="active")
     writeback_note: Mapped[str | None] = mapped_column(Text, default=None)

@@ -218,6 +218,7 @@ class ReferenceIn(BaseModel):
     material_id: str
     purpose: str = ""
     project_id: str | None = None
+    insert_mode: str = "chapter"  # chapter（章节末尾精准插入）| append_end（文档末尾，用户显式选择）
 
 
 class RelocateIn(BaseModel):
@@ -226,19 +227,22 @@ class RelocateIn(BaseModel):
 
 @router.post("/references/insert", status_code=201)
 def insert_reference(body: ReferenceIn, session: Session = Depends(get_session)) -> dict[str, Any]:
-    """E-2C：素材引用插入——C-3 链 append_end 新版本 + 台账 + 工作区投影写回（占用走中转候选）。"""
+    """E-2C/V3-1：素材引用插入——chapter=章节末尾精准插入（三道闸）；append_end=文档末尾（用户显式选择）。"""
     from pathlib import Path
 
     from ..services.material_reference import ReferenceError_, insert_reference
+    from ..services.workspace_mutation import ChapterLocatorError
 
     row = _active(session)
     try:
         result = insert_reference(session, ws_root=Path(row.root_path),
                                   target_oid=body.oid, node_id=body.node_id,
                                   material_id=body.material_id, purpose=body.purpose,
-                                  project_id=body.project_id)
+                                  project_id=body.project_id, insert_mode=body.insert_mode)
     except ReferenceError_ as e:
         raise HTTPException(409, {"code": "REFERENCE_ERROR", "detail": str(e)}) from e
+    except ChapterLocatorError as e:
+        raise HTTPException(e.http_status, {"code": e.code, "detail": str(e)}) from e
     return result
 
 

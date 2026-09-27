@@ -111,6 +111,8 @@ def _migrate(conn: Any) -> None:
         "ALTER TABLE import_items ADD COLUMN dup_note TEXT",
         "ALTER TABLE projects ADD COLUMN workspace_rel TEXT",
         "ALTER TABLE material_references ADD COLUMN node_title TEXT",
+        "ALTER TABLE material_references ADD COLUMN last_system_anchor_hash VARCHAR(64)",
+        "ALTER TABLE material_references ADD COLUMN insert_mode VARCHAR(12) DEFAULT 'append_end'",
     ]
     for ddl in stmts:
         with contextlib.suppress(Exception):
