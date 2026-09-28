@@ -259,8 +259,14 @@ def _reevaluate_after_insert(session: Session, target_oid: str, ws_root: Path,
 
 def _sync_projection(session: Session, ws_root: Path, target_oid: str,
                      new_version_id: str, proj: Any) -> str | None:
-    """把新版本字节写工作区投影；文件被占用 → 候选落 中转/待写回（C4），返回说明。"""
-    from ..models import OfficeDocumentVersion
+    """投影写回（D-2A v1.1 DB 先行协议）：
+    ① 事务A：projection_state(pending, target_hash) 先提交（写前意图持久化）
+    ② os.replace 原子替换投影
+    ③ 事务B：标 synced
+    被占用 → 撤销意图、候选落 中转/待写回（C4）。"""
+    import hashlib
+
+    from ..models import OfficeDocumentVersion, ProjectionState
     from ..services.office_document_svc import (
         OfficeDocumentService,
         OfficeDocumentTableAdapter,
@@ -275,16 +281,28 @@ def _sync_projection(session: Session, ws_root: Path, target_oid: str,
     folder.mkdir(parents=True, exist_ok=True)
     name = (proj.name or "工作稿") + ".docx"
     dest = folder / name
+    target_hash = hashlib.sha256(data).hexdigest()
+
+    # ① 写前意图持久化（崩溃窗口：pending+投影旧 → 启动恢复重投影）
+    intent = ProjectionState(workspace_id=proj.id, rel_path=dest.relative_to(ws_root).as_posix(),
+                             oid=target_oid, target_hash=target_hash, state="pending")
+    session.add(intent)
+    session.commit()
     try:
+        # ② 原子替换
         tmp = dest.with_suffix(".tmp")
         tmp.write_bytes(data)
-        os.replace(str(tmp), str(dest))  # 原子替换；被占用时此处抛 PermissionError
-        return None
+        os.replace(str(tmp), str(dest))
     except PermissionError:
+        session.rollback()  # 撤销意图；候选落中转（C4）
         cand = safe_join(ws_root, f"中转/待写回/{target_oid[:8]}-{new_version_id[:8]}.docx")
         cand.parent.mkdir(parents=True, exist_ok=True)
         cand.write_bytes(data)
         return f"目标文件被占用，新版本候选已存 {cand.name}，请关闭文件后确认写回"
+    # ③ 标 synced
+    intent.state = "synced"
+    session.commit()
+    return None
 
 
 def retry_writeback(session: Session, ref: Any, ws_root: Path) -> dict[str, Any]:

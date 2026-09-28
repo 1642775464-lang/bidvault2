@@ -648,6 +648,25 @@ class MaterialReference(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class ProjectionState(Base):
+    """D-2B：投影写回持久化状态（D-2A v1.1 DB 先行协议）。
+
+    写回顺序：事务A(pending+target_hash 先提交) → os.replace → 事务B(synced)。
+    崩溃窗口：pending+投影旧 → 启动恢复重投影；pending+投影新(hash==target) → 补标 synced。
+    "投影新+DB 旧"在协议下不可达。
+    """
+
+    __tablename__ = "projection_states"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    workspace_id: Mapped[str] = mapped_column(String(32), index=True)
+    rel_path: Mapped[str] = mapped_column(String(700))
+    oid: Mapped[str] = mapped_column(String(32), index=True)
+    target_hash: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(10), default="pending")  # pending | synced
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 BUILTIN_PLATFORMS = ("上海市公共资源交易平台", "中招联合招标采购平台", "优质采购云平台", "政府采购云平台", "企业自建招标平台")
 STAGES = ("技术标制作", "商务标制作", "合标", "打印盖章", "上传")
 MATERIAL_CATS = ("资质文件", "财务状况", "业绩案例", "人员团队", "技术方案", "商务模板", "投标格式")

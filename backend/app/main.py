@@ -85,7 +85,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ).first()
     if _ws_row is not None:
         from .services.workspace_monitor import WorkspaceMonitor
+        from .services.projection_recovery import reconcile_projections
 
+        # D-2B：启动投影对账（DB 先行协议收口：pending 重投影/补标 synced/外部修改落候选）
+        _rec = reconcile_projections(_ws, _ws_row.id, Path(_ws_row.root_path),
+                                     get_settings().files_dir)
+        if _rec.get("external_candidates"):
+            logging.getLogger(__name__).warning(
+                "启动对账发现 %d 处外部修改候选", _rec["external_candidates"])
         _ws_monitor = WorkspaceMonitor(get_session)
         _ws_monitor.start(Path(_ws_row.root_path), _ws_row.id)
         app.state.workspace_monitor = _ws_monitor
