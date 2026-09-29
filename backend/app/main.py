@@ -215,7 +215,9 @@ from fastapi import HTTPException as _HTTPException  # noqa: E402
 from fastapi.responses import FileResponse as _FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles as _StaticFiles  # noqa: E402
 
-_DIST = get_settings().data_dir.parent / "frontend" / "dist"
+# 前端 dist 按后端包位置推导（backend/app/main.py → 仓库/安装根），与 DATA_DIR 无关：
+# bat 可把数据目录指到 %LOCALAPPDATA%，用 data_dir.parent 推导会导致安装态静态托管失效
+_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 if (_DIST / "index.html").is_file():
     app.mount("/assets", _StaticFiles(directory=str(_DIST / "assets")), name="assets")
 
