@@ -19,6 +19,7 @@ from .routers import (
     detect,
     documents,
     editor_sessions,
+    extract_rules,
     materials,
     onlyoffice,
     paths,
@@ -167,6 +168,7 @@ app.include_router(outline.router)
 app.include_router(people.router)
 app.include_router(preview.router)
 app.include_router(detect.router)
+app.include_router(extract_rules.router)
 app.include_router(editor_sessions.router)
 app.include_router(onlyoffice.router)
 app.include_router(onlyoffice.office_router)

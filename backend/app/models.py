@@ -89,6 +89,9 @@ class Document(Base):
     content_text: Mapped[str | None] = mapped_column(Text, default=None)
     ocr_conf: Mapped[float | None] = mapped_column(Float, default=None)  # OCR 全文均置信度
     needs_review: Mapped[int] = mapped_column(Integer, default=0)  # 1=OCR 低置信度待复核
+    # 契约 §6.5：上次成功拆解所用规则集 provenance（空=规则中心上线前拆解 → NEED_REBUILD）
+    extract_ruleset_version: Mapped[int | None] = mapped_column(Integer, default=None)
+    extract_rules_hash: Mapped[str | None] = mapped_column(String(64), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
@@ -463,6 +466,77 @@ class DetectRuleVersion(Base):
     note: Mapped[str] = mapped_column(String(300))
     snapshot_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class ExtractRule(Base):
+    """拆解规则项（契约《标库-拆解规则契约》§6.1）：锚点定位章节区间，内容原样复制。
+
+    scope 只存储不进 UI（数据隔离能力，非用户策略）；anchors_json 结构见契约 §2.3。
+    """
+
+    __tablename__ = "extract_rules"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    kind: Mapped[str] = mapped_column(String(10), index=True)  # tender | bid | notice
+    scope: Mapped[str] = mapped_column(String(20), default="default")
+    group_name: Mapped[str] = mapped_column(String(50), default="")
+    name: Mapped[str] = mapped_column(String(300))
+    anchors_json: Mapped[str] = mapped_column(Text)
+    focus_fields_json: Mapped[str] = mapped_column(Text, default="[]")
+    summary: Mapped[str | None] = mapped_column(String(300), default=None)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    seq: Mapped[int] = mapped_column(Integer, default=0)
+    builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+    __table_args__ = (Index("ix_extract_rules_kind_seq", "kind", "scope", "seq"),)
+
+
+class ExtractRuleVersion(Base):
+    """拆解规则变更留痕（契约 §6.2）：回答「谁改了规则」，不参与历史解释。"""
+
+    __tablename__ = "extract_rule_versions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    rule_id: Mapped[str] = mapped_column(String(32), index=True)
+    note: Mapped[str] = mapped_column(String(300))
+    snapshot_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class ExtractRulesetMeta(Base):
+    """规则集版本（契约 §6.3）：任何规则增删改/排序/恢复默认即 +1；单行。"""
+
+    __tablename__ = "extract_ruleset_meta"
+
+    id: Mapped[str] = mapped_column(String(16), primary_key=True, default="ruleset")
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class ExtractExecution(Base):
+    """拆解执行档案（契约 §6.4）：rule_snapshot_json 是历史解释唯一真源。
+
+    禁止按 rule_id 回查历史、禁止按当前规则重算历史、禁止改写/后台重生成快照（条款 A）。
+    """
+
+    __tablename__ = "extract_executions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    document_id: Mapped[str] = mapped_column(String(32), index=True)
+    document_version_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    ruleset_version: Mapped[int] = mapped_column(Integer, default=0)
+    rules_hash: Mapped[str] = mapped_column(String(64), default="")
+    rule_snapshot_json: Mapped[str] = mapped_column(Text, default="[]")
+    trigger: Mapped[str] = mapped_column(String(20), default="manual")  # manual | reextract | import
+    status: Mapped[str] = mapped_column(String(10), default="running")  # running | success | failed
+    items_count: Mapped[int] = mapped_column(Integer, default=0)
+    rows_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_msg: Mapped[str | None] = mapped_column(Text, default=None)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+
+    __table_args__ = (Index("ix_extract_exec_doc_started", "document_id", "started_at"),)
 
 
 class EditorSession(Base):

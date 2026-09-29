@@ -113,6 +113,8 @@ def _migrate(conn: Any) -> None:
         "ALTER TABLE material_references ADD COLUMN node_title TEXT",
         "ALTER TABLE material_references ADD COLUMN last_system_anchor_hash VARCHAR(64)",
         "ALTER TABLE material_references ADD COLUMN insert_mode VARCHAR(12) DEFAULT 'append_end'",
+        "ALTER TABLE documents ADD COLUMN extract_ruleset_version INTEGER",
+        "ALTER TABLE documents ADD COLUMN extract_rules_hash VARCHAR(64)",
     ]
     for ddl in stmts:
         with contextlib.suppress(Exception):
