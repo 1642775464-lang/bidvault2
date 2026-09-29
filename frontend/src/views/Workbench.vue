@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { ApiError, api, postNativeEditor } from "../api/client";
+import { ApiError, api } from "../api/client";
 import type { WorkspaceInfo } from "../api/client";
-import OfficeEditor from "../components/office/OfficeEditor.vue";
+// E-0：ONLYOFFICE 编辑器已从主链移除，保留组件文件但不在工作台渲染
+// import OfficeEditor from "../components/office/OfficeEditor.vue";
 import type { Material, PersonCard, Project, RiskItemT , HistCase } from "../api/types";
 import {
   RISK_TYPES,
@@ -38,11 +39,6 @@ const tenderDoc = computed(() => myDocs.value.find((d) => d.kind === "tender") ?
 
 /* ---------------- Workspace 工作稿（C-2：正文唯一真源） ---------------- */
 const wsOid = ref<string | null>(null);
-/** D-1R4：请求编辑器壳以原生 DX 编辑器打开指定 OfficeDocument（仅壳内 WebView2 可用）。 */
-function openNative(oid: string | null): void {
-  if (!oid) return;
-  if (!postNativeEditor(oid)) toast("原生编辑需在 BidVault 编辑器壳内打开（当前为普通浏览器）");
-}
 const wsVersion = ref<number | null>(null);
 const wsSync = ref<"synced" | "staged" | "creating" | "saved" | "syncing" | "failed" | "idle">("idle");
 const wsVerOpen = ref(false);
@@ -200,7 +196,7 @@ const insVerId = ref("");
 const insVerList = ref<{ id: string; version: number; source: string; is_current: boolean }[]>([]);
 const insMsg = ref("");
 const insErr = ref("");
-const wsEditorMounted = ref(true);
+const wsEditorMounted = ref(false); // E-0：编辑器已移除
 const wsMaterials = ref<Material[]>([]);
 
 const insVerLabel = (v: { version: number; source: string; is_current: boolean }): string =>
@@ -980,12 +976,14 @@ async function createWs(): Promise<void> {
           <span class="tool-sep" />
           <button class="mini-btn" :disabled="!wsOid" @click="wsVerOpen = !wsVerOpen; loadWsVersions()">历史版本</button>
           <button class="mini-btn" :disabled="!wsOid" @click="downloadWsCurrent">下载当前</button>
-          <button class="mini-btn" :disabled="!wsOid" @click="openNative(wsOid)">原生编辑</button>
           <button class="mini-btn" :disabled="!wsOid" @click="doExport()">导出 Word</button>
         </div>
         <div class="ws-stage">
           <template v-if="cur">
-            <OfficeEditor v-if="wsOid && wsEditorMounted" :key="`${wsOid}-${wsVersion}`" :office-document-id="wsOid" mode="edit" />
+            <div v-if="wsOid" class="empty-state" style="margin:auto;text-align:center">
+              <b>工作稿已就绪</b>
+              <p class="sub-note" style="margin-top:8px">通过右侧素材推荐和风险检测面板操作，或使用「导出 Word」下载到本地编辑。</p>
+            </div>
             <div v-else class="empty-state" style="margin:auto"><b>工作稿初始化中…</b></div>
           </template>
           <div v-else class="empty-state" style="margin:auto"><b>请先在顶部选择项目</b></div>
