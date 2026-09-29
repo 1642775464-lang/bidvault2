@@ -1,6 +1,5 @@
 import type {
   DetectResp,
-  ExtractRowV2,
   DocItem,
   ExtractResp,
   Health,
@@ -283,9 +282,6 @@ export const api = {
   async workspaceState(projectId: string): Promise<{ exists: boolean; office_document_id?: string; title?: string; version?: number | null; current_version_id?: string | null; derived_from_version_id?: string | null; derived_chars?: number }> {
     return handle(fetch(`/api/projects/${projectId}/workspace`));
   },
-  async editorConfigOffice(oid: string, versionId?: string): Promise<{ scriptUrl: string; config: Record<string, unknown>; mode: "view" | "edit"; version: number | null; enabled: boolean }> {
-    return handle(fetch(`/api/office-documents/${oid}/editor-config${versionId ? `?version_id=${versionId}` : ""}`));
-  },
   async restoreOfficeVersion(oid: string, versionId: string, comment?: string): Promise<{ ok: boolean; version: number }> {
     return handle(
       fetch(`/api/office-documents/${oid}/versions/${versionId}/restore`, {
@@ -359,41 +355,8 @@ export const api = {
   async officeVersions(oid: string): Promise<{ items: { id: string; version: number; source: string; created_at: string | null; is_current: boolean; size: number | null; comment: string | null; restored_from_version_id: string | null; editor_user: string | null; file_hash: string }[] }> {
     return handle(fetch(`/api/office-documents/${oid}/versions`));
   },
-  async onlyofficeVersions(docId: string): Promise<{
-    items: {
-      id: string; version: number; file_hash: string; source: string;
-      editor_user: string | null; restored_from_version_id: string | null;
-      comment: string | null; created_at: string | null; is_current: boolean; size: number | null;
-    }[];
-  }> {
-    return handle(fetch(`/api/onlyoffice/versions/${docId}`));
-  },
-  async restoreVersion(docId: string, versionId: string, comment?: string): Promise<{ ok: boolean; version: number; restored_from: number }> {
-    return handle(
-      fetch(`/api/onlyoffice/versions/${docId}/${versionId}/restore`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ comment }),
-      }),
-    );
-  },
-  async onlyofficeVersion(docId: string): Promise<{ version: number | null; file_hash?: string; source?: string; editor_user?: string | null; created_at?: string | null }> {
-    return handle(fetch(`/api/onlyoffice/version/${docId}`));
-  },
-  async editorConfig(docId: string, versionId?: string): Promise<{ scriptUrl: string; config: Record<string, unknown>; mode: "view" | "edit"; version: number | null; enabled: boolean }> {
-    return handle(fetch(`/api/documents/${docId}/editor-config${versionId ? `?version_id=${versionId}` : ""}`));
-  },
   async runExtract(docId: string): Promise<{ status: number; extracted: number; materials: number }> {
     return handle(fetch(`/api/documents/${docId}/extract`, { method: "POST" }));
-  },
-  async updateExtractItem(docId: string, itemId: string, rows: ExtractRowV2[]): Promise<{ ok: boolean }> {
-    return handle(
-      fetch(`/api/documents/${docId}/extract/${itemId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows }),
-      }),
-    );
   },
   async bind(docId: string, body: { project_id?: string | null; new_project_name?: string; new_project_industry?: string }): Promise<{ ok: boolean; project_id: string | null }> {
     return handle(

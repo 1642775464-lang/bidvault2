@@ -14,10 +14,8 @@ import {
   toast,
   tenderOf,
 } from "../store";
-import WorkspaceModal from "./WorkspaceModal.vue";
 
 const p = computed<Project | null>(() => store.projects.find((x) => x.id === store.drawerProjectId) ?? null);
-const wsOpen = ref(false);
 const docs = ref<NonNullable<Project["documents"]>>([]);
 
 watch(
@@ -219,7 +217,6 @@ function goWork(): void {
         <button v-else class="act" title="需先上传招标文件与投标文件" @click="toast('该项目还需补齐招标文件 / 投标文件，先「上传资料」')">去工作台检测</button>
         <button class="act pri" @click="openProjectModal(p.id)">编辑项目</button>
         <button v-if="!p.is_archived" class="act" @click="archOpen = !archOpen">{{ archOpen ? "收起归档登记" : "归档登记" }}</button>
-        <button class="act pri" @click="wsOpen = true">打开工作稿</button>
       </div>
       <div v-if="archOpen && !p.is_archived" class="arch-form">
         <div class="af-row">
@@ -241,5 +238,4 @@ function goWork(): void {
       </div>
     </aside>
   </template>
-  <WorkspaceModal v-if="wsOpen && p" :project-id="p.id" :project-name="p.name" @close="wsOpen = false" />
 </template>

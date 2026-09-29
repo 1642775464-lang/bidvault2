@@ -2,8 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ApiError, api } from "../api/client";
 import type { WorkspaceInfo } from "../api/client";
-// E-0：ONLYOFFICE 编辑器已从主链移除，保留组件文件但不在工作台渲染
-// import OfficeEditor from "../components/office/OfficeEditor.vue";
+// E-0：ONLYOFFICE 编辑器与手动编辑已整体移除，工作台仅保留生产/分析链路
 import type { Material, PersonCard, Project, RiskItemT , HistCase } from "../api/types";
 import {
   RISK_TYPES,
@@ -196,7 +195,6 @@ const insVerId = ref("");
 const insVerList = ref<{ id: string; version: number; source: string; is_current: boolean }[]>([]);
 const insMsg = ref("");
 const insErr = ref("");
-const wsEditorMounted = ref(false); // E-0：编辑器已移除
 const wsMaterials = ref<Material[]>([]);
 
 const insVerLabel = (v: { version: number; source: string; is_current: boolean }): string =>
@@ -244,7 +242,6 @@ function closeInsert(): void {
   insMat.value = null;
   insMsg.value = "";
   insErr.value = "";
-  wsEditorMounted.value = true; // 错误路径退出时恢复编辑器
   insState.value = "idle";
 }
 
@@ -296,7 +293,6 @@ async function confirmInsert(): Promise<void> {
 
   // 1) 结束当前编辑会话（卸载 OfficeEditor → destroyEditor → DS 结算）
   insState.value = "closing_editor";
-  wsEditorMounted.value = false;
 
   // 2) 等待编辑会话稳定（可能的 status=2 落版）
   insState.value = "waiting_save";
@@ -384,7 +380,6 @@ async function confirmInsert(): Promise<void> {
   insState.value = "reopening";
   insMsg.value = "正在重新打开工作稿…";
   wsVersion.value = done.version;
-  wsEditorMounted.value = true;
   void loadWsVersions();
   void pollWorkspace();
 
@@ -563,7 +558,6 @@ function aiReset(): void {
   aiErr.value = "";
   aiStep.value = "compose";
   aiUi.value = "idle";
-  wsEditorMounted.value = true;
 }
 
 /** 写入工作稿：结束编辑会话 → 等真实 status=2 → 复查 base → 一致 approve/apply；不一致交用户重新确认。 */
@@ -573,7 +567,6 @@ async function aiWrite(): Promise<void> {
   if (!pid || !oid || !aiPid.value || aiBusy.value) return;
 
   aiUi.value = "closing_editor";
-  wsEditorMounted.value = false; // 结束编辑会话 → DS status=2
 
   aiUi.value = "waiting_save";
   aiMsg.value = "正在保存当前工作稿…";
@@ -649,7 +642,6 @@ function aiCancelRebind(): void {
   aiUi.value = "draft_ready";
   aiMsg.value = "";
   aiErr.value = "";
-  wsEditorMounted.value = true; // 恢复编辑器（工作稿内容已随 status=2 落版）
   void pollWorkspace();
 }
 
@@ -671,7 +663,6 @@ async function aiFinishWrite(
   const stF = await api.workspaceState(pid);
   const finalV = stF.version ?? 0;
   wsVersion.value = finalV;
-  wsEditorMounted.value = true;
   void loadWsVersions();
   void pollWorkspace();
 
@@ -819,10 +810,6 @@ watch(cur, (p) => {
   if (p) void initWorkspace();
 });
 watch(tenderDoc, loadPanels);
-
-function goEditOriginal(): void {
-  navTo("docs");
-}
 
 function goLib(): void {
   navTo("lib");

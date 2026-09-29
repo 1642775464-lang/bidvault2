@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { ImportBatchDetailT, ImportItemT, OutlineNodeT, ReaderBlockT } from "../api/client";
 import type { RiskItemT, SearchHit } from "../api/types";
 import type { DocItem, ExtractGroup } from "../api/types";
 import { CATS, INDUSTRIES, fmtSize, openUpload, refreshCore, store, toast } from "../store";
-import { isTableBlockV2, rowBlocks, twipsToPx } from "../utils/documentBlocks";
-import type { ExtractRowV2 } from "../api/types";
+import { rowBlocks, twipsToPx } from "../utils/documentBlocks";
 
 const kindF = ref<"all" | "tender" | "bid" | "notice">("all");
 const search = ref("");
@@ -28,157 +27,7 @@ const bindNewName = ref("");
 const bindNewInd = ref(INDUSTRIES[0]);
 const bindNewErr = ref(false);
 const projects = ref<{ id: string; name: string }[]>([]);
-/* 原始文档（ONLYOFFICE）/ 拆解与AI分析 双页签 */
-const docTab = ref<"original" | "analysis">("original");
-const ooState = ref<"idle" | "loading" | "ready" | "error" | "unconfigured" | "nosource">("idle");
-const ooError = ref("");
-const ooHolder = ref<HTMLElement | null>(null);
-const ooMode = ref<"view" | "edit">("view");
-const ooVersion = ref<number | null>(null);
-const ooSaveState = ref("");
-const verOpen = ref(false);
-const verList = ref<
-  { id: string; version: number; source: string; editor_user: string | null; comment: string | null; created_at: string | null; is_current: boolean; size: number | null; restored_from_version_id: string | null }[]
->([]);
-const viewingVid = ref<string | null>(null);
-const viewingVer = ref<number | null>(null);
-const restoring = ref(false);
-
-async function loadVersions(): Promise<void> {
-  const d = sel.value;
-  if (!d) return;
-  try {
-    verList.value = (await api.onlyofficeVersions(d.id)).items;
-  } catch {
-    verList.value = [];
-  }
-}
-
-function verById(vid: string): number | null {
-  const v = verList.value.find((x) => x.id === vid);
-  return v ? v.version : null;
-}
-
-function openVersionFile(v: { id: string }): void {
-  window.open(`/api/onlyoffice/versions/${sel.value?.id}/${v.id}/file`);
-}
-
-function toggleVersions(): void {
-  verOpen.value = !verOpen.value;
-  if (verOpen.value) void loadVersions();
-}
-
-async function viewVersion(v: { id: string; version: number }): Promise<void> {
-  viewingVid.value = v.id;
-  viewingVer.value = v.version;
-  await initOnlyoffice(v.id);
-}
-
-async function backToCurrent(): Promise<void> {
-  viewingVid.value = null;
-  viewingVer.value = null;
-  await initOnlyoffice();
-}
-
-async function doRestore(v: { id: string; version: number }): Promise<void> {
-  const d = sel.value;
-  if (!d) return;
-  if (!window.confirm(`确认恢复 v${v.version}？将以新建版本方式回滚（当前内容保留为历史版本），并自动重新拆解。`)) return;
-  restoring.value = true;
-  try {
-    await api.restoreVersion(d.id, v.id);
-    toast(`已恢复 v${v.version} 为新版本，正在重新拆解`);
-    viewingVid.value = null;
-    viewingVer.value = null;
-    await initOnlyoffice();
-    void pollVersion();
-    void loadVersions();
-  } catch (e) {
-    toast(e instanceof Error ? e.message : "恢复失败");
-  } finally {
-    restoring.value = false;
-  }
-}
-let ooPoll: ReturnType<typeof setInterval> | null = null;
-let ooEditor: { destroyEditor: () => void } | null = null;
-let ooScriptPromise: Promise<void> | null = null;
-
-function loadOnlyofficeScript(scriptUrl: string): Promise<void> {
-  if (ooScriptPromise) return ooScriptPromise;
-  ooScriptPromise = new Promise((resolve, reject) => {
-    const el = document.createElement("script");
-    el.src = scriptUrl;
-    el.onload = () => resolve();
-    el.onerror = () => reject(new Error("api.js 加载失败"));
-    document.head.appendChild(el);
-  });
-  return ooScriptPromise;
-}
-
-async function pollVersion(): Promise<void> {
-  const d = sel.value;
-  if (!d) return;
-  try {
-    const st = await api.onlyofficeVersion(d.id);
-    if (st.version != null && st.version !== ooVersion.value) {
-      ooVersion.value = st.version;
-      ooSaveState.value = st.created_at ? `v${st.version} · ${st.created_at.slice(11, 16)}` : `v${st.version}`;
-    }
-  } catch {
-    /* 忽略轮询失败 */
-  }
-}
-
-function startPoll(): void {
-  if (ooPoll) clearInterval(ooPoll);
-  void pollVersion();
-  ooPoll = setInterval(() => void pollVersion(), 20000);
-}
-
-function stopPoll(): void {
-  if (ooPoll) clearInterval(ooPoll);
-  ooPoll = null;
-}
-
-async function initOnlyoffice(vid?: string): Promise<void> {
-  const d = sel.value;
-  if (!d) return;
-  ooState.value = "loading";
-  ooError.value = "";
-  try {
-    const cfg = await api.editorConfig(d.id, vid);
-    ooMode.value = cfg.mode === "edit" ? "edit" : "view";
-    await loadOnlyofficeScript(cfg.scriptUrl);
-    const DocsAPI = (window as unknown as { DocsAPI: { DocEditor: new (id: string, c: unknown) => { destroyEditor: () => void } } }).DocsAPI;
-    if (!DocsAPI) throw new Error("DocsAPI 未就绪");
-    await nextTick();
-    if (!document.getElementById("onlyoffice-holder")) return;
-    ooEditor?.destroyEditor();
-    ooEditor = new DocsAPI.DocEditor("onlyoffice-holder", cfg.config);
-    ooState.value = "ready";
-    if (vid) {
-      ooVersion.value = cfg.version ?? null;
-      ooSaveState.value = `查看历史 v${cfg.version}`;
-    } else {
-      ooVersion.value = cfg.version ?? null;
-      ooSaveState.value = cfg.version != null ? `v${cfg.version}` : "";
-    }
-    startPoll();
-  } catch (e) {
-    ooState.value = "error";
-    ooError.value = e instanceof Error ? e.message : "加载失败";
-  }
-}
-
-watch([selId, docTab], ([, tab]) => {
-  if (tab === "original") void initOnlyoffice();
-  else {
-    ooEditor?.destroyEditor();
-    ooEditor = null;
-    ooState.value = "idle";
-    stopPoll();
-  }
-});
+/* E-0 V3：仅保留拆解与AI分析视图，原始文档（ONLYOFFICE）与手动编辑均已移除 */
 
 const statusF = ref<"all" | "2" | "1" | "0">("all");
 const extF = ref("all");
@@ -452,8 +301,6 @@ async function pick(d: DocItem): Promise<void> {
     try {
       const r = await api.extract(d.id);
       extract.value = r.groups;
-      await nextTick();
-      recount();
     } catch {
       extract.value = [];
     }
@@ -471,100 +318,6 @@ const grouped = computed(() => {
   return out;
 });
 
-/* ---------- Word 画布编辑 ---------- */
-const docPage = ref<HTMLElement | null>(null);
-const wordCount = ref(0);
-const dirty = ref(false);
-const savingDoc = ref(false);
-const pendingSaves: Promise<unknown>[] = [];
-
-function recount(): void {
-  if (docPage.value) {
-    wordCount.value = (docPage.value.innerText || "").replace(/\s/g, "").length;
-  }
-}
-function onDocInput(): void {
-  dirty.value = true;
-  recount();
-}
-function exec(cmd: string): void {
-  docPage.value?.focus();
-  document.execCommand(cmd);
-}
-
-async function saveDoc(): Promise<void> {
-  if (!sel.value || !dirty.value || !docPage.value) return;
-  savingDoc.value = true;
-  try {
-    let n = 0;
-    // DOM 顺序收集三类片段：段落文本 / legacy 表格行 / V2 表格（带 tid）
-    type Piece = { kind: "rows"; rows: string[][] } | { kind: "v2"; tid: number; el: HTMLTableElement };
-    const byId: Record<string, Piece[]> = {};
-    docPage.value.querySelectorAll<HTMLElement>("[data-item]").forEach((el) => {
-      const id = el.getAttribute("data-item") || "";
-      const tid = el.getAttribute("data-tid");
-      if (el.tagName === "TABLE" && tid) {
-        (byId[id] ??= []).push({ kind: "v2", tid: Number(tid), el: el as HTMLTableElement });
-      } else if (el.tagName === "TABLE") {
-        const rows: string[][] = [];
-        el.querySelectorAll("tr").forEach((tr) => {
-          const cells = Array.from(tr.querySelectorAll("td,th")).map((td) =>
-            ((td as HTMLElement).innerText || "").replace(/\u00a0/g, " ").trim(),
-          );
-          if (cells.some((c) => c)) rows.push(cells);
-        });
-        (byId[id] ??= []).push({ kind: "rows", rows });
-      } else {
-        const line = (el.innerText || "").replace(/\u00a0/g, " ").trim();
-        (byId[id] ??= []).push({ kind: "rows", rows: [[line]] });
-      }
-    });
-    for (const [id, pieces] of Object.entries(byId)) {
-      const it = extract.value.flatMap((g) => g.items).find((x) => x.id === id);
-      if (!it) continue;
-      // 以拆解骨架为基准：V2 行按 cell.id 从 DOM 回填文本（结构绝不重推），legacy 行按 DOM 顺序取回
-      const textQueue: string[][] = [];
-      const v2Map = new Map<number, HTMLTableElement>();
-      for (const p of pieces) {
-        if (p.kind === "v2") v2Map.set(p.tid, p.el);
-        else p.rows.forEach((r) => textQueue.push(r));
-      }
-      const newRows: ExtractRowV2[] = [];
-      let li = 0;
-      for (const r of it.rows) {
-        if (isTableBlockV2(r)) {
-          const el = v2Map.get(r.tid);
-          if (!el) {
-            newRows.push(r);
-            continue;
-          }
-          newRows.push({
-            ...r,
-            cells: r.cells.map((c) =>
-              c.merged
-                ? c
-                : { ...c, text: ((el.querySelector(`td[data-cell-id="${c.id}"]`) as HTMLElement | null)?.innerText || "").replace(/\u00a0/g, " ").trim() },
-            ),
-          });
-        } else {
-          newRows.push(textQueue[li++] ?? r);
-        }
-      }
-      while (li < textQueue.length) newRows.push(textQueue[li++]);
-      if (JSON.stringify(newRows) === JSON.stringify(it.rows)) continue;
-      await api.updateExtractItem(sel.value!.id, id, newRows).then(() => {
-        it.rows = newRows;
-        n++;
-      });
-    }
-    dirty.value = false;
-    toast(n ? `已保存 ${n} 个结构项` : "内容无变化");
-  } catch (e) {
-    toast(e instanceof Error ? e.message : "保存失败");
-  } finally {
-    savingDoc.value = false;
-  }
-}
 
 async function doExtract(): Promise<void> {
   const d = sel.value;
@@ -736,50 +489,22 @@ onMounted(async () => {
             </span>
           </div>
           <div class="xp-body" style="display: flex; flex-direction: column; overflow: hidden; padding: 0">
-            <div class="doctabs">
-              <button :class="{ on: docTab === 'original' }" @click="docTab = 'original'">原始文档</button>
-              <button :class="{ on: docTab === 'analysis' }" @click="docTab = 'analysis'">拆解与AI分析</button>
-              <span v-if="docTab === 'original' && ooVersion" class="verbadge">{{ ooSaveState || ('v' + ooVersion) }}</span>
-              <button v-if="docTab === 'original'" class="verbtn" @click="toggleVersions">历史版本</button>
-            </div>
-            <template v-if="docTab === 'original'">
-              <div class="oo-stage">
-                <div v-if="ooState === 'unconfigured'" class="empty-state"><b>ONLYOFFICE 未配置</b>设置 ONLYOFFICE_DOCUMENT_SERVER_PUBLIC_URL 后可在线查看与编辑原始文档</div>
-                <div v-else-if="ooState === 'nosource'" class="empty-state"><b>该文档没有原始文件</b>仅拆解结果可查看（扫描件/转换件）</div>
-                <div v-else-if="ooState === 'loading'" class="empty-state"><b>编辑器加载中…</b>{{ sel.filename }}</div>
-                <div v-else-if="ooState === 'error'" class="empty-state"><b>编辑器加载失败</b>{{ ooError }}</div>
-                <div v-if="ooState === 'ready' && viewingVid" class="oo-warn" style="display:flex;align-items:center;gap:12px">
-                  <span>正在查看历史版本 v{{ viewingVer }}（只读）</span>
-                  <button class="mini-btn" style="color:var(--risk)" @click="backToCurrent">返回当前版本</button>
-                </div>
-                <div v-else-if="ooState === 'ready' && ooMode === 'edit'" class="oo-warn">开发模式：当前修改不会保存（保存链路已接入，Ctrl+S 生成工作快照；关闭文档后生成正式版本）</div>
-                <div v-show="ooState === 'ready'" id="onlyoffice-holder" ref="ooHolder" class="oo-holder"></div>
-              </div>
-            </template>
-            <template v-else>
             <template v-if="grouped.length">
               <div class="wordbar">
                 <span class="wname">{{ sel.filename }}</span>
-                <span class="wcount">{{ wordCount }} 字</span>
-                <button class="wbtn pri" :disabled="!dirty || savingDoc" @click="saveDoc">{{ savingDoc ? "保存中…" : "保存修改" }}</button>
-              </div>
-              <div class="wordtools">
-                <button class="wtool" @click="exec('undo')">↶ 撤销</button>
-                <button class="wtool" @click="exec('redo')">↷ 恢复</button>
-                <span class="tool-sep" />
-                <button class="wtool" @click="saveDoc()">保存</button>
+                <span class="wcount">只读 · 拆解结果</span>
               </div>
               <div class="wordstage">
-                <div ref="docPage" class="wordpage" contenteditable="true" spellcheck="false" @input="onDocInput">
+                <div class="wordpage" contenteditable="false" spellcheck="false">
                   <template v-for="g in grouped" :key="g.label">
                     <div class="wp-sec" contenteditable="false">{{ g.label }}</div>
                     <template v-for="grp in g.groups" :key="grp.name">
                       <div class="wp-h" contenteditable="false">{{ grp.name }}</div>
                       <template v-for="it in grp.items" :key="it.id">
                         <template v-for="(blk, bi) in rowBlocks(it.rows)" :key="it.id + '-' + bi">
-                          <table v-if="blk.type === 'table'" class="realtable" :data-item="it.id" :data-block="bi">
+                          <table v-if="blk.type === 'table'" class="realtable" :data-item="it.id">
                             <tr v-for="(r, ri) in blk.rows" :key="ri">
-                              <td v-for="(c, ci) in r" :key="ci" contenteditable="true" @input="onDocInput">{{ c }}</td>
+                              <td v-for="(c, ci) in r" :key="ci">{{ c }}</td>
                             </tr>
                           </table>
                           <table v-else-if="blk.type === 'tableV2'" class="realtable" :data-item="it.id" :data-block="bi" :data-tid="blk.v2!.tid">
@@ -788,11 +513,11 @@ onMounted(async () => {
                             </colgroup>
                             <tr v-for="(row, ri) in blk.v2!.rows" :key="ri">
                               <template v-for="c in row.cells" :key="c.id">
-                                <td v-if="!c.merged" :data-cell-id="c.id" :colspan="c.colSpan > 1 ? c.colSpan : undefined" :rowspan="c.rowSpan > 1 ? c.rowSpan : undefined" contenteditable="true" @input="onDocInput">{{ c.text }}</td>
+                                <td v-if="!c.merged" :colspan="c.colSpan > 1 ? c.colSpan : undefined" :rowspan="c.rowSpan > 1 ? c.rowSpan : undefined">{{ c.text }}</td>
                               </template>
                             </tr>
                           </table>
-                          <p v-else class="wp-p" :data-item="it.id" :data-block="bi" contenteditable="true" @input="onDocInput">{{ blk.rows[0][0] }}</p>
+                          <p v-else class="wp-p" :data-item="it.id" :data-block="bi">{{ blk.rows[0][0] }}</p>
                         </template>
                       </template>
                     </template>
@@ -800,7 +525,6 @@ onMounted(async () => {
                 </div>
               </div>
               <div class="wordstatus">
-                <span>字数统计：{{ wordCount }}</span>
                 <span>{{ grouped.reduce((n, x) => n + x.groups.reduce((m, g2) => m + g2.items.length, 0), 0) }} 个结构项</span>
               </div>
             </template>
@@ -821,39 +545,9 @@ onMounted(async () => {
               <span style="font-size:12px">{{ sel.kind === "tender" ? "解析前附表 / 评标办法 / 格式清单 / 章节目录…" : "解析资格文件 / 财务 / 业绩 / 团队简历…" }}</span>
             </div>
             <div v-else class="xempty"><b>未抽取到结构</b><p>本文档已拆解，但没有匹配到结构项。可尝试重新拆解或人工核对原文。</p></div>
-            </template>
           </div>
         </template>
         <div v-else class="xempty"><b>选择左侧文档</b></div>
-      </div>
-    </div>
-
-    <!-- 历史版本 -->
-    <div v-if="verOpen" class="modal-wrap" @click.self="verOpen = false">
-      <div class="modal" role="dialog" aria-modal="true" aria-label="历史版本">
-        <h3>历史版本</h3>
-        <div class="verlist">
-          <div v-for="v in verList" :key="v.id" class="verrow" :class="{ cur: v.is_current }">
-            <div class="vl">
-              <b>v{{ v.version }}</b>
-              <span class="chip-tag">{{ { upload: "上传", init: "上传", onlyoffice: "编辑保存", restore: "恢复" }[v.source] || v.source }}<template v-if="v.restored_from_version_id"> · 源自 v{{ verById(v.restored_from_version_id) }}</template></span>
-              <span class="vm">{{ v.created_at ? v.created_at.slice(0, 19).replace("T", " ") : "" }}{{ v.size != null ? " · " + fmtSize(v.size) : "" }}{{ v.editor_user ? " · " + v.editor_user : "" }}</span>
-              <span v-if="v.comment" class="vm">“{{ v.comment }}”</span>
-            </div>
-            <div class="vr">
-              <span v-if="v.is_current" class="chip-role r-admin">当前版本</span>
-              <template v-else>
-                <button class="mini-btn" @click="viewVersion(v)">查看</button>
-                <button class="mini-btn" @click="openVersionFile(v)">下载</button>
-                <button class="mini-btn pri" :disabled="restoring" @click="doRestore(v)">{{ restoring ? "恢复中…" : "恢复" }}</button>
-              </template>
-            </div>
-          </div>
-          <div v-if="!verList.length" class="empty-state"><b>暂无历史版本</b></div>
-        </div>
-        <div class="m-foot">
-          <button class="btn-ghost" @click="verOpen = false">关闭</button>
-        </div>
       </div>
     </div>
 
