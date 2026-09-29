@@ -57,6 +57,9 @@ def list_docs(
     if q:
         query = query.filter(Document.filename.contains(q))
     rows = query.order_by(Document.created_at.desc()).all()
+    from ..services.extract_provenance import status_map
+
+    prov = status_map(session, list(rows))
     return {
         "total": len(rows),
         "items": [
@@ -68,6 +71,10 @@ def list_docs(
                 "ocr_conf": d.ocr_conf, "needs_review": d.needs_review,
                 "created_at": d.created_at.isoformat() if d.created_at else None,
                 "office_document_id": d.office_document_id,
+                # 契约 §8.2：规则维度派生状态（不落持久列）
+                "extract_status": prov.get(d.id, {}).get("extract_status"),
+                "extract_ruleset_version": prov.get(d.id, {}).get("extract_ruleset_version"),
+                "ruleset_version": prov.get(d.id, {}).get("ruleset_version"),
             }
             for d in rows
         ],
@@ -137,8 +144,24 @@ def run_extract(doc_id: str, session: Session = Depends(get_session)) -> dict[st
     od = session.get(OfficeDocument, doc.office_document_id)
     if od is None or not od.current_version_id:
         raise HTTPException(409, "Office 档案无正式版本")
-    result = process_document(session, doc, version_id=od.current_version_id)
+    result = process_document(session, doc, version_id=od.current_version_id, trigger="reextract")
     return {"status": result.status, "extracted": result.extracted, "materials": result.materials}
+
+
+@router.get("/{doc_id}/extract-diff")
+def extract_diff(doc_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """[查看差异]（契约 §8.2）：最近一次执行快照 vs 当前规则集。
+
+    只读历史快照，禁止按规则表回查/重算历史（条款 A）。
+    """
+    from ..services.extract_provenance import diff_for_document, status_for
+
+    doc = session.get(Document, doc_id)
+    if doc is None:
+        raise HTTPException(404, "文档不存在")
+    payload = diff_for_document(session, doc)
+    payload.update(status_for(session, doc))
+    return payload
 
 
 class BindIn(BaseModel):

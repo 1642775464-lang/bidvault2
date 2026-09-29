@@ -71,6 +71,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 backfill_source_office_documents(_s)  # B-1c-4 切换后由 marker 关闭
     except Exception:
         logging.getLogger(__name__).warning("processor registry init skipped")
+    # 拆解规则中心：启动回收孤儿执行（进程中断遗留的 running → failed，快照不动）
+    try:
+        from sqlalchemy.orm import Session as _Session
+
+        from .db import get_engine as _engine
+        from .services.extract_provenance import reconcile_orphan_executions
+
+        with _Session(bind=_engine()) as _s2:
+            n_orphan = reconcile_orphan_executions(_s2)
+        if n_orphan:
+            logging.getLogger(__name__).info("orphan extract executions reconciled: %s", n_orphan)
+    except Exception:
+        logging.getLogger(__name__).warning("extract execution reconcile skipped")
     settings = get_settings()
     start_workers(interval_seconds=settings.scan_interval_seconds)
     start_backup_scheduler()

@@ -91,7 +91,10 @@ BUILTIN_EXTRACT_RULES: list[dict[str, Any]] = [
         "kind": "tender",
         "group_name": "",
         "name": "投标文件格式",
-        "anchors": [_a("第六章投标文件格式", 1), _a("投标文件格式", 2)],
+        # 注：原 TENDER_ITEMS 的「第六章投标文件格式」为永不命中的死锚点
+        # （匹配时会剥离正文标题的章节号，锚点自身带号则无法全等），故不迁入；
+        # 该锚点从未命中过，删之对抽取结果零影响（由等价性测试守住）。
+        "anchors": [_a("投标文件格式", 1)],
         "summary": "格式章节",
         "focus_fields": ["开标一览表", "产品明细报价", "商务/技术偏差表", "资格文件", "分项报价表"],
         "seq": 2,
@@ -260,19 +263,10 @@ def rules_hash(snapshot: list[dict[str, Any]]) -> str:
 
 
 def stale_doc_count(session: Session) -> int:
-    """已拆解但规则已过期/无 provenance 的文档数（只读统计，契约 §5.3）。"""
-    from ..models import Document
+    """已拆解但规则已过期/无 provenance 的文档数（同类 hash 口径，见 extract_provenance）。"""
+    from .extract_provenance import stale_doc_count as _count
 
-    cur = current_version(session)
-    return int(
-        session.query(Document)
-        .filter(Document.status == 2)
-        .filter(
-            (Document.extract_ruleset_version.is_(None))
-            | (Document.extract_ruleset_version < cur)
-        )
-        .count()
-    )
+    return _count(session)
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +302,12 @@ def _validate_anchors(anchors: Any) -> list[dict[str, Any]]:
         if mode not in MATCH_MODES:
             raise ExtractRuleError(
                 f"match_mode 暂仅支持 {'/'.join(MATCH_MODES)}（{('/'.join(ALLOWED_MATCH_MODES_RESERVED))} 为预留）"
+            )
+        from .ingest.extractor import has_title_prefix
+
+        if has_title_prefix(text):
+            raise ExtractRuleError(
+                f"锚点请勿带章节号：{text}（匹配时会自动剥离正文标题的章节号，带号将永不命中）"
             )
         key = _norm_text(text)
         if key in seen:

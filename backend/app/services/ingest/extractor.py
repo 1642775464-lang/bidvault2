@@ -93,20 +93,63 @@ def _table_to_rows(rows: list[list[str]]) -> list[list[str]]:
     return out
 
 
+def has_title_prefix(text: str) -> bool:
+    """锚点是否自带章节号前缀（如「第四章 合同条款」）。
+
+    匹配时剥离的是**正文标题**的章节号，锚点自身带前缀将永远匹配不上；
+    规则保存处据此提前拦截，避免用户静默配出永不命中的锚点。
+    """
+    return bool(_TITLE_PREFIX_RE.match(_norm(text)))
+
+
+def _spec_from_rule(rule: dict[str, Any]) -> tuple[str, list[str], str]:
+    """规则项 → 抽取规格 (name, anchors, sum)。
+
+    锚点按 priority 升序（契约 §2.3：等价于既有「锚点顺序优先」语义）；
+    sum 取规则说明，缺省回落规则名（与既有投标侧 sum=name 行为一致）。
+    group_name 由调用处取 name（既有实现即如此，BID_ITEMS 的 group 字段未参与抽取）。
+    """
+    name = str(rule.get("name") or "")
+    pairs: list[tuple[int, int, str]] = []
+    for idx, a in enumerate(rule.get("anchors") or []):
+        if isinstance(a, dict):
+            text = str(a.get("text") or "").strip()
+            try:
+                prio = int(a.get("priority", idx + 1))
+            except (TypeError, ValueError):
+                prio = idx + 1
+        else:
+            text, prio = str(a).strip(), idx + 1
+        if text:
+            pairs.append((prio, idx, text))
+    pairs.sort()
+    summary = rule.get("summary")
+    return (name, [t for _p, _i, t in pairs], str(summary) if summary else name)
+
+
 def extract_structured(
     text: str, kind: str, doc_tables: list[Any] | None = None,
+    rules: list[dict[str, Any]] | None = None,
 ) -> list[ExtractedGroup]:
-    if kind not in ("tender", "bid"):
-        return []  # 招标公告等类型不参与三项/两项结构拆解
+    """抽取 = 按标题锚点定位章节区间，区间内容原样复制（表格还原表格、段落还原段落）。
 
-    """抽取 = 按标题锚点定位章节区间，区间内容原样复制（表格还原表格、段落还原段落）。"""
+    rules=None（契约 §9.1 安全阀）：走内置常量，行为与规则中心上线前逐行一致；
+    rules 给定时按规则集执行（空列表 = 不抽取），kind 不再限制为 tender/bid，
+    以便公告等类型配置自有规则后同样生效。
+    """
+    if rules is None:
+        if kind not in ("tender", "bid"):
+            return []  # 未配置规则的招标公告等类型不参与结构拆解（默认行为不变）
+        if kind == "tender":
+            specs = [(it["name"], it["anchors"].split("|"), it.get("sum", "")) for it in TENDER_ITEMS]
+        else:
+            specs = [(it["name"], it["anchors"].split("|"), it["name"]) for it in BID_ITEMS]
+    else:
+        specs = [_spec_from_rule(r) for r in rules]
+
     lines = text.splitlines()
     tables = doc_tables or []
     tid_of = {id(tb): i + 1 for i, tb in enumerate(tables)}  # 表格编号（V2 行对象携带）
-    if kind == "tender":
-        specs = [(it["name"], it["anchors"].split("|"), it.get("sum", "")) for it in TENDER_ITEMS]
-    else:
-        specs = [(it["name"], it["anchors"].split("|"), it["name"]) for it in BID_ITEMS]
 
     # 分界行：章标题 + 各锚点行
     bounds: set[int] = set()

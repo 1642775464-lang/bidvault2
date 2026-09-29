@@ -36,6 +36,6 @@ class SourceDocumentProcessor:
             if doc is None:
                 logger.warning("source document for office_document %s not found", od.id)
                 return
-            process_document(ses, doc, version_id=version.id)
+            process_document(ses, doc, version_id=version.id, trigger="reextract")
         finally:
             ses.close()

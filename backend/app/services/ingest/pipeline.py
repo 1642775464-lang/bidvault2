@@ -58,7 +58,9 @@ def load_pending(session: Session, limit: int = 1) -> list[Document]:
     )
 
 
-def process_document(session: Session, doc: Document, *, version_id: str | None = None) -> IngestResult:
+def process_document(
+    session: Session, doc: Document, *, version_id: str | None = None, trigger: str = "manual",
+) -> IngestResult:
     """拆解管线：解析→索引→拆解抽取→素材入库。
 
     version_id 给定时（ONLYOFFICE 保存触发的重拆）：按该版本文件解析，
@@ -100,7 +102,7 @@ def process_document(session: Session, doc: Document, *, version_id: str | None 
         purge_document_index(session, doc.id)
         n = _write_index(session, doc.id, parsed.pages)
 
-        extracted, made = extract_and_harvest(session, doc, parsed)
+        extracted, made = extract_and_harvest(session, doc, parsed, version_id=version_id, trigger=trigger)
         img_made = 0
         if doc.file_type == "pdf":
             try:
@@ -138,12 +140,49 @@ def process_document(session: Session, doc: Document, *, version_id: str | None 
         return IngestResult(doc_id=doc.id, status=0, chunks=0, extracted=0, materials=0, error=str(exc))
 
 
-def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> tuple[int, int]:
-    """拆解抽取：规则锚点区间原样复制 → 结构项+行落库 → 素材入库（去重）。"""
+def extract_and_harvest(
+    session: Session, doc: Document, parsed: Any = None, *,
+    version_id: str | None = None, trigger: str = "manual",
+) -> tuple[int, int]:
+    """拆解抽取：规则锚点区间原样复制 → 结构项+行落库 → 素材入库（去重）。
+
+    契约 §四（条款 B）：规则集快照在**执行开始前**解析并冻结——先落
+    ExtractExecution(status=running) 并写入快照，再执行抽取；执行期间规则被修改
+    不影响本次结果。成功后再写文档 provenance（§6.5）。
+    """
+    import json as _json
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+
+    from ...models import ExtractExecution
+    from ..extract_rules import current_version, ensure_rules, rules_hash, resolve_rules
     from .extractor import extract_structured
 
-    text = doc.content_text or ""
-    groups = extract_structured(text, doc.kind, parsed.doc_tables if parsed else None)
+    ensure_rules(session)  # 内置规则在库（幂等），保证首次拆解即有规则可用
+    applied = resolve_rules(session, doc.kind)  # 该文档类型的启用规则（seq 升序）
+    ruleset_version = current_version(session)
+    digest = rules_hash(applied)
+    execution = ExtractExecution(
+        document_id=doc.id,
+        document_version_id=version_id,
+        ruleset_version=ruleset_version,
+        rules_hash=digest,
+        rule_snapshot_json=_json.dumps(applied, ensure_ascii=False),
+        trigger=trigger,
+        status="running",
+    )
+    session.add(execution)
+    session.commit()  # 快照此刻冻结（此后规则改动不影响本次执行）
+
+    try:
+        text = doc.content_text or ""
+        groups = extract_structured(text, doc.kind, parsed.doc_tables if parsed else None, rules=applied)
+    except Exception as exc:
+        execution.status = "failed"
+        execution.error_msg = str(exc)[:1000]
+        execution.finished_at = _dt.now(_UTC)
+        session.commit()
+        raise
     # 过滤全空段落行；V2 表格行（dict）一律保留——表格内空行/合并结构不得删除
     def _row_keep(r: Any) -> bool:
         if isinstance(r, dict):
@@ -256,6 +295,17 @@ def extract_and_harvest(session: Session, doc: Document, parsed: Any = None) -> 
             existing[title] = mat
             made += 1
     session.commit()
+
+    # 契约 §四 / §6.5：成功收尾——执行记录置 success 并写文档 provenance
+    execution.status = "success"
+    execution.items_count = len(groups)
+    execution.rows_count = sum(len(g.rows) for g in groups)
+    execution.finished_at = _dt.now(_UTC)
+    doc.extract_ruleset_version = ruleset_version
+    doc.extract_rules_hash = digest
+    session.commit()
+    audit("extract_executed", doc_id=doc.id,
+          detail=f"ruleset v{ruleset_version} · 规则 {len(applied)} 条 · 结构项 {len(groups)} · 行 {execution.rows_count}")
     return len(groups), made
 
 

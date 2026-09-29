@@ -47,7 +47,7 @@ class QueueWorker:
                 docs = load_pending(session, limit=1)
                 if not docs:
                     return False
-                process_document(session, docs[0])
+                process_document(session, docs[0], trigger="import")
                 return True
             finally:
                 session.close()

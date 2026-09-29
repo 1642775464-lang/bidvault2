@@ -73,7 +73,7 @@
 ### F7 拆解规则中心（09-29 Phase 0 契约冻结）
 | 编号 | 功能点 | 优先级 | 验收标准 |
 |---|---|---|---|
-| F7.1 | 拆解规则可配置：规则四表 + documents 两列溯源（provenance）；Execution Snapshot 为唯一历史真源；extract_status 服务端派生且 Execution 优先；规则试运行 Preview（纯计算不落库，≤100MB/≤300 页）+ Preview Guard；安全阀 `extract_structured(..., rules=None)` 保留；**不引入 LLM**（确定性结构抽取） | P1 | 契约 v1.0（标库-拆解规则契约.md）冻结；Phase 1-4 待项目负责人确认后实施，Preview 放最后 |
+| F7.1 | 拆解规则可配置：规则四表 + documents 两列溯源（provenance）；Execution Snapshot 为唯一历史真源；extract_status 服务端派生且 Execution 优先；规则试运行 Preview（纯计算不落库，≤100MB/≤300 页）+ Preview Guard；安全阀 `extract_structured(..., rules=None)` 保留；**不引入 LLM**（确定性结构抽取） | P1 | 契约 v1.0（标库-拆解规则契约.md）冻结；**Phase 1 后端规则中心 ✅ 09-29（21 passed）+ Phase 2 抽取引擎接入/执行追溯/状态机/差异 ✅ 09-29（22 passed，内置规则输出与改造前逐行一致）**；Phase 3 前端规则中心、Phase 4 规则试运行待做（Preview 放最后） |
 
 ## 3. 里程碑
 
@@ -94,7 +94,7 @@
 | E-2 阅读与引用 | F6.1-F6.3（E-0 架构闭环点） | ✅ 09-26 |
 | V3 产品化 | V3-0 端到端验收 12/12 + V3-1 章节级插入 + 编辑入口全面移除 | ✅ 09-26~29 |
 | D-2 交付批次 | D-2A 契约 + D-2B 安装器（138,342,812 B，SHA-256 3ea9a65d…）+ D-2C-A 预验收 PASS | 🔶 D-2C-B 干净 VM 终验待做（验证对象=3ea9a65d… 指纹） |
-| 拆解规则中心 | F7.1 Phase 0 契约 v1.0 | 🔶 待项目负责人确认后进 Phase 1（建表与代码），顺序 1→2→3→4，Preview 最后 |
+| 拆解规则中心 | F7.1 Phase 0 契约 v1.0 + Phase 1 后端规则中心 + Phase 2 引擎接入/执行追溯/状态机/差异 | 🔶 Phase 3 前端规则中心、Phase 4 规则试运行待做（顺序 3→4，Preview 最后） |
 | 发布门禁 | 智谱旧钥平台轮换（硬阻断）+ D-2C-B 终验 | ⛔ 未解除 |
 
 ## 4. 全局约束与安全红线
