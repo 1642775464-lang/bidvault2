@@ -53,15 +53,14 @@ _TITLE_PREFIX_RE = re.compile(
 )
 
 
-def _find_anchor_line(lines: list[str], anchors: list[str]) -> int | None:
-    """锚点行号：仅命中独立标题行。标题允许带章节号前缀（第一章/1.2/一、/附件1），
-    去前缀后整行须与锚点全等（或锚点+≤2字尾且不以句读结尾）。
-
-    正文里的「见/按XX前附表」引用句以标点结尾或含引用动词，天然被排除；
-    目录行带页码尾，去前缀后也不可能与锚点全等。
-    """
-    anchors_n = [_norm(a) for a in anchors]
-    for an in anchors_n:
+def _find_anchor_with_text(lines: list[str], anchors: list[str]) -> tuple[int | None, str | None]:
+    """锚点行号 + 命中锚点原文（供 preview 证据使用）。匹配语义与历史实现完全一致。"""
+    norm_to_orig: dict[str, str] = {}
+    for a in anchors:
+        na = _norm(a)
+        if na and na not in norm_to_orig:
+            norm_to_orig[na] = a
+    for an in norm_to_orig:
         for i, ln in enumerate(lines):
             st = _norm(ln)
             if len(st) < len(an):
@@ -73,12 +72,22 @@ def _find_anchor_line(lines: list[str], anchors: list[str]) -> int | None:
             if len(core) < len(an):
                 continue
             if core == an:
-                return i
+                return i, norm_to_orig[an]
             if core.startswith(an):
                 tail = core[len(an):]
                 if len(tail) <= 2 and not re.search(r"[；。，、：,（(]", tail):
-                    return i
-    return None
+                    return i, norm_to_orig[an]
+    return None, None
+
+
+def _find_anchor_line(lines: list[str], anchors: list[str]) -> int | None:
+    """锚点行号：仅命中独立标题行。标题允许带章节号前缀（第一章/1.2/一、/附件1），
+    去前缀后整行须与锚点全等（或锚点+≤2字尾且不以句读结尾）。
+
+    正文里的「见/按XX前附表」引用句以标点结尾或含引用动词，天然被排除；
+    目录行带页码尾，去前缀后也不可能与锚点全等。
+    """
+    return _find_anchor_with_text(lines, anchors)[0]
 
 
 def _table_to_rows(rows: list[list[str]]) -> list[list[str]]:
@@ -127,15 +136,28 @@ def _spec_from_rule(rule: dict[str, Any]) -> tuple[str, list[str], str]:
     return (name, [t for _p, _i, t in pairs], str(summary) if summary else name)
 
 
-def extract_structured(
+@dataclass
+class ExtractedRegion:
+    """抽取区间及证据定位（契约 §十一）：group 为原样复制结果。
+
+    行号 0-based；`anchor_line` = 命中锚点行，`end_line` = 区间排他上界（区间最后一行
+    为 end_line-1）；未命中时两者与 `anchor_hit` 均为 None。
+    """
+
+    group: ExtractedGroup
+    anchor_line: int | None
+    end_line: int | None
+    anchor_hit: str | None
+
+
+def extract_structured_with_regions(
     text: str, kind: str, doc_tables: list[Any] | None = None,
     rules: list[dict[str, Any]] | None = None,
-) -> list[ExtractedGroup]:
-    """抽取 = 按标题锚点定位章节区间，区间内容原样复制（表格还原表格、段落还原段落）。
+) -> list[ExtractedRegion]:
+    """抽取核心（带证据定位）：按标题锚点定位章节区间，区间内容原样复制。
 
-    rules=None（契约 §9.1 安全阀）：走内置常量，行为与规则中心上线前逐行一致；
-    rules 给定时按规则集执行（空列表 = 不抽取），kind 不再限制为 tender/bid，
-    以便公告等类型配置自有规则后同样生效。
+    `extract_structured` 为其薄包装（只取 group），两条路径共享同一实现——
+    preview 的 location/rows_count/内容与正式拆解天然一致（契约 §11.4）。
     """
     if rules is None:
         if kind not in ("tender", "bid"):
@@ -154,27 +176,49 @@ def extract_structured(
     # 分界行：章标题 + 各锚点行
     bounds: set[int] = set()
     anchor_at: dict[int, str] = {}
+    hit_of: dict[str, tuple[int, str]] = {}
     for name, anchors, _sum in specs:
-        ai = _find_anchor_line(lines, anchors)
+        ai, hit = _find_anchor_with_text(lines, anchors)
         if ai is not None:
             anchor_at[ai] = name
             bounds.add(ai)
+            hit_of[name] = (ai, hit or "")
     for i, ln in enumerate(lines):
         if _CHAPTER_RE.match(_norm(ln)):
             bounds.add(i)
     ordered = sorted(bounds)
 
-    out: list[ExtractedGroup] = []
+    out: list[ExtractedRegion] = []
     used_tables: set[int] = set()
     for name, _anchors, _sum in specs:
         ai = next((i for i, nm in anchor_at.items() if nm == name), None)
         if ai is None:
-            out.append(ExtractedGroup(group_name=name, name=name, sum=_sum, rows=[]))
+            out.append(ExtractedRegion(
+                group=ExtractedGroup(group_name=name, name=name, sum=_sum, rows=[]),
+                anchor_line=None, end_line=None, anchor_hit=None,
+            ))
             continue
         hi = next((b for b in ordered if b > ai), len(lines))
         rows = _copy_region(lines, tables, ai, hi, used_tables, tid_of)
-        out.append(ExtractedGroup(group_name=name, name=name, sum=_sum, rows=rows[:800]))
+        hit = hit_of.get(name, (ai, ""))[1]
+        out.append(ExtractedRegion(
+            group=ExtractedGroup(group_name=name, name=name, sum=_sum, rows=rows[:800]),
+            anchor_line=ai, end_line=hi, anchor_hit=hit,
+        ))
     return out
+
+
+def extract_structured(
+    text: str, kind: str, doc_tables: list[Any] | None = None,
+    rules: list[dict[str, Any]] | None = None,
+) -> list[ExtractedGroup]:
+    """抽取 = 按标题锚点定位章节区间，区间内容原样复制（表格还原表格、段落还原段落）。
+
+    rules=None（契约 §9.1 安全阀）：走内置常量，行为与规则中心上线前逐行一致；
+    rules 给定时按规则集执行（空列表 = 不抽取），kind 不再限制为 tender/bid，
+    以便公告等类型配置自有规则后同样生效。
+    """
+    return [r.group for r in extract_structured_with_regions(text, kind, doc_tables, rules)]
 
 
 def _copy_region(

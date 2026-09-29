@@ -776,3 +776,4 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .ex-x{border:none;background:transparent;color:var(--dim);cursor:pointer;font-size:12px;line-height:1;padding:0 2px}
 .ex-x:hover{color:var(--risk)}
 .ex-x:disabled{opacity:.35;cursor:default}
+.ex-preview{margin-top:8px;border:1px solid var(--line-soft);border-radius:6px;background:#fafbfd;padding:8px 10px;font-family:var(--mono);font-size:11.5px;color:var(--sub);max-height:180px;overflow:auto;white-space:pre-wrap}

@@ -3,6 +3,7 @@ import type {
   DocItem,
   DocKind,
   ExtractDiffT,
+  ExtractPreviewT,
   ExtractResp,
   ExtractRuleGroupT,
   ExtractRuleT,
@@ -338,6 +339,18 @@ export const api = {
   },
   async extractDiff(docId: string): Promise<ExtractDiffT> {
     return handle(fetch(`/api/documents/${docId}/extract-diff`));
+  },
+  /** 规则试运行（契约 §十一 v1.1）：dry-run 命中证据，不落任何业务态 */
+  async previewExtractRules(body: {
+    document_id: string; rule_set_version?: number; rules?: string[];
+  }): Promise<ExtractPreviewT> {
+    return handle(
+      fetch("/api/extract-rules/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
   },
   async ensureWorkspace(projectId: string): Promise<{ ok: boolean; office_document_id: string; title: string; version: number | null }> {
     return handle(fetch(`/api/projects/${projectId}/workspace`, { method: "POST" }));

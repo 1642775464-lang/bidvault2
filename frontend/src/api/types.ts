@@ -182,6 +182,33 @@ export interface ExtractDiffT {
   unchanged?: number;
 }
 
+/* ---------- 规则试运行（契约 §十一 v1.1：dry-run 命中证据） ---------- */
+
+export interface ExtractPreviewMatchT {
+  rule_id: string;
+  name: string;
+  matched: boolean;
+  anchor: string | null;
+  location: {
+    line_start: number;
+    line_end: number;
+    page_start: number | null;
+    page_end: number | null;
+  } | null;
+  rows_count: number;
+  preview: string[];
+  truncated: boolean;
+  reason?: string;
+}
+
+export interface ExtractPreviewT {
+  document: { id: string; filename: string; kind: DocKind };
+  rule_set_version: number;
+  ruleset_hash: string;
+  guard: { ok: boolean; file_size_mb: number | null; pages: number | null };
+  matches: ExtractPreviewMatchT[];
+}
+
 export interface ScanReportT {
   id: string;
   path: string;

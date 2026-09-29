@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..db import get_session
+from ..services.extract_preview import PREVIEW_TOO_LARGE_MSG, PreviewTooLargeError, run_preview
 from ..services.extract_rules import (
     KIND_LABELS,
     KINDS,
@@ -136,3 +137,29 @@ def reset(body: ResetIn | None = None, session: Session = Depends(get_session)) 
 def rule_history(limit: int = 30, session: Session = Depends(get_session)) -> dict[str, Any]:
     ensure_rules(session)
     return {"items": history(session, limit)}
+
+
+class PreviewIn(BaseModel):
+    document_id: str
+    rule_set_version: int | None = None
+    rules: list[str] | None = None
+
+
+@router.post("/preview")
+def preview(body: PreviewIn, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """规则试运行（契约 §十一 v1.1）：返回命中证据的 dry-run，不落任何业务态。
+
+    **不是正式拆解入口**（§7.1）：正式拆解仍走 POST /api/documents/{doc_id}/extract。
+    """
+    ensure_rules(session)
+    try:
+        return run_preview(
+            session,
+            document_id=body.document_id,
+            rule_set_version=body.rule_set_version,
+            rule_ids=body.rules,
+        )
+    except PreviewTooLargeError:
+        raise HTTPException(413, PREVIEW_TOO_LARGE_MSG) from None
+    except ExtractRuleError as exc:
+        raise _fail(exc) from exc

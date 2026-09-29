@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { api } from "../api/client";
-import type { DocKind, ExtractRuleGroupT, ExtractRuleT, Health, ScanReportT, WatchPathT } from "../api/types";
+import type { DocKind, ExtractPreviewT, ExtractRuleGroupT, ExtractRuleT, Health, ScanReportT, WatchPathT } from "../api/types";
 import { askConfirm, toast } from "../store";
 
 const health = ref<Health | null>(null);
@@ -270,6 +270,81 @@ async function openExHistory(): Promise<void> {
   await loadExHistory();
 }
 
+/* ---------- 测试规则（契约 §十一：dry-run 命中证据，不落库） ---------- */
+const exTest = ref<null | { docId: string; ruleIds: string[]; running: boolean }>(null);
+const exTestDocs = ref<{ id: string; filename: string; kind: DocKind }[]>([]);
+const exTestResult = ref<ExtractPreviewT | null>(null);
+
+const exTestCandidateRules = computed<ExtractRuleT[]>(() => {
+  const t = exTest.value;
+  if (!t) return [];
+  const doc = exTestDocs.value.find((d) => d.id === t.docId);
+  const kind = doc?.kind ?? "tender";
+  const g = exGroups.value.find((x) => x.kind === kind);
+  return (g?.items ?? []).filter((x) => x.enabled);
+});
+
+async function openExTest(ruleId?: string): Promise<void> {
+  if (!exTestDocs.value.length) {
+    try {
+      exTestDocs.value = (await api.documents()).items.map((d) => ({
+        id: d.id, filename: d.filename, kind: d.kind,
+      }));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "文档列表加载失败");
+      return;
+    }
+  }
+  if (!exTestDocs.value.length) {
+    toast("文档库暂无文档，请先上传");
+    return;
+  }
+  const rule = ruleId
+    ? exGroups.value.flatMap((g) => g.items).find((x) => x.id === ruleId)
+    : undefined;
+  const kind = rule?.kind ?? exTestDocs.value[0].kind;
+  const g = exGroups.value.find((x) => x.kind === kind);
+  exTest.value = {
+    docId: rule
+      ? exTestDocs.value.find((d) => d.kind === kind)?.id ?? exTestDocs.value[0].id
+      : exTestDocs.value[0].id,
+    ruleIds: rule ? [rule.id] : (g?.items ?? []).filter((x) => x.enabled).map((x) => x.id),
+    running: false,
+  };
+  exTestResult.value = null;
+}
+
+function exTestToggleRule(id: string): void {
+  const t = exTest.value;
+  if (!t) return;
+  t.ruleIds = t.ruleIds.includes(id) ? t.ruleIds.filter((x) => x !== id) : [...t.ruleIds, id];
+}
+
+function exTestOnDocChange(): void {
+  const t = exTest.value;
+  if (!t) return;
+  t.ruleIds = exTestCandidateRules.value.map((x) => x.id);
+  exTestResult.value = null;
+}
+
+async function exTestRun(): Promise<void> {
+  const t = exTest.value;
+  if (!t || t.running || !t.docId || !t.ruleIds.length) return;
+  t.running = true;
+  exTestResult.value = null;
+  try {
+    exTestResult.value = await api.previewExtractRules({
+      document_id: t.docId,
+      rule_set_version: exVersion.value,
+      rules: t.ruleIds,
+    });
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "试运行失败");
+  } finally {
+    t.running = false;
+  }
+}
+
 function exRuleMethod(r: ExtractRuleT): string {
   return r.kind === "tender" ? "锚点定位 · 整表抽取" : r.group_name ? `区间法 · ${r.group_name}` : "区间法";
 }
@@ -516,6 +591,7 @@ onMounted(() => {
               <span class="sub-note">规则集 v{{ exVersion }}</span>
               <span v-if="exStale" class="chip-miss">有 {{ exStale }} 份已拆解文档需重新拆解</span>
               <span style="margin-left:auto" />
+              <button class="mini-btn" :disabled="exBusy" @click="openExTest()">测试规则</button>
               <button class="mini-btn" :disabled="exBusy" @click="openExHistory">规则历史</button>
               <button class="mini-btn" :disabled="exBusy" @click="exReset()">恢复默认</button>
             </div>
@@ -540,7 +616,8 @@ onMounted(() => {
                 </div>
                 <div class="rh2" style="margin-top:8px">
                   <button class="mini-btn" :disabled="exBusy" @click="toggleExEdit(r)">{{ exOpen[r.id] ? "收起" : "编辑" }}</button>
-                  <button class="mini-btn" :class="{ danger: r.enabled }" :disabled="exBusy" @click="exToggle(r)">{{ r.enabled ? "停用" : "启用" }}</button>
+                  <button class="mini-btn" :disabled="exBusy" @click="exToggle(r)">{{ r.enabled ? "停用" : "启用" }}</button>
+                  <button class="mini-btn" :disabled="exBusy" @click="openExTest(r.id)">测试</button>
                   <button class="mini-btn" :disabled="exBusy || idx === 0" @click="exMove(g.kind, g.items, idx, -1)">↑</button>
                   <button class="mini-btn" :disabled="exBusy || idx === g.items.length - 1" @click="exMove(g.kind, g.items, idx, 1)">↓</button>
                   <button class="mini-btn danger" :disabled="exBusy || r.builtin" :title="r.builtin ? '内置规则不可删除，可用恢复默认还原' : '删除规则'" @click="exDelete(r)">删除</button>
@@ -689,6 +766,64 @@ onMounted(() => {
           <button class="btn-ghost" :disabled="exBusy" @click="exCreate = null">取消</button>
           <button class="btn-primary" :disabled="exBusy" @click="exSubmitCreate">{{ exBusy ? "保存中…" : "创建规则" }}</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 测试规则（试运行 · dry-run 命中证据） -->
+    <div v-if="exTest" class="modal-wrap" @click.self="exTest = null">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="测试规则" style="min-width:720px">
+        <h3>测试规则 · 试运行</h3>
+        <p class="m-sub">只读试运行：返回规则命中证据（锚点 / 行号 / 行数 / 预览），不落任何数据，也不产生拆解结果。</p>
+        <div class="frow">
+          <div class="f">
+            <label class="fl">选择文档</label>
+            <select :value="exTest.docId" @change="(exTest!.docId = ($event.target as HTMLSelectElement).value); exTestOnDocChange()">
+              <option v-for="d in exTestDocs" :key="d.id" :value="d.id">{{ d.filename }}（{{ { tender: "招标文件", bid: "投标文件", notice: "招标公告" }[d.kind] }}）</option>
+            </select>
+          </div>
+        </div>
+        <div class="sec-title" style="margin-top:8px">参与测试的规则（{{ exTestCandidateRules.length }} 条启用规则）</div>
+        <div class="rf">
+          <button v-for="r in exTestCandidateRules" :key="r.id" class="mini-btn"
+                  :class="{ on: exTest.ruleIds.includes(r.id) }" :disabled="exTest.running"
+                  @click="exTestToggleRule(r.id)">
+            {{ exTest.ruleIds.includes(r.id) ? "✓ " : "" }}{{ r.name }}
+          </button>
+          <span v-if="!exTestCandidateRules.length" class="sub-note">该文档类型暂无启用规则</span>
+        </div>
+        <div class="m-foot" style="margin-top:10px">
+          <button class="btn-ghost" @click="exTest = null">关闭</button>
+          <button class="btn-primary" :disabled="exTest.running || !exTest.docId || !exTest.ruleIds.length" @click="exTestRun">
+            {{ exTest.running ? "试运行中…" : "执行试运行" }}
+          </button>
+        </div>
+
+        <template v-if="exTestResult">
+          <div class="sec-title" style="margin-top:12px">
+            命中证据 · 规则集 v{{ exTestResult.rule_set_version }}
+            <span class="sub-note" style="margin-left:8px">
+              文档 {{ exTestResult.guard.file_size_mb ?? "—" }} MB · {{ exTestResult.guard.pages ?? "—" }} 页 · 试运行不落库
+            </span>
+          </div>
+          <div style="max-height:46vh;overflow:auto">
+            <div v-for="m in exTestResult.matches" :key="m.rule_id" class="rulecard" :class="{ off: !m.matched }">
+              <div class="rh2">
+                <b>{{ m.name }}</b>
+                <span v-if="m.matched" class="chip-role r-admin">命中</span>
+                <span v-else class="chip-miss">未命中</span>
+                <span v-if="m.matched" class="sub-note">
+                  锚点「{{ m.anchor }}」 · 行 {{ m.location!.line_start }}–{{ m.location!.line_end }}<template v-if="m.location!.page_start"> · 第 {{ m.location!.page_start }}–{{ m.location!.page_end }} 页</template> · {{ m.rows_count }} 行<template v-if="m.truncated"> · 预览已截断</template>
+                </span>
+              </div>
+              <div v-if="m.matched && m.preview.length" class="ex-preview">
+                <div v-for="(ln, i) in m.preview" :key="i">{{ ln }}</div>
+              </div>
+              <div v-if="!m.matched" class="rf">
+                <span class="chip-miss">{{ m.reason }}</span>
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
