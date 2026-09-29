@@ -45,6 +45,10 @@ export interface DocItem {
   needs_review: number;
   created_at: string | null;
   office_document_id: string | null;
+  /* 拆解规则维度（契约 §8.2，服务端派生） */
+  extract_status?: ExtractStatus | null;
+  extract_ruleset_version?: number | null;
+  ruleset_version?: number | null;
 }
 
 export interface PersonCard {
@@ -123,6 +127,59 @@ export interface WatchPathT {
   path: string;
   enabled: number;
   last_scan_at: string | null;
+}
+
+/* ---------- 拆解规则中心（契约《标库-拆解规则契约》v1.0） ---------- */
+
+export interface ExtractAnchorT {
+  text: string;
+  priority: number;
+  match_mode: string; // 仅 contains 生效；其余为预留（不展示、不可编辑）
+}
+
+export interface ExtractRuleT {
+  id: string;
+  kind: DocKind;
+  scope: string; // 只存储不进 UI（契约 §2.4）
+  group_name: string;
+  name: string;
+  anchors: ExtractAnchorT[];
+  focus_fields: string[];
+  summary: string | null;
+  enabled: boolean;
+  seq: number;
+  builtin: boolean;
+  updated_at: string | null;
+}
+
+export interface ExtractRuleGroupT {
+  kind: DocKind;
+  label: string;
+  items: ExtractRuleT[];
+  enabled_count: number;
+}
+
+/** 文档规则状态（服务端派生，契约 §五） */
+export type ExtractStatus = "BUILDING" | "FAILED" | "NORMAL" | "RULE_CHANGED" | "NEED_REBUILD";
+
+export interface ExtractDiffT {
+  available: boolean;
+  reason?: string;
+  document_id: string;
+  kind: DocKind;
+  extract_status?: ExtractStatus;
+  extract_ruleset_version?: number | null;
+  ruleset_version?: number;
+  from_version?: number;
+  to_version?: number;
+  from_ruleset_hash?: string;
+  to_ruleset_hash?: string;
+  executed_at?: string | null;
+  added?: { id: string; name: string }[];
+  removed?: { id: string; name: string }[];
+  changed?: { id: string; name: string; fields: string[] }[];
+  order_changed?: boolean;
+  unchanged?: number;
 }
 
 export interface ScanReportT {

@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { ImportBatchDetailT, ImportItemT, OutlineNodeT, ReaderBlockT } from "../api/client";
 import type { RiskItemT, SearchHit } from "../api/types";
-import type { DocItem, ExtractGroup } from "../api/types";
+import type { DocItem, ExtractDiffT, ExtractGroup, ExtractStatus } from "../api/types";
 import { CATS, INDUSTRIES, fmtSize, openUpload, refreshCore, store, toast } from "../store";
 import { rowBlocks, twipsToPx } from "../utils/documentBlocks";
 
@@ -32,6 +32,46 @@ const projects = ref<{ id: string; name: string }[]>([]);
 const statusF = ref<"all" | "2" | "1" | "0">("all");
 const extF = ref("all");
 const projF = ref("all");
+
+/* ---------- 拆解规则状态与差异（契约 §五/§8.2） ---------- */
+const diffOpen = ref(false);
+const diffData = ref<ExtractDiffT | null>(null);
+const diffBusy = ref(false);
+
+function exStatusLabel(s: ExtractStatus | null | undefined): string {
+  if (s === "RULE_CHANGED") return "规则已变更";
+  if (s === "NEED_REBUILD") return "需重新拆解";
+  if (s === "FAILED") return "上次拆解失败";
+  if (s === "BUILDING") return "拆解中";
+  return "";
+}
+
+const DIFF_FIELD_LABELS: Record<string, string> = {
+  name: "名称",
+  anchors: "章节锚点",
+  enabled: "启用状态",
+  group_name: "分组",
+  summary: "说明",
+  focus_fields: "关注字段",
+};
+
+function diffFieldLabel(fields: string[]): string {
+  return fields.map((f) => DIFF_FIELD_LABELS[f] ?? f).join(" / ");
+}
+
+async function openDiff(d: DocItem): Promise<void> {  if (diffBusy.value) return;
+  diffBusy.value = true;
+  diffOpen.value = true;
+  diffData.value = null;
+  try {
+    diffData.value = await api.extractDiff(d.id);
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "差异读取失败");
+    diffOpen.value = false;
+  } finally {
+    diffBusy.value = false;
+  }
+}
 
 async function load(): Promise<void> {
   try {
@@ -459,6 +499,10 @@ onMounted(async () => {
             <span v-else-if="d.status === 1" class="st-x x-run"><span class="run-dot" /> 拆解中</span>
             <span v-else-if="(d.error_msg ?? '').startsWith('OCR_UNAVAILABLE')" class="st-x x-miss">需要 OCR 扩展</span>
             <span v-else class="st-x x-none">未拆解</span>
+            <span v-if="d.extract_status === 'RULE_CHANGED' || d.extract_status === 'NEED_REBUILD' || d.extract_status === 'FAILED'"
+                  class="st-x x-miss" :title="`规则集 v${d.extract_ruleset_version ?? '—'} → 当前 v${d.ruleset_version ?? '—'}`">
+              ⚠ {{ exStatusLabel(d.extract_status) }}
+            </span>
           </button>
           <div v-if="!filtered.length" class="empty-state"><b>无匹配文档</b>调整筛选，或上传新文档</div>
         </div>
@@ -483,10 +527,27 @@ onMounted(async () => {
               <span v-if="sel.project_id" class="chip-proj">{{ projChipName(sel) }}</span>
               <span v-else class="chip-unbind">未绑定</span>
               <button class="act" @click="openBind()">绑定 / 换绑</button>
+              <button v-if="sel.extract_status === 'RULE_CHANGED' || sel.extract_status === 'NEED_REBUILD' || sel.extract_status === 'FAILED'"
+                      class="act" @click="openDiff(sel)">查看差异</button>
               <button v-if="sel.status !== 1" class="act pri" :disabled="!!extractingId" @click="doExtract()">
                 {{ sel.status === 2 ? "重新拆解" : extractingId === sel.id ? "拆解中…" : "拆解抽取" }}
               </button>
             </span>
+          </div>
+          <!-- 规则维度提示条（契约 §5.3） -->
+          <div v-if="sel.extract_status === 'RULE_CHANGED'" class="oo-warn" style="display:flex;align-items:center;gap:10px">
+            <span>⚠ 当前拆解基于旧规则（v{{ sel.extract_ruleset_version ?? "—" }} → 当前 v{{ sel.ruleset_version ?? "—" }}），重新拆解后按新规则生效</span>
+            <button class="mini-btn" @click="openDiff(sel)">查看差异</button>
+            <button class="mini-btn" :disabled="!!extractingId" @click="doExtract()">重新拆解</button>
+          </div>
+          <div v-else-if="sel.extract_status === 'NEED_REBUILD'" class="oo-warn" style="display:flex;align-items:center;gap:10px">
+            <span>⚠ 该文档缺少规则执行记录（规则中心上线前拆解），需重新拆解才能追溯规则</span>
+            <button class="mini-btn" :disabled="!!extractingId" @click="doExtract()">重新拆解</button>
+          </div>
+          <div v-else-if="sel.extract_status === 'FAILED'" class="oo-warn" style="display:flex;align-items:center;gap:10px">
+            <span>⚠ 上次拆解失败，可查看差异后重新拆解</span>
+            <button class="mini-btn" @click="openDiff(sel)">查看差异</button>
+            <button class="mini-btn" :disabled="!!extractingId" @click="doExtract()">重新拆解</button>
           </div>
           <div class="xp-body" style="display: flex; flex-direction: column; overflow: hidden; padding: 0">
             <template v-if="grouped.length">
@@ -548,6 +609,57 @@ onMounted(async () => {
           </div>
         </template>
         <div v-else class="xempty"><b>选择左侧文档</b></div>
+      </div>
+    </div>
+
+    <!-- 规则差异（快照 vs 当前规则集，契约 §8.2） -->
+    <div v-if="diffOpen" class="modal-wrap" @click.self="diffOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="拆解规则差异" style="min-width:640px">
+        <h3>拆解规则差异 · {{ sel?.filename }}</h3>
+        <div v-if="!diffData" class="empty-state"><b>读取中…</b></div>
+        <template v-else-if="!diffData.available">
+          <div class="empty-state"><b>无快照可比</b>{{ diffData.reason }}</div>
+        </template>
+        <template v-else>
+          <p class="m-sub">
+            上次拆解使用规则集 v{{ diffData.from_version }}（{{ diffData.executed_at ? diffData.executed_at.slice(0, 19).replace("T", " ") : "—" }}），
+            当前规则集 v{{ diffData.to_version }}
+          </p>
+          <div class="tblbox" style="max-height:52vh;overflow:auto">
+            <table>
+              <thead><tr><th style="width:90px">类型</th><th style="width:220px">规则</th><th>说明</th></tr></thead>
+              <tbody>
+                <tr v-for="x in diffData.added ?? []" :key="'a' + x.id">
+                  <td><span class="chip-role r-admin">新增</span></td>
+                  <td>{{ x.name }}</td>
+                  <td class="sub-note">本次拆解时不存在，现已在生效规则集中</td>
+                </tr>
+                <tr v-for="x in diffData.removed ?? []" :key="'r' + x.id">
+                  <td><span class="chip-role r-agent">删除</span></td>
+                  <td>{{ x.name }}</td>
+                  <td class="sub-note">该次拆解使用过，现已从规则中删除</td>
+                </tr>
+                <tr v-for="x in diffData.changed ?? []" :key="'c' + x.id">
+                  <td><span class="chip-role r-viewer">修改</span></td>
+                  <td>{{ x.name }}</td>
+                  <td class="sub-note">{{ diffFieldLabel(x.fields) }}</td>
+                </tr>
+                <tr v-if="diffData.order_changed">
+                  <td><span class="chip-role r-viewer">顺序</span></td>
+                  <td>规则顺序调整</td>
+                  <td class="sub-note">锚点匹配优先顺序发生变化</td>
+                </tr>
+                <tr v-if="!(diffData.added?.length || diffData.removed?.length || diffData.changed?.length || diffData.order_changed)">
+                  <td colspan="3" style="color:var(--dim)">规则集已变更，但本类型规则内容无差异（可能改的是其他类型规则）</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="sub-note" style="margin-top:8px">未变规则 {{ diffData.unchanged ?? 0 }} 条；差异依据为当时执行快照（历史不可变），不按当前规则回算历史。</p>
+        </template>
+        <div class="m-foot">
+          <button class="btn-ghost" @click="diffOpen = false">关闭</button>
+        </div>
       </div>
     </div>
 

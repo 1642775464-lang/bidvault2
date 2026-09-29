@@ -1,7 +1,11 @@
 import type {
   DetectResp,
   DocItem,
+  DocKind,
+  ExtractDiffT,
   ExtractResp,
+  ExtractRuleGroupT,
+  ExtractRuleT,
   Health,
   HistCase,
   Material,
@@ -275,6 +279,65 @@ export const api = {
   },
   async detectRules(): Promise<{ rules: { id: string; name: string; sev: string; type: string; desc: string; enabled: boolean }[] }> {
     return handle(fetch("/api/detect/rules"));
+  },
+  /* ---------- 拆解规则中心（契约 v1.0） ---------- */
+  async extractRules(): Promise<{
+    groups: ExtractRuleGroupT[];
+    ruleset_version: number;
+    stale_docs: number;
+  }> {
+    return handle(fetch("/api/extract-rules"));
+  },
+  async createExtractRule(body: {
+    kind: DocKind; name: string; anchors: { text: string; priority?: number }[];
+    group_name?: string; summary?: string | null; focus_fields?: string[]; enabled?: boolean;
+  }): Promise<{ ok: boolean; rule: ExtractRuleT; ruleset_version: number }> {
+    return handle(
+      fetch("/api/extract-rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  },
+  async patchExtractRule(ruleId: string, body: {
+    name?: string; anchors?: { text: string; priority?: number }[]; group_name?: string;
+    summary?: string | null; focus_fields?: string[]; enabled?: boolean; seq?: number;
+  }): Promise<{ ok: boolean; changed?: boolean; rule?: ExtractRuleT; ruleset_version?: number }> {
+    return handle(
+      fetch(`/api/extract-rules/${ruleId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  },
+  async deleteExtractRule(ruleId: string): Promise<{ ok: boolean; ruleset_version: number }> {
+    return handle(fetch(`/api/extract-rules/${ruleId}`, { method: "DELETE" }));
+  },
+  async reorderExtractRules(kind: DocKind, ids: string[]): Promise<{ ok: boolean; order: string[]; ruleset_version: number }> {
+    return handle(
+      fetch("/api/extract-rules/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, ids }),
+      }),
+    );
+  },
+  async resetExtractRules(kind?: DocKind): Promise<{ ok: boolean; restored: number; removed: number; ruleset_version: number }> {
+    return handle(
+      fetch("/api/extract-rules/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: kind ?? null }),
+      }),
+    );
+  },
+  async extractRuleHistory(limit = 30): Promise<{ items: { rule_id: string; rule_name: string; note: string; created_at: string | null }[] }> {
+    return handle(fetch(`/api/extract-rules/history${qs({ limit })}`));
+  },
+  async extractDiff(docId: string): Promise<ExtractDiffT> {
+    return handle(fetch(`/api/documents/${docId}/extract-diff`));
   },
   async ensureWorkspace(projectId: string): Promise<{ ok: boolean; office_document_id: string; title: string; version: number | null }> {
     return handle(fetch(`/api/projects/${projectId}/workspace`, { method: "POST" }));

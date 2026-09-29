@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { api } from "../api/client";
-import type { Health, ScanReportT, WatchPathT } from "../api/types";
-import { toast } from "../store";
+import type { DocKind, ExtractRuleGroupT, ExtractRuleT, Health, ScanReportT, WatchPathT } from "../api/types";
+import { askConfirm, toast } from "../store";
 
 const health = ref<Health | null>(null);
 const section = ref("系统信息");
@@ -10,6 +10,269 @@ const section = ref("系统信息");
 const sections = ["系统信息", "模型服务", "数据安全", "拆解规则", "检测规则", "关于"] as const;
 const detectRules = ref<{ id: string; name: string; sev: string; type: string; desc: string; enabled: boolean }[]>([]);
 const ruleHistory = ref<{ rule_id: string; rule_name: string; note: string; created_at: string | null }[]>([]);
+
+/* ---------- 拆解规则中心（契约《标库-拆解规则契约》v1.0） ---------- */
+/* 展示约束：不展示 scope、不展示/不可编辑 match_mode（契约 §2.3/§2.4） */
+
+interface ExDraft {
+  name: string;
+  group_name: string;
+  summary: string;
+  anchors: string[];
+  focus: string[];
+}
+
+const exGroups = ref<ExtractRuleGroupT[]>([]);
+const exVersion = ref(0);
+const exStale = ref(0);
+const exHistory = ref<{ rule_id: string; rule_name: string; note: string; created_at: string | null }[]>([]);
+const exOpen = ref<Record<string, boolean>>({});
+const exDraft = ref<Record<string, ExDraft>>({});
+const exNewAnchor = ref<Record<string, string>>({});
+const exNewFocus = ref<Record<string, string>>({});
+const exBusy = ref(false);
+const exHistOpen = ref(false);
+const exCreate = ref<{ kind: DocKind; name: string; group_name: string; summary: string; anchors: string; focus: string } | null>(null);
+
+async function loadExtractRules(): Promise<void> {
+  try {
+    const r = await api.extractRules();
+    exGroups.value = r.groups;
+    exVersion.value = r.ruleset_version;
+    exStale.value = r.stale_docs;
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "规则加载失败");
+  }
+}
+
+async function loadExHistory(): Promise<void> {
+  try {
+    exHistory.value = (await api.extractRuleHistory()).items;
+  } catch {
+    exHistory.value = [];
+  }
+}
+
+/** 保存后统一刷新：规则清单 + 历史（历史仅在弹层打开时拉取） */
+async function reloadEx(): Promise<void> {
+  await loadExtractRules();
+  if (exHistOpen.value) await loadExHistory();
+}
+
+function exAnchorTexts(r: ExtractRuleT): string[] {
+  return r.anchors.slice().sort((a, b) => a.priority - b.priority).map((a) => a.text);
+}
+
+function toggleExEdit(r: ExtractRuleT): void {
+  if (exOpen.value[r.id]) {
+    delete exOpen.value[r.id];
+    delete exDraft.value[r.id];
+    return;
+  }
+  exOpen.value[r.id] = true;
+  exDraft.value[r.id] = {
+    name: r.name,
+    group_name: r.group_name,
+    summary: r.summary ?? "",
+    anchors: exAnchorTexts(r),
+    focus: r.focus_fields.slice(),
+  };
+  exNewAnchor.value[r.id] = "";
+  exNewFocus.value[r.id] = "";
+}
+
+function exAddAnchor(r: ExtractRuleT): void {
+  const d = exDraft.value[r.id];
+  const v = (exNewAnchor.value[r.id] ?? "").trim();
+  if (!d || !v) return;
+  if (d.anchors.includes(v)) {
+    toast("该锚点已在列表中");
+    return;
+  }
+  d.anchors.push(v);
+  exNewAnchor.value[r.id] = "";
+}
+
+function exDelAnchor(r: ExtractRuleT, idx: number): void {
+  const d = exDraft.value[r.id];
+  if (!d) return;
+  if (d.anchors.length <= 1) {
+    toast("至少保留 1 个锚点");
+    return;
+  }
+  d.anchors.splice(idx, 1);
+}
+
+/** 锚点顺序即匹配优先顺序（契约 §2.3） */
+function exMoveAnchor(r: ExtractRuleT, idx: number, dir: -1 | 1): void {
+  const d = exDraft.value[r.id];
+  if (!d) return;
+  const to = idx + dir;
+  if (to < 0 || to >= d.anchors.length) return;
+  const [x] = d.anchors.splice(idx, 1);
+  d.anchors.splice(to, 0, x);
+}
+
+function exAddFocus(r: ExtractRuleT): void {
+  const d = exDraft.value[r.id];
+  const v = (exNewFocus.value[r.id] ?? "").trim();
+  if (!d || !v) return;
+  if (!d.focus.includes(v)) d.focus.push(v);
+  exNewFocus.value[r.id] = "";
+}
+
+function exDelFocus(r: ExtractRuleT, idx: number): void {
+  exDraft.value[r.id]?.focus.splice(idx, 1);
+}
+
+async function exSave(r: ExtractRuleT): Promise<void> {
+  const d = exDraft.value[r.id];
+  if (!d || exBusy.value) return;
+  if (!d.name.trim()) {
+    toast("规则名称不能为空");
+    return;
+  }
+  if (!d.anchors.length) {
+    toast("锚点至少 1 个");
+    return;
+  }
+  exBusy.value = true;
+  try {
+    const res = await api.patchExtractRule(r.id, {
+      name: d.name.trim(),
+      group_name: d.group_name.trim(),
+      summary: d.summary.trim(),
+      anchors: d.anchors.map((t) => ({ text: t })),
+      focus_fields: d.focus,
+    });
+    toast(res.changed === false ? "内容无变化" : "规则已保存");
+    delete exOpen.value[r.id];
+    delete exDraft.value[r.id];
+    await reloadEx();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "保存失败");
+  } finally {
+    exBusy.value = false;
+  }
+}
+
+async function exToggle(r: ExtractRuleT): Promise<void> {
+  if (exBusy.value) return;
+  exBusy.value = true;
+  try {
+    await api.patchExtractRule(r.id, { enabled: !r.enabled });
+    toast(r.enabled ? `已停用「${r.name}」` : `已启用「${r.name}」`);
+    await reloadEx();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "操作失败");
+  } finally {
+    exBusy.value = false;
+  }
+}
+
+async function exDelete(r: ExtractRuleT): Promise<void> {
+  if (exBusy.value) return;
+  if (r.builtin) {
+    toast("内置规则不可删除，可用「恢复默认」还原");
+    return;
+  }
+  const yes = await askConfirm("删除规则", `<p>确认删除规则「<b>${r.name}</b>」？</p><p style="margin-top:6px">删除后已拆解文档会标记为「规则已变更」，需重新拆解才会按新规则生效。</p>`, "确认删除");
+  if (!yes) return;
+  exBusy.value = true;
+  try {
+    await api.deleteExtractRule(r.id);
+    toast(`规则「${r.name}」已删除`);
+    await reloadEx();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "删除失败");
+  } finally {
+    exBusy.value = false;
+  }
+}
+
+async function exMove(kind: DocKind, items: ExtractRuleT[], idx: number, dir: -1 | 1): Promise<void> {
+  const to = idx + dir;
+  if (to < 0 || to >= items.length || exBusy.value) return;
+  const ids = items.map((x) => x.id);
+  const [x] = ids.splice(idx, 1);
+  ids.splice(to, 0, x);
+  exBusy.value = true;
+  try {
+    await api.reorderExtractRules(kind, ids);
+    await reloadEx();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "排序失败");
+  } finally {
+    exBusy.value = false;
+  }
+}
+
+async function exReset(kind?: DocKind): Promise<void> {
+  if (exBusy.value) return;
+  const scopeText = kind ? `「${exGroups.value.find((g) => g.kind === kind)?.label ?? kind}」` : "全部类型";
+  const yes = await askConfirm(
+    "恢复默认规则",
+    `<p>确认将 ${scopeText} 的规则恢复为内置默认？</p><p style="margin-top:6px">自定义规则将被删除，内置规则的名称/锚点/关注字段还原为出厂值。已拆解文档会标记为「规则已变更」。</p>`,
+    "恢复默认",
+  );
+  if (!yes) return;
+  exBusy.value = true;
+  try {
+    const r = await api.resetExtractRules(kind);
+    toast(`已恢复默认（还原 ${r.restored} 项，移除 ${r.removed} 项自定义规则）`);
+    await reloadEx();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "恢复失败");
+  } finally {
+    exBusy.value = false;
+  }
+}
+
+function exOpenCreate(kind: DocKind): void {
+  exCreate.value = { kind, name: "", group_name: "", summary: "", anchors: "", focus: "" };
+}
+
+async function exSubmitCreate(): Promise<void> {
+  const c = exCreate.value;
+  if (!c || exBusy.value) return;
+  const name = c.name.trim();
+  const anchors = c.anchors.split(/[\n,，]/).map((x) => x.trim()).filter(Boolean);
+  if (!name) {
+    toast("请填写规则名称");
+    return;
+  }
+  if (!anchors.length) {
+    toast("请至少填写 1 个锚点");
+    return;
+  }
+  exBusy.value = true;
+  try {
+    await api.createExtractRule({
+      kind: c.kind,
+      name,
+      anchors: anchors.map((t) => ({ text: t })),
+      group_name: c.group_name.trim(),
+      summary: c.summary.trim(),
+      focus_fields: c.focus.split(/[\n,，]/).map((x) => x.trim()).filter(Boolean),
+    });
+    toast(`规则「${name}」已新增`);
+    exCreate.value = null;
+    await reloadEx();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "新增失败");
+  } finally {
+    exBusy.value = false;
+  }
+}
+
+async function openExHistory(): Promise<void> {
+  exHistOpen.value = true;
+  await loadExHistory();
+}
+
+function exRuleMethod(r: ExtractRuleT): string {
+  return r.kind === "tender" ? "锚点定位 · 整表抽取" : r.group_name ? `区间法 · ${r.group_name}` : "区间法";
+}
 
 async function toggleRule(r: { id: string; enabled: boolean }): Promise<void> {
   try {
@@ -49,6 +312,7 @@ async function loadSecData(): Promise<void> {
 function switchSection(s: typeof sections[number]): void {
   section.value = s;
   if (s === "数据安全") void loadSecData();
+  if (s === "拆解规则") void loadExtractRules();
 }
 
 async function addWatchPath(): Promise<void> {
@@ -246,31 +510,102 @@ onMounted(() => {
             </div>
           </template>
 
-          <!-- 拆解规则 -->
+          <!-- 拆解规则（规则中心：可配置，契约 v1.0） -->
           <template v-else-if="section === '拆解规则'">
-            <div class="sec-lab">招标文件 · 三项（不分组）</div>
-            <div class="rulecard">
-              <div class="rh2"><b>投标人须知前附表</b><span class="n">锚点定位 · 整表抽取</span></div>
-              <div class="rf"><span class="fchip hit">递交截止时间</span><span class="fchip hit">投标有效期</span><span class="fchip hit">投标保证金</span><span class="fchip hit">正副本份数</span><span class="fchip">资质/财务/业绩/信誉要求</span><span class="fchip">招标人/代理机构/交货期</span></div>
+            <div class="ex-toolbar">
+              <span class="sub-note">规则集 v{{ exVersion }}</span>
+              <span v-if="exStale" class="chip-miss">有 {{ exStale }} 份已拆解文档需重新拆解</span>
+              <span style="margin-left:auto" />
+              <button class="mini-btn" :disabled="exBusy" @click="openExHistory">规则历史</button>
+              <button class="mini-btn" :disabled="exBusy" @click="exReset()">恢复默认</button>
             </div>
-            <div class="rulecard">
-              <div class="rh2"><b>评标办法前附表</b><span class="n">锚点定位 · 整表抽取</span></div>
-              <div class="rf"><span class="fchip hit">评标方法与排序规则</span><span class="fchip hit">形式评审标准</span><span class="fchip hit">资格评审标准</span><span class="fchip">评分项及分值</span></div>
-            </div>
-            <div class="rulecard">
-              <div class="rh2"><b>投标文件格式</b><span class="n">格式章节内全部表格</span></div>
-              <div class="rf"><span class="fchip">开标一览表</span><span class="fchip">产品明细报价</span><span class="fchip">商务/技术偏差表</span><span class="fchip">资格文件</span><span class="fchip">分项报价表</span></div>
-            </div>
-            <div class="sec-lab" style="margin-top:14px">投标文件 · 两项（不分组）</div>
-            <div class="rulecard">
-              <div class="rh2"><b>近年完成的类似项目情况表</b><span class="n">区间法 · 业绩与履约情况</span></div>
-              <div class="rf"><span class="fchip hit">项目名称</span><span class="fchip hit">合同金额</span><span class="fchip hit">实施时间</span><span class="fchip hit">验收情况</span><span class="fchip">设备/货物配置明细</span><span class="fchip">业绩描述段落</span></div>
-            </div>
-            <div class="rulecard">
-              <div class="rh2"><b>项目团队成员及相关人员简历</b><span class="n">区间法 · 项目团队</span></div>
-              <div class="rf"><span class="fchip hit">姓名</span><span class="fchip hit">职务/层级</span><span class="fchip hit">职称</span><span class="fchip hit">执业资格及证书编号</span><span class="fchip">简历正文</span></div>
-            </div>
-            <p class="sub-note">抽取 = docx 表格结构化解析 + GLM-4-Flash 分段抽取合并；规则由项目负责人 2026-09-16 标注定稿。</p>
+
+            <template v-for="g in exGroups" :key="g.kind">
+              <div class="sec-lab" :style="g.kind === 'tender' ? '' : 'margin-top:14px'">
+                {{ g.label }} · {{ g.items.length }} 项（启用 {{ g.enabled_count }}）
+                <button class="mini-btn" style="float:right;margin-top:-2px" :disabled="exBusy" @click="exOpenCreate(g.kind)">新增规则</button>
+              </div>
+
+              <div v-for="(r, idx) in g.items" :key="r.id" class="rulecard" :class="{ off: !r.enabled }">
+                <div class="rh2">
+                  <b>{{ r.name }}</b>
+                  <span v-if="r.group_name" class="chip-tag">{{ r.group_name }}</span>
+                  <span v-if="r.builtin" class="chip-role r-viewer">内置</span>
+                  <span v-if="!r.enabled" class="chip-miss">已停用</span>
+                  <span class="n">{{ exRuleMethod(r) }}</span>
+                </div>
+                <div class="rf">
+                  <span v-for="a in r.anchors" :key="a.text" class="fchip hit">{{ a.text }}</span>
+                  <span v-for="f in r.focus_fields" :key="f" class="fchip">{{ f }}</span>
+                </div>
+                <div class="rh2" style="margin-top:8px">
+                  <button class="mini-btn" :disabled="exBusy" @click="toggleExEdit(r)">{{ exOpen[r.id] ? "收起" : "编辑" }}</button>
+                  <button class="mini-btn" :class="{ danger: r.enabled }" :disabled="exBusy" @click="exToggle(r)">{{ r.enabled ? "停用" : "启用" }}</button>
+                  <button class="mini-btn" :disabled="exBusy || idx === 0" @click="exMove(g.kind, g.items, idx, -1)">↑</button>
+                  <button class="mini-btn" :disabled="exBusy || idx === g.items.length - 1" @click="exMove(g.kind, g.items, idx, 1)">↓</button>
+                  <button class="mini-btn danger" :disabled="exBusy || r.builtin" :title="r.builtin ? '内置规则不可删除，可用恢复默认还原' : '删除规则'" @click="exDelete(r)">删除</button>
+                </div>
+
+                <!-- 展开编辑 -->
+                <div v-if="exOpen[r.id] && exDraft[r.id]" class="ex-edit">
+                  <div class="frm">
+                    <div class="frow">
+                      <div class="f">
+                        <label class="fl">规则名称<span style="color:var(--fatal)">*</span></label>
+                        <input v-model="exDraft[r.id].name" type="text" placeholder="如：合同条款">
+                      </div>
+                      <div class="f">
+                        <label class="fl">分组（投标侧用于归类，可留空）</label>
+                        <input v-model="exDraft[r.id].group_name" type="text" placeholder="如：业绩与履约情况">
+                      </div>
+                    </div>
+                    <div class="f">
+                      <label class="fl">说明</label>
+                      <input v-model="exDraft[r.id].summary" type="text" placeholder="如：关键条款表">
+                    </div>
+                  </div>
+
+                  <div class="sec-title" style="margin-top:10px">章节锚点（顺序即匹配优先；请勿带「第X章」等章节号）</div>
+                  <div class="rf">
+                    <span v-for="(a, ai) in exDraft[r.id].anchors" :key="a + ai" class="fchip hit ex-chip">
+                      <i class="ex-pri">{{ ai + 1 }}</i>{{ a }}
+                      <button class="ex-x" :disabled="ai === 0" @click="exMoveAnchor(r, ai, -1)">‹</button>
+                      <button class="ex-x" :disabled="ai === exDraft[r.id].anchors.length - 1" @click="exMoveAnchor(r, ai, 1)">›</button>
+                      <button class="ex-x" @click="exDelAnchor(r, ai)">×</button>
+                    </span>
+                  </div>
+                  <div class="arcrow" style="margin-top:6px">
+                    <input v-model="exNewAnchor[r.id]" type="text" placeholder="新增锚点，如：评标办法（回车添加）" @keyup.enter="exAddAnchor(r)">
+                    <button class="mini-btn" @click="exAddAnchor(r)">添加锚点</button>
+                  </div>
+
+                  <div class="sec-title" style="margin-top:10px">关注字段（仅作说明展示，不参与抽取过滤）</div>
+                  <div class="rf">
+                    <span v-for="(f, fi) in exDraft[r.id].focus" :key="f + fi" class="fchip ex-chip">
+                      {{ f }}<button class="ex-x" @click="exDelFocus(r, fi)">×</button>
+                    </span>
+                    <span v-if="!exDraft[r.id].focus.length" class="sub-note">暂无</span>
+                  </div>
+                  <div class="arcrow" style="margin-top:6px">
+                    <input v-model="exNewFocus[r.id]" type="text" placeholder="新增关注字段（回车添加）" @keyup.enter="exAddFocus(r)">
+                    <button class="mini-btn" @click="exAddFocus(r)">添加字段</button>
+                  </div>
+
+                  <div class="m-foot" style="margin-top:10px">
+                    <button class="btn-ghost" :disabled="exBusy" @click="toggleExEdit(r)">取消</button>
+                    <button class="btn-primary" :disabled="exBusy" @click="exSave(r)">{{ exBusy ? "保存中…" : "保存规则" }}</button>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="!g.items.length" class="empty-state">
+                <b>{{ g.label }}暂无规则</b>该类型文档不会被拆解；可「新增规则」后生效（如公告正文、资格要求）。
+              </div>
+            </template>
+
+            <p class="sub-note" style="margin-top:10px">
+              抽取 = docx 表格结构化解析 + 锚点定位章节区间、内容原样复制（表格还原表格、段落还原段落）；规则由项目负责人 2026-09-16 标注定稿，2026-09-29 起支持自定义调整。规则变更后已拆解文档会标记「规则已变更」，重新拆解即按新规则生效。
+            </p>
           </template>
 
           <!-- 检测规则 -->
@@ -317,6 +652,65 @@ onMounted(() => {
               </table>
             </div>
           </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增规则 -->
+    <div v-if="exCreate" class="modal-wrap" @click.self="exCreate = null">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="新增拆解规则">
+        <h3>新增拆解规则 · {{ exGroups.find((g) => g.kind === exCreate!.kind)?.label }}</h3>
+        <div class="frm">
+          <div class="frow">
+            <div class="f">
+              <label class="fl">规则名称<span style="color:var(--fatal)">*</span></label>
+              <input v-model="exCreate.name" type="text" placeholder="如：合同条款">
+            </div>
+            <div class="f">
+              <label class="fl">分组（可留空）</label>
+              <input v-model="exCreate.group_name" type="text" placeholder="如：业绩与履约情况">
+            </div>
+          </div>
+          <div class="f">
+            <label class="fl">说明（可留空）</label>
+            <input v-model="exCreate.summary" type="text" placeholder="如：关键条款表">
+          </div>
+          <div class="f">
+            <label class="fl">章节锚点<span style="color:var(--fatal)">*</span>（每行一个，顺序即匹配优先）</label>
+            <textarea v-model="exCreate.anchors" rows="3" placeholder="合同条款&#10;合同主要条款" />
+            <p class="sub-note">锚点为章节标题文本，勿带「第X章 / 1.2 / 一、」等章节号——系统匹配时会自动剥离正文标题的章节号。</p>
+          </div>
+          <div class="f">
+            <label class="fl">关注字段（可留空，逗号或换行分隔，仅作说明展示）</label>
+            <textarea v-model="exCreate.focus" rows="2" placeholder="工期, 质保期, 违约责任" />
+          </div>
+        </div>
+        <div class="m-foot">
+          <button class="btn-ghost" :disabled="exBusy" @click="exCreate = null">取消</button>
+          <button class="btn-primary" :disabled="exBusy" @click="exSubmitCreate">{{ exBusy ? "保存中…" : "创建规则" }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 规则变更留痕 -->
+    <div v-if="exHistOpen" class="modal-wrap" @click.self="exHistOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="规则变更留痕">
+        <h3>规则变更留痕（当前规则集 v{{ exVersion }}）</h3>
+        <div class="tblbox" style="max-height:52vh;overflow:auto">
+          <table>
+            <thead><tr><th style="width:150px">时间</th><th style="width:200px">规则</th><th>变更</th></tr></thead>
+            <tbody>
+              <tr v-for="(h, i) in exHistory" :key="i">
+                <td>{{ h.created_at ? h.created_at.slice(0, 19).replace("T", " ") : "—" }}</td>
+                <td>{{ h.rule_name }}</td>
+                <td>{{ h.note }}</td>
+              </tr>
+              <tr v-if="!exHistory.length"><td colspan="3" style="color:var(--dim)">暂无变更记录</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="m-foot">
+          <button class="btn-ghost" @click="exHistOpen = false">关闭</button>
         </div>
       </div>
     </div>
