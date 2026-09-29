@@ -1,7 +1,7 @@
 # 标库 BidVault v2 · 项目状态（STATUS）
 
 > 更新频率：里程碑跨越/架构变动/功能增删时必更 | 冲突裁决：需求文档 v2.2 > PRD > 架构 > 状态
-> 当前进度看板：**图纸阶段 · 步骤 4 系统原型：4.1 整体框架已确认（侧边导航+Feather 图标），4.2 功能模块进行中**
+> 当前进度看板（2026-09-29 对账刷新）：**实施阶段 · 主线已闭环**——E-1 标书工作区 + E-2 阅读引用 + V3 产品化（章节级插入/编辑入口全面移除）✅；安装器集成 D-2B ✅（D-2C-A 预验收 PASS）。待办：D-2C-B 干净 VM 终验（验证对象=3ea9a65d… 指纹）、智谱旧钥平台轮换（发布硬阻断）、拆解规则中心 Phase 1（契约 v1.0 已冻结待确认）
 
 ---
 
@@ -18,19 +18,25 @@
 | 7 架构草案 | ✅（提前完成） | 06-架构草案.md v1.0 | 09-13 |
 | 8 规整文档 | ✅ | 三件套固定命名（本文件等） | 09-13 |
 | 9 开发规范 | ✅ | 标库-开发规范.md | 09-13 |
-| 10 Git+闸门 | ⏸ 原型定稿后重建 | 仓库随开发阶段重建 | — |
+| 10 Git+闸门 | ✅ | 仓库随开发重建（Conventional Commits；feat/fix 与 docs 登记成对提交） | 09-19 |
 
 > 说明：5-9 在方法论升级前已完成；步骤 4 原型若推翻部分界面/交互，相关文档（PRD 页面清单/架构）随原型定稿同步修订。
 
-## 里程碑进度
+## 里程碑进度（2026-09-29 对账刷新）
 
-| 里程碑 | 内容 | 状态 |
+| 里程碑/阶段 | 内容 | 状态 |
 |---|---|---|
-| M1 数据底座 | F1.0/F1.1/F1.2/F1.5 + 检索基础 | 未开工（原型定稿后） |
-| M2 素材库 | F1.3 文字类 + F1.4 + F2.6 | 未开工 |
-| M3 图片证据链 | F1.3 图片类 + P7 预览完整 | 未开工 |
-| M4 废标检查 | F3.1-F3.4 | 未开工 |
-| M5 打磨交付 | F4.1/F4.2 + 性能/空错态 | 未开工 |
+| M1 数据底座 | F1.0/F1.1/F1.2/F1.5 + 检索基础 | ✅（09-13 重建交付，测试 14/14） |
+| M2 素材库 | F1.3 文字类 + F1.4 + F2.6 | ✅（实施期交付） |
+| M3 图片证据链 | F1.3 图片类 + P7 预览完整 | ✅（09-15） |
+| M4 废标检查 | F3.1-F3.4 | ✅（实施期交付；V3-0 端到端含风险检测） |
+| M5 打磨交付 | F4.1/F4.2 + 性能/空错态 | ✅（一键启动为安装器前身） |
+| C 系列 | OfficeDocument 通用层（C-1/C-2）+ 素材插入（C-3）+ AI 提案审批（C-4） | ✅ 09-21~23 |
+| E-1/E-2 | 标书工作区（PRD F5）+ 阅读与引用（PRD F6），E-0 架构闭环点 | ✅ 09-25~26（V3-0 端到端 12/12） |
+| V3 产品化 | V3-1 章节级精准插入 + 编辑入口全面移除 | ✅ 09-26~29（217 passed） |
+| D-2 交付批次 | D-2A 契约 + D-2B 安装器（138,342,812 B，SHA-256 3ea9a65d…）+ D-2C-A 预验收 PASS | 🔶 D-2C-B 干净 VM 终验待做 |
+| 拆解规则中心 | 可配置化（PRD F7）Phase 0 契约 v1.0 | 🔶 待项目负责人确认后进 Phase 1 |
+| 发布门禁 | 智谱旧钥平台轮换（硬阻断）+ D-2C-B 终验 | ⛔ 未解除 |
 
 ## 决策台账（v2）
 
@@ -40,6 +46,7 @@
 | Q1-Q8 | 执行层 | 见 01-需求整理 §五（全采纳建议项） |
 | D12 | 方法论升级 | 九步骤→十步骤，新增步骤 4「系统原型」（框架→模块→功能点逐级确认）；已开发代码彻底清除，回到步骤 3 后重走原型（2026-09-13） |
 | D13 | 正式产品部署形态 | **Windows 单机安装包 + 云端 AI API**（本机不运行大模型，不得形成 CUDA/NVIDIA GPU 依赖）。AI 地址/模型/Key 全配置化；AI 断线不影响本地文档编辑/版本管理；程序目录与用户数据目录分离（安装时选数据目录，用户 DOCX/版本/素材/workspace/DB 不写安装目录）；安装器系统预检（Windows/x64/CPU 核数/RAM/磁盘/虚拟化/WSL2/网络/端口）；正式用户零 Docker/WSL/compose 手动操作；离线安装包预装本地运行组件与 ONLYOFFICE 镜像。推荐环境：Win11 x64 / 6-8 核 / 16GB / 512GB SSD / ≥100GB 可用 / 虚拟化开启 / 可访问云端 AI API（2026-09-21，仅记录，不扩大 B-1a 范围） |
+| D14 | V3 产品定位 | **标书生产管理系统，非编辑器**——移除全部文档编辑入口（原生编辑/ONLYOFFICE iframe/编辑器状态/死组件死 API），用户正文编辑走外部 Word/WPS；系统只做素材引用写入/章节级精准插入/AI 提案人工确认写入。安装形态定为 WebView2 薄壳 + 本机 FastAPI（D13 中「预装 ONLYOFFICE 镜像」作废，DX 壳退役），OCR 改独立离线扩展，未装显式降级（2026-09-28/29，项目负责人指令两轮执行） |
 
 ## 遗留与风险
 
@@ -146,3 +153,4 @@
 | 2026-09-29 | **拆解规则中心 Phase 0 契约冻结 + Phase 1 后端规则中心完成**：①**Phase 0**——`标库-拆解规则契约.md` v1.0（commit 0600f48，纯文档零代码改动）经项目负责人逐条验收通过（条款 A 快照唯一真源 / 条款 B 快照冻结时机 / 状态机 Execution 优先 / Preview 非正式入口且纯计算 / `rules=None` 安全阀）；②**Phase 1 建表**——四张新表 `extract_rules`（kind·scope·group_name·name·anchors_json·focus_fields_json·summary·enabled·seq·builtin）/ `extract_rule_versions` / `extract_ruleset_meta`（单行版本号）/ `extract_executions`（执行档案，快照列已就位供 Phase 2 写入），`documents` 增 provenance 两列 `extract_ruleset_version`/`extract_rules_hash`；③**migration**——走既有 create_all + `_migrate` 轻量 ALTER；在真实旧库副本上验证 22→24 列、四表补齐、旧数据保全、二次初始化幂等 **PASS**（脚本 `回归证据/D1R3/verify_phase1_migration.py`）；④**服务** `services/extract_rules.py`——内置规则迁移（招标三项+投标两项，锚点转 JSON 带 priority/match_mode，公告空集）、幂等播种、CRUD、reorder、reset、规则集版本递增、变更留痕快照、锚点冲突与 match_mode 校验、`resolve_rules`/`ruleset_snapshot`/`rules_hash`/`stale_doc_count` 供 Phase 2 消费；⑤**API** `/api/extract-rules`——GET 清单（分组+版本+过期文档数）/ POST / PATCH / DELETE（内置拒删 409）/ reorder / reset / history；⑥**测试**——新增 `tests/test_extract_rules.py` **21 passed**（播种幂等·版本递增·no-op 不推版本·留痕快照·空名称/空锚点/规则内重复/跨规则冲突/非法 match_mode/缺规则 404/内置禁删 409·排序（含外来 id 与重复 id 拒绝、未列出规则保序）·恢复默认（清自定义+还原内置+公告保持空）·公告可新增）；**全量回归 238 passed + 2 failed（既有 projection_recovery 环境失败）+ 1 skipped**，另观察到 `test_source_write_chain::test_status2_same_content_no_new_version` 在满载全量下偶发一次、单跑与成对跑均通过、二次全量未复现（既有后台线程+sleep 时序 flake，非本次改动引入，已登记）；⑦**边界遵守**——Phase 1 未改 extractor/pipeline（拆解行为零变化，契约要求的实施顺序）；⑧**契约澄清 v1.0.1**——`extract_ruleset_meta` 增单行主键列 `id`（声明式模型强制），reorder 允许子集，POST 接受可选 enabled/seq，无行为语义变更 |
 | 2026-09-29 | **立规并执行：新版本/上线默认清除测试数据与文档（项目负责人指令）**：①**背景**——实机页面残留历轮回归数据（6 文档/2 素材/2 项目：回归招标·回归素材·D1R3 回归项目·V3 验收医院项目等）；②**已执行**——停实例→清空 `%LOCALAPPDATA%\BidVault\data`→重启，`/api/health` counts 全 0（documents/materials/watch_paths/audit_logs），浏览器空项目库；删除 8 个旧测试安装目录（D:\BidVault 及 d1r3-clean/d1r4/d2b/d2b-final/BidVault-Installed/Manual/Delivery），D 盘释放约 3 GB；③**已固化**——新增 `tools/release_clean.py`（干跑默认；`--apply` 停 8000+清数据目录；`--purge-installs` 清 OLD_INSTALLS 登记目录；登记制含 e0v3-clean）+ 标库-开发规范.md **第七节 发布前清理约定（强制五条）**：隔离 DATA_DIR 测试禁写真实数据目录 / 发布前默认 --apply 且 counts 全 0 才交付 / 安装包零测试数据 / 旧验证目录登记清除 / 清理证据入 STATUS；④**长期记忆**——新建 MEMORY.md（产品红线：不做编辑入口；四条标准约定；当前指纹与待办）；⑤**保留**——D:\bidvault-e0v3-clean 为当前实机验收实例（已登记，发布时随包替换）；⑥**验收对象不变**——3ea9a65db17693d6b721841d7de4ad7fdd47b9ffc615db66ebb1f2bc253713f3 |
 | 2026-09-29 | **P0 修复：安装态前端 404（浏览器打开 127.0.0.1:8000 显示 {"detail":"Not Found"}）**：①**根因**——main.py 前端静态挂载用 `data_dir.parent/"frontend"/"dist"` 推导（M5 65bde9c 引入），而安装器 bat 把 DATA_DIR 指到 %LOCALAPPDATA%\BidVault\data，其 parent 下无 frontend → 静态托管整块不挂载、`/` 落 FastAPI 404；此前冒烟/验收偶然命中只因 DATA_DIR 设在安装目录内；②**修复**——`_DIST` 改按后端包位置推导 `Path(__file__).resolve().parents[2]/"frontend"/"dist"`（仓库开发态与安装态双布局成立，与 DATA_DIR 解耦）；③**验证**——TestClient 外部 DATA_DIR 下 `/` 200 SPA；已安装实例热修后以用户同款 DATA_DIR 重启，浏览器 SPA/资源/健康全 200；新安装件独立目录在 bug 原发条件（外部 DATA_DIR+8001 端口）复验 SPA/资源/健康全 200；④**回归**——全量 217 passed + 2 failed（projection_recovery 既有环境失败，与本次无关）；⑤**安装器第三次重打**——138,342,812 B，**新 SHA-256=3ea9a65db17693d6b721841d7de4ad7fdd47b9ffc615db66ebb1f2bc253713f3**（a054dd19… 含本 bug 一并作废；D-2C-B 终验对象=本指纹）；⑥**教训登记**——凡「路径按 data_dir 推导」的假设必须用 bat 真实 DATA_DIR 复测，冒烟脚本 DATA_DIR 不得与启动器一致地巧合 |
+| 2026-09-29 | **文档对账收口（项目负责人指令：文档同步纪律立规）**：①**PRD 升 v2.0**——实施期四类需求变更回写（产品形态=Windows 单机安装包 WebView2 薄壳 / 新增 F5 标书生产工作区 + F6 阅读与引用 + F7 拆解规则中心三组功能点 / 定位改「标书生产管理系统，非编辑器」并移除编辑入口 / 里程碑节改双表：M1-M5 已交付 + 实施期 C/E/V3/D-2/规则中心/发布门禁阶段）；②**STATUS 头部刷新**——进度看板改实施阶段口径，十步骤 Git 闸门 ✅（09-19），里程碑表 M1-M5 补 ✅ + 新增实施期阶段行，决策台账增 D14（V3 定位：非编辑器，D13 的 ONLYOFFICE 预装条款作废）；③**06-架构草案迭代日志补登 #5-#11**（E-0 契约 / E-1 三段 / E-2 三段 / V3-1 章节级插入 / 编辑入口移除 / P0 _DIST 修复 / 拆解规则契约 Phase 0）；④**开发规范新增第八节「文档同步纪律（强制）」**——需求/功能/架构任一变动同轮更新全部涉及文档，feat/fix 与 docs 成对提交，用户指令类约定落开发规范+MEMORY.md 双处 |
