@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "标库 BidVault V3 · 产品架构（单机部署形态）",
+    "output": "架构/V3产品架构图/产品架构.html",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "shell", "type": "frontend", "label": "WebView2 薄壳", "sublabel": "桌面窗口（可回退浏览器）", "pos": [50, 290], "size": [140, 64] },
+    { "id": "spa", "type": "frontend", "label": "Vue3 五页工作台", "sublabel": "工作台/项目库/文档库/素材库/设置", "pos": [240, 290], "size": [170, 64], "tag": "本机渲染" },
+    { "id": "api", "type": "backend", "label": "FastAPI 本机服务", "sublabel": "127.0.0.1:8000 · 单 worker", "pos": [460, 290], "size": [150, 64], "tag": "唯一入口" },
+    { "id": "queue", "type": "messagebus", "label": "串行任务队列", "sublabel": "解析/拆解/索引/检测", "pos": [680, 110], "size": [150, 56] },
+    { "id": "rules_center", "type": "backend", "label": "拆解规则中心", "sublabel": "规则/版本/快照/执行档案", "pos": [900, 60], "size": [160, 56], "tag": "Phase 1 已交付" },
+    { "id": "ocr", "type": "backend", "label": "OCR 离线扩展", "sublabel": "PaddleOCR · 可选安装", "pos": [900, 160], "size": [160, 52], "tag": "未装显式降级" },
+    { "id": "db", "type": "database", "label": "SQLite WAL", "sublabel": "业务表 + FTS5 + 向量", "pos": [690, 290], "size": [140, 60] },
+    { "id": "files", "type": "database", "label": "文件存储 files/", "sublabel": "原件/版本/页图缓存", "pos": [690, 410], "size": [140, 56] },
+    { "id": "glm", "type": "cloud", "label": "智谱 GLM", "sublabel": "glm-4-flash / GLM-4V-Flash", "pos": [460, 110], "size": [160, 56], "tag": "唯一出网" },
+    { "id": "workspace", "type": "external", "label": "项目工作区目录", "sublabel": "用户磁盘 · .bidvault 绑定", "pos": [940, 410], "size": [170, 64], "tag": "数据归用户" }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "用户电脑 · Windows 单机（零 Docker/WSL/ONLYOFFICE）", "wraps": ["shell", "spa", "api", "queue", "rules_center", "ocr", "db", "files", "workspace"], "pad": 20 },
+    { "kind": "security-group", "label": "程序目录（安装器写入 · 安装包约 138MB）", "wraps": ["shell", "spa", "api", "queue", "rules_center", "ocr"], "pad": 14 },
+    { "kind": "security-group", "label": "数据目录（安装时自选 · 卸载不删数据）", "wraps": ["db", "files"], "pad": 14 }
+  ],
+  "connections": [
+    { "from": "shell", "to": "spa", "label": "承载五页" },
+    { "from": "spa", "to": "api", "label": "HTTP", "variant": "emphasis" },
+    { "from": "api", "to": "db", "label": "SQLAlchemy", "variant": "emphasis", "labelDy": 16 },
+    { "from": "api", "to": "files", "label": "原件与版本落盘" },
+    { "from": "api", "to": "queue", "label": "任务入队", "labelDy": -20 },
+    { "from": "queue", "to": "rules_center", "label": "拆解读规则快照", "variant": "dashed", "labelDx": -20 },
+    { "from": "queue", "to": "ocr", "label": "扫描件识别", "variant": "dashed" },
+    { "from": "api", "to": "glm", "label": "仅 AI 出网 · 审计留痕", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "from": "files", "to": "workspace", "label": "DOCX 投影写回（DB 先行协议）", "variant": "emphasis", "labelAt": [885, 488] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "产品形态（给项目经理的第一句话）", "items": ["一个 Windows 单机安装包：双击安装，桌面图标启动，无需 Docker/WSL/ONLYOFFICE", "安装包内是 WebView2 窗口壳 + 内嵌 Python 运行时 + 前端页面 + 本机服务", "全部功能在本机运行，界面就是浏览器里打开的 127.0.0.1 页面"] },
+    { "dot": "emerald", "title": "数据归属与目录分离", "items": ["程序目录（安装器写入）与数据目录（安装时自选位置）严格分离，卸载不删数据", "标书生产文件落在用户自选的项目工作区目录（.bidvault 绑定），数据库只存索引与分析结果", "投影写回用 DB 先行协议：先记数据库意图，再写工作区文件，崩溃可恢复"] },
+    { "dot": "rose", "title": "出网与降级红线", "items": ["唯一出网是 AI 调用（检索/草稿提案/图片识别），全部留审计，断网不影响本机功能", "OCR 是独立离线扩展包，未安装时显式提示降级，不静默失败", "V3 定位：标书生产管理系统，非编辑器——正文编辑由用户在外部 Word/WPS 完成"] }
+  ]
+}

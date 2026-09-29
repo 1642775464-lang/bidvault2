@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "标库 BidVault V3 · 功能架构（一条业务主线 + 卫星能力）",
+    "output": "架构/V3产品架构图/功能架构.html",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "materials", "type": "frontend", "label": "素材库", "sublabel": "7 分类复用 / 引用状态", "pos": [260, 80], "size": [180, 64] },
+    { "id": "search", "type": "backend", "label": "混合检索", "sublabel": "关键词 + 自然语言", "pos": [520, 80], "size": [160, 64] },
+    { "id": "check", "type": "backend", "label": "废标检测", "sublabel": "风险指数 / 四态 / 评分对照", "pos": [960, 80], "size": [180, 64] },
+    { "id": "projects", "type": "frontend", "label": "项目库", "sublabel": "台账 / 五步阶段 / 详情", "pos": [40, 250], "size": [150, 64] },
+    { "id": "ingest", "type": "backend", "label": "导入与拆解引擎", "sublabel": "归档/解析/OCR/规则拆解", "pos": [260, 250], "size": [180, 64] },
+    { "id": "reader", "type": "backend", "label": "章节树 + 阅读器", "sublabel": "锚点 hash / 块端点", "pos": [510, 250], "size": [170, 64] },
+    { "id": "insert", "type": "backend", "label": "引用插入引擎", "sublabel": "章节三道闸 / OOXML 写入", "pos": [740, 250], "size": [170, 64] },
+    { "id": "workbench", "type": "frontend", "label": "工作台", "sublabel": "生产主界面 · V3 核心", "pos": [960, 250], "size": [170, 64] },
+    { "id": "ai", "type": "backend", "label": "AI 提案审批", "sublabel": "glm-4-flash / 人工确认", "pos": [1190, 250], "size": [160, 64] },
+    { "id": "settings", "type": "frontend", "label": "系统设置", "sublabel": "AI / 归档 / 备份 / 规则", "pos": [30, 430], "size": [170, 64] },
+    { "id": "rules", "type": "backend", "label": "拆解规则中心", "sublabel": "可配置 / 快照唯一真源", "pos": [270, 430], "size": [190, 64], "tag": "Phase 1 已交付" }
+  ],
+  "connections": [
+    { "from": "projects", "to": "ingest", "label": "上传招标/投标", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "from": "ingest", "to": "reader", "label": "拆解结果", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "from": "reader", "to": "insert", "label": "章节锚点", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "from": "insert", "to": "workbench", "label": "工作稿新版本", "variant": "emphasis", "fromSide": "right", "toSide": "left", "labelAt": [935, 335] },
+    { "from": "ingest", "to": "materials", "label": "拆解自动入库", "fromSide": "top", "toSide": "bottom" },
+    { "from": "materials", "to": "search", "label": "素材索引", "fromSide": "right", "toSide": "left" },
+    { "from": "reader", "to": "search", "label": "素材推荐", "fromSide": "top", "toSide": "bottom" },
+    { "from": "workbench", "to": "check", "label": "废标检测面板", "variant": "emphasis", "fromSide": "top", "toSide": "bottom" },
+    { "from": "workbench", "to": "ai", "label": "草稿提案 · 人工确认", "variant": "dashed", "fromSide": "right", "toSide": "left", "labelAt": [1160, 335] },
+    { "from": "settings", "to": "rules", "label": "规则配置入口", "fromSide": "right", "toSide": "left" },
+    { "from": "rules", "to": "ingest", "label": "读取规则快照", "variant": "dashed", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "业务主线（新手照这条横线看）", "items": ["项目库建档 → 上传招标/投标文件 → 导入拆解引擎出结构化结果", "拆解结果进入章节树+阅读器，按章节导航、定位条款、选取锚点", "引用插入引擎把素材写进工作稿新版本，工作台完成引用、检测与导出"] },
+    { "dot": "emerald", "title": "卫星能力怎么挂到主线上", "items": ["拆解结果自动入素材库；素材库与阅读器都通过混合检索做素材推荐", "废标检测在工作台面板出结果，AI 提案经人工确认后才写入", "系统设置 → 拆解规则中心 → 拆解引擎：改规则只影响未来拆解，历史靠快照解释"] },
+    { "dot": "rose", "title": "V3 红线与边界", "items": ["没有任何页面提供编辑入口，正文编辑由用户在外部 Word/WPS 完成", "引用插入有三道闸（版本/锚点/分节符边界），拒绝时不静默回退", "AI 只产草稿提案，写入必须人工确认；唯一出网是 AI 调用且全程审计"] }
+  ]
+}
