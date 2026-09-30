@@ -781,3 +781,9 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .mat-imgcell{display:block;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
 .mat-imgcell img{width:100%;height:90px;object-fit:cover;display:block}
 .mat-imgcell:hover{border-color:var(--accent)}
+/* 契约 v1.4：图文原位插入的图片证据（网格自适应缩略图，点击看原图） */
+.imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin:10px 0 14px}
+.imgs .imgcell{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fbfcfe}
+.imgs .imgcell a{display:block}
+.imgs .imgcell img{width:100%;height:130px;object-fit:contain;display:block;background:#fff}
+.imgs .imgcell:hover{border-color:var(--accent)}

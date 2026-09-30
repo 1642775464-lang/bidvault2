@@ -381,7 +381,7 @@ def test_extract_failure_records_failed_execution(client, monkeypatch):
     def _boom(*a, **k):
         raise RuntimeError("模拟抽取异常")
 
-    monkeypatch.setattr(ex, "extract_structured", _boom)
+    monkeypatch.setattr(ex, "extract_structured_with_regions", _boom)
     r = client.post(f"/api/documents/{doc_id}/extract")
     assert r.status_code == 200 and r.json()["status"] == 0  # 失败落 status=0
 

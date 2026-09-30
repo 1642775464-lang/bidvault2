@@ -172,6 +172,8 @@ class ExtractedRegion:
     行号 0-based；`anchor_line` = 命中起始锚点行，`end_line` = 区间排他上界（区间最后一行
     为 end_line-1）；未命中时两者与 `anchor_hit` 均为 None。
     `end_hit` = 命中的结束锚点文本（v1.2；其行不进入区间），未配置/未命中为 None。
+    `src_lines` = 与 group.rows 逐行对应的源行号（v1.4；表格行取物理 <w:tr> 槽位），
+    供前端按源行号就地插入图片证据。
     """
 
     group: ExtractedGroup
@@ -179,6 +181,7 @@ class ExtractedRegion:
     end_line: int | None
     anchor_hit: str | None
     end_hit: str | None = None
+    src_lines: tuple[int, ...] = ()
 
 
 def extract_structured_with_regions(
@@ -237,11 +240,12 @@ def extract_structured_with_regions(
             if ei is not None and ei < hi:
                 hi = ei
                 end_hit = next(t for t in end_anchors if _norm(t) == _norm(lines[ei]) or _norm(lines[ei]).startswith(_norm(t)))
-        rows = _copy_region(lines, tables, ai, hi, used_tables, tid_of)
+        rows, src_lines = _copy_region_with_src(lines, tables, ai, hi, used_tables, tid_of)
         hit = hit_of.get(name, (ai, ""))[1]
         out.append(ExtractedRegion(
             group=ExtractedGroup(group_name=name, name=name, sum=_sum, rows=rows[:800]),
             anchor_line=ai, end_line=hi, anchor_hit=hit, end_hit=end_hit,
+            src_lines=tuple(src_lines[:800]),
         ))
     return out
 
@@ -259,11 +263,15 @@ def extract_structured(
     return [r.group for r in extract_structured_with_regions(text, kind, doc_tables, rules)]
 
 
-def _copy_region(
+def _copy_region_with_src(
     lines: list[str], tables: list[Any], lo: int, hi: int, used_tables: set[int],
     tid_of: dict[int, int] | None = None,
-) -> list[Any]:
-    """区间 [lo, hi) 按文档顺序原样复制：段落=单列行；docx 表格=V2 行对象（保留合并结构）。"""
+) -> tuple[list[Any], list[int]]:
+    """同 `_copy_region`，但额外返回与每行一一对应的源行号（契约 v1.4）。
+
+    源行号 = 该行在解析文本中的行槽（表格行 = 其物理 <w:tr> 槽位），
+    与 `ParsedDoc.doc_image_refs` 的记账基准同源，供前端就地插入图片证据。
+    """
     tid_of = tid_of or {}
     tbs = sorted(
         (tb for tb in tables if lo <= tb.start_line < hi and id(tb) not in used_tables),
@@ -287,7 +295,6 @@ def _copy_region(
     for tb in tbs:
         model = getattr(tb, "model", None)
         if model:
-            # V2：每个表格行一个对象（自带表头信息），空行/合并结构原样保留
             for k, trow in enumerate(model["rows"]):
                 events.append((tb.start_line + k, {
                     "type": "table",
@@ -301,4 +308,12 @@ def _copy_region(
             table_rows = _table_to_rows(tb.rows)
             events.extend((tb.start_line + k, r) for k, r in enumerate(table_rows))
     events.sort(key=lambda x: x[0])
-    return [r for _, r in events]
+    return [r for _, r in events], [i for i, _ in events]
+
+
+def _copy_region(
+    lines: list[str], tables: list[Any], lo: int, hi: int, used_tables: set[int],
+    tid_of: dict[int, int] | None = None,
+) -> list[Any]:
+    """区间 [lo, hi) 按文档顺序原样复制：段落=单列行；docx 表格=V2 行对象（保留合并结构）。"""
+    return _copy_region_with_src(lines, tables, lo, hi, used_tables, tid_of)[0]

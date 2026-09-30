@@ -293,16 +293,33 @@ def extract_and_harvest(
 
         title = g.name if len(g.name) <= 24 else g.name[:22] + "…"
         new_rows = json.dumps(g.rows, ensure_ascii=False) if g.rows else None
-        # 契约 v1.3：区间内照片级图片 → 素材 images_json（≤100 张；docx 无页概念用行号）
+        # 契约 v1.3/v1.4：区间内照片级图片 → 素材 images_json（≤100 张）。
+        # 归属：图片记账槽（body 顺序下「紧邻其前的块」的最后一行槽）→ 取该槽对应的抽取行下标，
+        # 渲染时插在该行之后；槽落在区间外则丢弃（防区间外插图淹没素材库）。
         region_images_json: str | None = None
-        if docx_images and reg.anchor_line is not None:
-            lo1, hi1 = reg.anchor_line + 1, reg.end_line or (reg.anchor_line + 1)
-            in_region = [im for im in docx_images if im.line_no and lo1 <= im.line_no <= hi1]
-            if in_region:
-                region_images_json = json.dumps([
-                    {"file_name": im.rel_path, "line_no": im.line_no, "size": im.size}
-                    for im in in_region[:100]
-                ], ensure_ascii=False)
+        if docx_images and reg.anchor_line is not None and reg.src_lines:
+            src = list(reg.src_lines)
+            lo_slot, hi_slot = reg.anchor_line, (reg.end_line or reg.anchor_line + 1) - 1
+            picked: list[dict[str, Any]] = []
+            for im in docx_images:
+                slot = im.line_no - 1 if im.line_no else -1  # 0-based 记账槽
+                # 归属行与图片槽都必须在区间内（槽在区间外 = 属于其他章节，不收）
+                if slot < lo_slot or slot > hi_slot:
+                    continue
+                idx = -1
+                for i, s in enumerate(src):
+                    if s <= slot:
+                        idx = i
+                    else:
+                        break
+                if idx < 0:
+                    continue
+                picked.append({
+                    "file_name": im.rel_path, "line_no": im.line_no,
+                    "size": im.size, "after_row": idx,
+                })
+            if picked:
+                region_images_json = json.dumps(picked[:100], ensure_ascii=False)
         if title in existing:
             # 重新拆解：刷新同名素材内容（保留引用计数与分类）
             mat = existing[title]

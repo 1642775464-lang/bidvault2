@@ -4,7 +4,8 @@ import { api } from "../api/client";
 import type { Material } from "../api/types";
 import { CATS, navTo, refreshCore, store, toast } from "../store";
 import PagePreview from "../components/PagePreview.vue";
-import { rowBlocks, twipsToPx } from "../utils/documentBlocks";
+import { isTableBlockV2, twipsToPx } from "../utils/documentBlocks";
+import type { ExtractRowV2, TableBlockV2 } from "../api/types";
 
 const search = ref("");
 const cat = ref("all");
@@ -96,8 +97,8 @@ const imgDocId = computed(() =>
 );
 const previewOpen = ref(false);
 
-/** 契约 v1.3：DOCX 拆解图片证据（挂在素材上的区间内图片） */
-const matImages = computed<{ file_name: string; line_no: number; size: number }[]>(() => {
+/** 契约 v1.4：DOCX 图片证据按归属行就地插入（after_row = 素材行下标；旧数据无此字段则忽略） */
+const matImages = computed<{ file_name: string; line_no: number; size: number; after_row?: number }[]>(() => {
   if (!sel.value?.images_json) return [];
   try {
     const arr = JSON.parse(sel.value.images_json);
@@ -106,6 +107,51 @@ const matImages = computed<{ file_name: string; line_no: number; size: number }[
     return [];
   }
 });
+
+/** 行下标 → 该行之后的图片（契约 v1.4 就地插入） */
+function imgsAfterRow(rowIdx: number): { file_name: string; line_no: number }[] {
+  return matImages.value.filter(
+    (im) => typeof im.after_row === "number" && im.after_row === rowIdx,
+  );
+}
+
+/** 契约 v1.4：按行下标分段（连续同类合并），供就地插图定位。
+ *  - 段落行（单列）→ para 段
+ *  - 连续同 tid 的 V2 表格行 → tableV2 段
+ *  - 段携带 endIdx（该段最后一行的下标），图片插在 endIdx 之后
+ */
+type MatSeg =
+  | { kind: "para"; key: string; text: string; endIdx: number }
+  | {
+      kind: "tableV2"; key: string; endIdx: number;
+      v2: { tid: number; columnCount: number; columnWidthsTwips: number[] };
+      rows: { cells: TableBlockV2["cells"] }[];
+    };
+
+function rowSegments(rows: ExtractRowV2[] | null | undefined): MatSeg[] {
+  const out: MatSeg[] = [];
+  (rows ?? []).forEach((raw, idx) => {
+    const last = out[out.length - 1];
+    if (isTableBlockV2(raw)) {
+      if (last && last.kind === "tableV2" && last.v2.tid === raw.tid) {
+        last.rows.push({ cells: raw.cells });
+        last.endIdx = idx;
+        return;
+      }
+      out.push({
+        kind: "tableV2", key: "t" + idx, endIdx: idx,
+        rows: [{ cells: raw.cells }],
+        v2: { tid: raw.tid, columnCount: raw.columnCount, columnWidthsTwips: raw.columnWidthsTwips },
+      });
+      return;
+    }
+    out.push({
+      kind: "para", key: "p" + idx, endIdx: idx,
+      text: Array.isArray(raw) ? raw.join(" ").trim() : String(raw),
+    });
+  });
+  return out;
+}
 
 function pick(m: Material): void {
   selId.value = m.id;
@@ -366,23 +412,28 @@ onMounted(async () => {
 
                   <template v-if="sel.type === '表格' && sel.rows">
                     <div class="wp-sec">结构化内容</div>
-                    <template v-for="(blk, bi) in rowBlocks(sel.rows)" :key="'b' + bi">
-                      <table v-if="blk.type === 'table'" class="realtable">
-                        <tr v-for="(r, ri) in blk.rows" :key="ri">
-                          <td v-for="(c, ci) in r" :key="ci">{{ c }}</td>
-                        </tr>
-                      </table>
-                      <table v-else-if="blk.type === 'tableV2'" class="realtable" :data-tid="blk.v2!.tid">
+                    <template v-for="seg in rowSegments(sel.rows)" :key="seg.key">
+                      <!-- 段落 / 单列行 -->
+                      <p v-if="seg.kind === 'para'" class="wp-p" style="text-indent:2em">{{ seg.text }}</p>
+                      <!-- V2 表格（同一 tid 连续行归一张表，保留合并单元格与列宽） -->
+                      <table v-else class="realtable" :data-tid="seg.v2!.tid">
                         <colgroup>
-                          <col v-for="(w, wi) in blk.v2!.columnWidthsTwips" :key="wi" :style="w > 0 ? { width: twipsToPx(w) + 'px' } : undefined">
+                          <col v-for="(w, wi) in seg.v2!.columnWidthsTwips" :key="wi" :style="w > 0 ? { width: twipsToPx(w) + 'px' } : undefined">
                         </colgroup>
-                        <tr v-for="(row, ri) in blk.v2!.rows" :key="ri">
+                        <tr v-for="(row, ri) in seg.rows" :key="ri">
                           <template v-for="c in row.cells" :key="c.id">
                             <td v-if="!c.merged" :colspan="c.colSpan > 1 ? c.colSpan : undefined" :rowspan="c.rowSpan > 1 ? c.rowSpan : undefined">{{ c.text }}</td>
                           </template>
                         </tr>
                       </table>
-                      <p v-else class="wp-p" style="text-indent:2em">{{ blk.rows[0][0] }}</p>
+                      <!-- 契约 v1.4：图片证据就地插入（该行之后） -->
+                      <div v-if="imgsAfterRow(seg.endIdx).length" class="imgs">
+                        <div v-for="im in imgsAfterRow(seg.endIdx)" :key="im.file_name" class="imgcell">
+                          <a :href="'/api/files/' + im.file_name" target="_blank" :title="'原文档第 ' + im.line_no + ' 行'">
+                            <img :src="'/api/files/' + im.file_name" loading="lazy">
+                          </a>
+                        </div>
+                      </div>
                     </template>
                   </template>
 
@@ -413,17 +464,6 @@ onMounted(async () => {
                   <template v-else>
                     <div class="wp-sec">文件</div>
                     <div class="wp-p" style="text-align:center;text-indent:0">{{ sel.file_name || "—" }} {{ sel.file_size || "" }}</div>
-                  </template>
-
-                  <!-- 契约 v1.3：DOCX 拆解图片证据（区间内照片级内嵌图） -->
-                  <template v-if="matImages.length">
-                    <div class="wp-sec">图片证据（{{ matImages.length }}）</div>
-                    <div class="mat-imggrid">
-                      <a v-for="im in matImages" :key="im.file_name" class="mat-imgcell"
-                         :href="'/api/files/' + im.file_name" target="_blank" :title="'拆解区间行 L' + im.line_no">
-                        <img :src="'/api/files/' + im.file_name" loading="lazy">
-                      </a>
-                    </div>
                   </template>
                 </div>
               </div>

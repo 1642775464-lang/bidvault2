@@ -241,7 +241,8 @@ def parse_docx(data: bytes) -> ParsedDoc:
     doc = DocxDocument(io.BytesIO(data))
     lines: list[str] = []
     doc_tables: list[TableBlock] = []
-    image_refs: list[tuple[int, str]] = []  # (行槽, rId)——图片跟随最近行（契约 v1.3）
+    # (归属行槽, rId)——契约 v1.4：按 body 子项顺序记账（图片归属「紧邻其前的块」）
+    image_refs: list[tuple[int, str]] = []
     _A_BLIP = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
     _V_IMAGEDATA = "{urn:schemas-microsoft-com:vml}imagedata"
     _R_EMBED = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
@@ -257,19 +258,24 @@ def parse_docx(data: bytes) -> ParsedDoc:
                 out.append(b.get(_R_ID))
         return out
 
-    def _collect_paragraph_images(child: Any, has_text: bool) -> None:
-        """段落内图片：有文本段记该段将占用的行槽；空文本段（常见于独立成段的扫描图）记最近前置行槽。"""
-        blids = _blip_ids(child)
+    def _attach_images(el: Any, *, has_text: bool = False) -> None:
+        """把元素内图片挂到所属行的槽位——契约 v1.4 精确归属（按 body 子项顺序）。
+
+        - 图文同段：图片属于该段自身 → 槽位 = len(lines)（该段即将占用的行槽）。
+        - 独立图片段（无文本，本文档主流形态）：归属「紧邻其前的块」→ 槽位 = len(lines)-1。
+        - 文档最前（无前块）：记 -1，渲染时置于区间最前。
+
+        相比 v1.3 的"行号公式反推"：图片段自身不再占槽，避免整体偏移一格以上。
+        """
+        blids = _blip_ids(el)
         if not blids:
             return
-        slot = len(lines) if has_text else len(lines) - 1
-        slot = max(slot, 0)
+        if has_text:
+            slot = len(lines)
+        else:
+            slot = len(lines) - 1 if lines else -1
         for rid in blids:
             image_refs.append((slot, rid))
-
-    def _collect_table_images(child: Any, start_line: int) -> None:
-        for rid in _blip_ids(child):
-            image_refs.append((start_line, rid))
 
     def _cell_hl(cell: Any) -> str:
         cnt: Counter[str] = Counter()
@@ -288,13 +294,13 @@ def parse_docx(data: bytes) -> ParsedDoc:
     for child in doc.element.body.iterchildren():
         if child.tag.endswith("}p"):
             para = Paragraph(child, doc)
-            has_text = bool(para.text.strip())
-            _collect_paragraph_images(child, has_text)
-            if has_text:
-                lines.append(para.text.strip())
+            txt = para.text.strip()
+            _attach_images(child, has_text=bool(txt))
+            if txt:
+                lines.append(txt)
         elif child.tag.endswith("}tbl"):
+            _attach_images(child)
             t = Table(child, doc)
-            _collect_table_images(child, len(lines))
             hl_counter: Counter[str] = Counter()
             model = parse_table_model(child)
             table = TableBlock(rows=[], start_line=len(lines), model=model)
