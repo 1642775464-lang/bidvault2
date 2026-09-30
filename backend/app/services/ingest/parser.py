@@ -294,7 +294,10 @@ def parse_docx(data: bytes) -> ParsedDoc:
     for child in doc.element.body.iterchildren():
         if child.tag.endswith("}p"):
             para = Paragraph(child, doc)
-            txt = para.text.strip()
+            # 契约 v1.5：段落文本取全部后代 w:t（para.text 只读直接子 run，会漏掉
+            # w:hyperlink/w:ins 包裹的文本——实机简历文档的证书标题被漏记，导致
+            # 行号账本整体前移、图片槽错位、后续表格 span 吞掉相邻标题行）
+            txt = "".join(t.text or "" for t in child.iter(_W_NS + "t")).strip()
             _attach_images(child, has_text=bool(txt))
             if txt:
                 lines.append(txt)

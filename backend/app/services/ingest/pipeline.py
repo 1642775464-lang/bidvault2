@@ -330,14 +330,26 @@ def extract_and_harvest(
 
                 def _cap(j: int) -> bool:
                     r = g.rows[j] if 0 <= j < len(g.rows) else None
-                    # 文本行 = 单元素列表 [st]（_copy_region_with_src 的行模型）
+                    # 文本行 = 单元素列表 [st]；表内标题行 = V2 dict 且仅一个非空短单元格
+                    # （实机验证：部分证书标题被表格 span 吞为表行，如「PMP证书」「职称证」）
+                    if isinstance(r, dict) and r.get("type") == "table":
+                        cells = [c for c in (r.get("cells") or [])
+                                 if isinstance(c, str) and c.strip()]
+                        return len(cells) == 1 and len(cells[0].strip()) <= 24
                     return (isinstance(r, list) and len(r) == 1
                             and isinstance(r[0], str) and 0 < len(r[0].strip()) <= 24)
 
                 def _is_tbl(r: Any) -> bool:
-                    # 表格行 = V2 dict（{"type":"table",...}）或旧式多单元格列表
-                    return (isinstance(r, dict) and r.get("type") == "table") or (
-                        isinstance(r, list) and len(r) > 1)
+                    # 表格行 = V2 dict（{"type":"table",...}）、旧式多单元格列表，
+                    # 或无模型降级路径的单元素整行文本（真实简历表形态：len==1 但
+                    # 文本长 / 含 "|" 单元格分隔——实机验证发现，缺此分支吸附永不触发）
+                    if isinstance(r, dict):
+                        return r.get("type") == "table"
+                    if not isinstance(r, list) or not r:
+                        return False
+                    if len(r) > 1:
+                        return True
+                    return isinstance(r[0], str) and (len(r[0].strip()) > 24 or "|" in r[0])
 
                 batches: dict[int, list[dict[str, Any]]] = {}
                 for p in picked:
