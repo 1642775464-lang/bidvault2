@@ -44,6 +44,8 @@ class ParsedDoc:
     pages: list[str]  # 每页文本（page_no = 下标+1）；docx/表格整篇一页
     page_conf: list[float] = dataclasses_field(default_factory=list)  # OCR 页均置信度；非 OCR 为空
     doc_tables: list[TableBlock] = dataclasses_field(default_factory=list)  # docx 专属
+    # docx 专属（契约 v1.3）：(行槽, rId) 有序对——图片所在段落/表格的行号账本位置
+    doc_image_refs: tuple[tuple[int, str], ...] = ()
 
 
 _W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -239,6 +241,35 @@ def parse_docx(data: bytes) -> ParsedDoc:
     doc = DocxDocument(io.BytesIO(data))
     lines: list[str] = []
     doc_tables: list[TableBlock] = []
+    image_refs: list[tuple[int, str]] = []  # (行槽, rId)——图片跟随最近行（契约 v1.3）
+    _A_BLIP = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
+    _V_IMAGEDATA = "{urn:schemas-microsoft-com:vml}imagedata"
+    _R_EMBED = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+    _R_ID = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+
+    def _blip_ids(el: Any) -> list[str]:
+        """DrawingML blip 与 VML imagedata 两种图片引用形态（WPS 常写后者）。"""
+        out: list[str] = []
+        for b in el.iter():
+            if b.tag == _A_BLIP and b.get(_R_EMBED):
+                out.append(b.get(_R_EMBED))
+            elif b.tag == _V_IMAGEDATA and b.get(_R_ID):
+                out.append(b.get(_R_ID))
+        return out
+
+    def _collect_paragraph_images(child: Any, has_text: bool) -> None:
+        """段落内图片：有文本段记该段将占用的行槽；空文本段（常见于独立成段的扫描图）记最近前置行槽。"""
+        blids = _blip_ids(child)
+        if not blids:
+            return
+        slot = len(lines) if has_text else len(lines) - 1
+        slot = max(slot, 0)
+        for rid in blids:
+            image_refs.append((slot, rid))
+
+    def _collect_table_images(child: Any, start_line: int) -> None:
+        for rid in _blip_ids(child):
+            image_refs.append((start_line, rid))
 
     def _cell_hl(cell: Any) -> str:
         cnt: Counter[str] = Counter()
@@ -257,10 +288,13 @@ def parse_docx(data: bytes) -> ParsedDoc:
     for child in doc.element.body.iterchildren():
         if child.tag.endswith("}p"):
             para = Paragraph(child, doc)
-            if para.text.strip():
+            has_text = bool(para.text.strip())
+            _collect_paragraph_images(child, has_text)
+            if has_text:
                 lines.append(para.text.strip())
         elif child.tag.endswith("}tbl"):
             t = Table(child, doc)
+            _collect_table_images(child, len(lines))
             hl_counter: Counter[str] = Counter()
             model = parse_table_model(child)
             table = TableBlock(rows=[], start_line=len(lines), model=model)
@@ -286,7 +320,8 @@ def parse_docx(data: bytes) -> ParsedDoc:
                 )
             doc_tables.append(table)
     whole = "\n".join(lines)
-    return ParsedDoc(text=whole, pages=[whole], doc_tables=doc_tables)
+    return ParsedDoc(text=whole, pages=[whole], doc_tables=doc_tables,
+                     doc_image_refs=tuple(image_refs))
 
 
 def parse_pdf(data: bytes) -> ParsedDoc:

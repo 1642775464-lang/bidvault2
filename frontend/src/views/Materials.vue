@@ -96,6 +96,17 @@ const imgDocId = computed(() =>
 );
 const previewOpen = ref(false);
 
+/** 契约 v1.3：DOCX 拆解图片证据（挂在素材上的区间内图片） */
+const matImages = computed<{ file_name: string; line_no: number; size: number }[]>(() => {
+  if (!sel.value?.images_json) return [];
+  try {
+    const arr = JSON.parse(sel.value.images_json);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+});
+
 function pick(m: Material): void {
   selId.value = m.id;
 }
@@ -402,6 +413,17 @@ onMounted(async () => {
                   <template v-else>
                     <div class="wp-sec">文件</div>
                     <div class="wp-p" style="text-align:center;text-indent:0">{{ sel.file_name || "—" }} {{ sel.file_size || "" }}</div>
+                  </template>
+
+                  <!-- 契约 v1.3：DOCX 拆解图片证据（区间内照片级内嵌图） -->
+                  <template v-if="matImages.length">
+                    <div class="wp-sec">图片证据（{{ matImages.length }}）</div>
+                    <div class="mat-imggrid">
+                      <a v-for="im in matImages" :key="im.file_name" class="mat-imgcell"
+                         :href="'/api/files/' + im.file_name" target="_blank" :title="'拆解区间行 L' + im.line_no">
+                        <img :src="'/api/files/' + im.file_name" loading="lazy">
+                      </a>
+                    </div>
                   </template>
                 </div>
               </div>

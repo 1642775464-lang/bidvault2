@@ -38,6 +38,7 @@ def _m_dict(m: Material, session: Session) -> dict[str, Any]:
         "tags": json.loads(m.tags_json) if m.tags_json else [],
         "rows": json.loads(m.rows_json) if m.rows_json else None,
         "text": m.text, "file_name": m.file_name, "file_size": m.file_size, "source_page": m.source_page,
+        "images_json": m.images_json,  # 契约 v1.3：DOCX 图片证据
         "used": m.used,
         "updated_at": m.updated_at.isoformat() if m.updated_at else None,
         "office_document_id": m.office_document_id,

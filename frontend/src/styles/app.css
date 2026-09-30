@@ -777,3 +777,7 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .ex-preview{margin-top:8px;border:1px solid var(--line-soft);border-radius:6px;background:#fafbfd;padding:8px 10px;font-family:var(--mono);font-size:11.5px;color:var(--sub);max-height:180px;overflow:auto;white-space:pre-wrap}
 .ex-chip.ex-end{background:var(--risk-bg);border-color:var(--risk-line)}
 .ex-chip .ex-end-tag{color:var(--risk);font-weight:700}
+.mat-imggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px}
+.mat-imgcell{display:block;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+.mat-imgcell img{width:100%;height:90px;object-fit:cover;display:block}
+.mat-imgcell:hover{border-color:var(--accent)}

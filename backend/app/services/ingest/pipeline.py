@@ -102,7 +102,8 @@ def process_document(
         purge_document_index(session, doc.id)
         n = _write_index(session, doc.id, parsed.pages)
 
-        extracted, made = extract_and_harvest(session, doc, parsed, version_id=version_id, trigger=trigger)
+        extracted, made = extract_and_harvest(session, doc, parsed, version_id=version_id,
+                                              trigger=trigger, docx_data=data)
         img_made = 0
         if doc.file_type == "pdf":
             try:
@@ -143,6 +144,7 @@ def process_document(
 def extract_and_harvest(
     session: Session, doc: Document, parsed: Any = None, *,
     version_id: str | None = None, trigger: str = "manual",
+    docx_data: bytes | None = None,
 ) -> tuple[int, int]:
     """拆解抽取：规则锚点区间原样复制 → 结构项+行落库 → 素材入库（去重）。
 
@@ -156,7 +158,7 @@ def extract_and_harvest(
 
     from ...models import ExtractExecution
     from ..extract_rules import current_version, ensure_rules, rules_hash, resolve_rules
-    from .extractor import extract_structured
+    from .extractor import extract_structured_with_regions
 
     ensure_rules(session)  # 内置规则在库（幂等），保证首次拆解即有规则可用
     applied = resolve_rules(session, doc.kind)  # 该文档类型的启用规则（seq 升序）
@@ -175,23 +177,42 @@ def extract_and_harvest(
     session.commit()  # 快照此刻冻结（此后规则改动不影响本次执行）
 
     try:
-        text = doc.content_text or ""
-        groups = extract_structured(text, doc.kind, parsed.doc_tables if parsed else None, rules=applied)
+        # 抽取与图片行槽必须同源：优先 parsed.text（本次解析账本，未截断）
+        text = parsed.text if parsed is not None and parsed.text else (doc.content_text or "")
+        regions = extract_structured_with_regions(
+            text, doc.kind, parsed.doc_tables if parsed else None, rules=applied)
+        groups = [reg.group for reg in regions]
     except Exception as exc:
         execution.status = "failed"
         execution.error_msg = str(exc)[:1000]
         execution.finished_at = _dt.now(_UTC)
         session.commit()
         raise
+
+    # DOCX 图片证据（契约 v1.3）：照片级内嵌图提取（阈值/hash 去重），随后按区间归属挂素材。
+    # 注意：行号码必须与区间判定同源——content_text 可能被截断（80 万字符缓存），
+    # 故优先使用本次解析的 parsed.text（与 parsed.doc_image_refs 同一账本）。
+    docx_images: list[Any] = []
+    if docx_data is not None and parsed is not None and parsed.doc_image_refs:
+        try:
+            from ..images import extract_docx_images
+
+            docx_images = extract_docx_images(
+                docx_data, doc.id, parsed.doc_image_refs, (parsed.text or text).split("\n"))
+        except Exception:
+            logger.warning("docx image extraction failed: %s", doc.filename, exc_info=True)
     # 过滤全空段落行；V2 表格行（dict）一律保留——表格内空行/合并结构不得删除
     def _row_keep(r: Any) -> bool:
         if isinstance(r, dict):
             return True
         return any(str(c).strip() for c in r)
 
-    for g in groups:
-        g.rows = [r for r in g.rows if _row_keep(r)]
-    groups = [g for g in groups if g.rows]
+    pairs: list[tuple[Any, Any]] = []
+    for reg in regions:
+        reg.group.rows = [r for r in reg.group.rows if _row_keep(r)]
+        if reg.group.rows:
+            pairs.append((reg.group, reg))
+    groups = [g for g, _reg in pairs]
 
     # 重新拆解：先清空旧结构项与行（素材由标题去重自行保护）
     old_items = session.query(ExtractItem).filter(ExtractItem.doc_id == doc.id).all()
@@ -215,7 +236,7 @@ def extract_and_harvest(
         Material.doc_name == doc.filename).all()}
 
     made = 0
-    for gi, g in enumerate(groups):
+    for gi, (g, reg) in enumerate(pairs):
         item = ExtractItem(
             doc_id=doc.id, group_name=g.group_name, name=g.name, sum=g.sum, seq=gi,
         )
@@ -272,11 +293,22 @@ def extract_and_harvest(
 
         title = g.name if len(g.name) <= 24 else g.name[:22] + "…"
         new_rows = json.dumps(g.rows, ensure_ascii=False) if g.rows else None
+        # 契约 v1.3：区间内照片级图片 → 素材 images_json（≤100 张；docx 无页概念用行号）
+        region_images_json: str | None = None
+        if docx_images and reg.anchor_line is not None:
+            lo1, hi1 = reg.anchor_line + 1, reg.end_line or (reg.anchor_line + 1)
+            in_region = [im for im in docx_images if im.line_no and lo1 <= im.line_no <= hi1]
+            if in_region:
+                region_images_json = json.dumps([
+                    {"file_name": im.rel_path, "line_no": im.line_no, "size": im.size}
+                    for im in in_region[:100]
+                ], ensure_ascii=False)
         if title in existing:
             # 重新拆解：刷新同名素材内容（保留引用计数与分类）
             mat = existing[title]
             mat.rows_json = new_rows or mat.rows_json
             mat.text = (g.sum or mat.text) if not g.rows else None
+            mat.images_json = region_images_json
             if g.rows:
                 mat.type = _detect_rows_material_type(g.rows)
         else:
@@ -290,6 +322,7 @@ def extract_and_harvest(
                 tags_json=json.dumps([g.group_name], ensure_ascii=False),
                 rows_json=new_rows,
                 text=g.sum if not g.rows else None,
+                images_json=region_images_json,
             )
             session.add(mat)
             existing[title] = mat

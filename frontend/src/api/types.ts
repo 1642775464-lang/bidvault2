@@ -113,6 +113,7 @@ export interface Material {
   file_name: string | null;
   file_size: string | null;
   source_page: number | null;
+  images_json: string | null; // 契约 v1.3：DOCX 图片证据 [{file_name,line_no,size}]
   used: number;
   updated_at: string | null;
   office_document_id: string | null;

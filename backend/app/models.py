@@ -310,6 +310,8 @@ class Material(Base):
     file_name: Mapped[str | None] = mapped_column(String(300), default=None)
     file_size: Mapped[str | None] = mapped_column(String(30), default=None)
     source_page: Mapped[int | None] = mapped_column(Integer, default=None)  # 图片证据来源页码
+    # 契约 v1.3：DOCX 图片证据（区间内照片级内嵌图）——[{file_name,line_no,size}]，≤100 张
+    images_json: Mapped[str | None] = mapped_column(Text, default=None)
     used: Mapped[int] = mapped_column(Integer, default=0)
     # 阶段六B-1b：Material 独立 DOCX（OfficeDocument type=material）
     office_document_id: Mapped[str | None] = mapped_column(String(32), default=None)
