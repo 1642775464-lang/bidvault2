@@ -250,6 +250,36 @@ def test_v14_image_attaches_to_preceding_block():
     assert lines[slot] == "身份证", f"图片应归属「身份证」行，实际 slot={slot} -> {lines[slot]!r}"
 
 
+def _docx_with_hyperlink_title() -> bytes:
+    """标题文本包在 w:hyperlink 里（python-docx para.text 读不到）——本次断根因形态。"""
+    from docx import Document as Docx
+    from docx.oxml.ns import qn
+    from docx.shared import Inches
+
+    d = Docx()
+    p = d.add_paragraph()
+    hl = p._p.makeelement(qn("w:hyperlink"), {})
+    r = p._p.makeelement(qn("w:r"), {})
+    t = p._p.makeelement(qn("w:t"), {})
+    t.text = "身份证"
+    r.append(t)
+    hl.append(r)
+    p._p.append(hl)
+    d.add_picture(io.BytesIO(_png(400, 300, seed=51)), width=Inches(3))
+    buf = io.BytesIO()
+    d.save(buf)
+    return buf.getvalue()
+
+
+def test_hyperlink_wrapped_title_enters_line_ledger():
+    """契约 v1.5：超链接包裹的标题必须入行号账本，且图片归属该标题行。"""
+    parsed = parse_docx(_docx_with_hyperlink_title())
+    lines = parsed.text.split("\n")
+    assert "身份证" in lines, "超链接包裹的标题被漏记（para.text 只读直接子 run）"
+    slot, _rid = parsed.doc_image_refs[0]
+    assert lines[slot] == "身份证", f"图片应归属标题行，实际 slot={slot} -> {lines[slot]!r}"
+
+
 def test_v14_regions_expose_src_lines():
     """契约 v1.4：抽取区间暴露与每行对应的源行号，且与图片归属槽同基准。"""
     cert = _png(400, 300, seed=22)
