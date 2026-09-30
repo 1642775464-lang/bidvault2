@@ -340,7 +340,11 @@ def test_gateway_failure_isolated(client, monkeypatch):
 # ---------------- 7：配置端点（密钥本体不出现在任何响应） ----------------
 
 
-def test_gateway_config_roundtrip(client):
+def test_gateway_config_roundtrip(client, monkeypatch):
+    # 环境隔离：屏蔽智谱自动派生与 BIDVAULT_AI_* 默认（本测试验证保存/回读，非默认层级）
+    for k in ("ZHIPU_API_KEY", "BIDVAULT_AI_PROVIDER", "BIDVAULT_AI_BASE_URL",
+              "BIDVAULT_AI_MODEL", "BIDVAULT_AI_KEY_REF"):
+        monkeypatch.delenv(k, raising=False)
     ws_oid, _pid = _setup(client)
     cfg0 = client.get(f"/api/office-documents/{ws_oid}/ai-gateway/config").json()
     assert cfg0["provider"] == ""  # 默认未配置（Mock 必须显式启用）
@@ -364,7 +368,11 @@ def test_gateway_config_roundtrip(client):
     assert rt.status_code == 400 and rt.json()["detail"]["code"] == "GATEWAY_INVALID_TIMEOUT"
 
 
-def test_gateway_connection_test_endpoint(client):
+def test_gateway_connection_test_endpoint(client, monkeypatch):
+    # 环境隔离：屏蔽智谱自动派生（本测试验证「未配置 → 503」与 mock 路径）
+    for k in ("ZHIPU_API_KEY", "BIDVAULT_AI_PROVIDER", "BIDVAULT_AI_BASE_URL",
+              "BIDVAULT_AI_MODEL", "BIDVAULT_AI_KEY_REF"):
+        monkeypatch.delenv(k, raising=False)
     ws_oid, _pid = _setup(client)
     # 未配置 → 503
     r0 = client.post(f"/api/office-documents/{ws_oid}/ai-gateway/test")

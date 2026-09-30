@@ -62,13 +62,59 @@ _DEFAULT_CONFIG = {
 }
 
 
+def _zhipu_default_config() -> dict[str, Any]:
+    """出厂网关默认：检测到智谱密钥（ZHIPU_API_KEY）即默认接智谱 openai_compatible。
+
+    密钥本体不落库，仍经 api_key_ref 从环境解析；用户 PUT 保存的配置始终优先。
+    """
+    import os
+
+    if not os.environ.get("ZHIPU_API_KEY", "").strip():
+        return {}
+    base_url = os.environ.get("ZHIPU_BASE_URL", "").strip() or "https://open.bigmodel.cn/api/paas/v4"
+    return {
+        "provider": "openai_compatible",
+        "base_url": base_url,
+        "model": "glm-4-flash",
+        "timeout_s": 60,
+        "api_key_ref": "ZHIPU_API_KEY",
+    }
+
+
+def _env_default_config() -> dict[str, Any]:
+    """无保存配置时的 .env 出厂默认（BIDVAULT_AI_*，全缺省则等同未配置）。
+
+    典型用法：.env 声明 provider/base_url/model + api_key_ref 指向已有密钥环境变量
+    （如 ZHIPU_API_KEY），使 AI 助手在用户创建首个项目后开箱即用，无需手工配置。
+    """
+    import os
+
+    def _e(key: str) -> str:
+        return os.environ.get(key, "").strip()
+
+    return {
+        "provider": _e("BIDVAULT_AI_PROVIDER"),
+        "base_url": _e("BIDVAULT_AI_BASE_URL"),
+        "model": _e("BIDVAULT_AI_MODEL"),
+        "timeout_s": 60,
+        "api_key_ref": _e("BIDVAULT_AI_KEY_REF"),
+    }
+
+
 def load_gateway_config(session: Any) -> dict[str, Any]:
+    """默认层级（高→低）：已保存配置 > BIDVAULT_AI_* 环境变量 > 智谱 key 自动派生 > 未配置。"""
     from ..models import AppMeta
 
     row: AppMeta | None = session.get(AppMeta, _CONFIG_KEY)
     if row is None:
+        seeded = _env_default_config()
+        if seeded["provider"]:
+            return seeded
+        seeded = _zhipu_default_config()
+        if seeded:
+            return seeded
         return dict(_DEFAULT_CONFIG)
-    merged = dict(_DEFAULT_CONFIG)
+    merged = dict(_env_default_config())
     merged.update(json.loads(row.value))
     return merged
 
