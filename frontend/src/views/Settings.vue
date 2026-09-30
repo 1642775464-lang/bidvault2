@@ -23,6 +23,8 @@ interface ExDraft {
 }
 
 const exGroups = ref<ExtractRuleGroupT[]>([]);
+/** 空分组不渲染（项目负责人 09-29：空类型区块属不需要的展示）；首条规则经工具栏「新增规则」创建 */
+const exVisibleGroups = computed(() => exGroups.value.filter((g) => g.items.length));
 const exVersion = ref(0);
 const exStale = ref(0);
 const exHistory = ref<{ rule_id: string; rule_name: string; note: string; created_at: string | null }[]>([]);
@@ -228,7 +230,7 @@ async function exReset(kind?: DocKind): Promise<void> {
   }
 }
 
-function exOpenCreate(kind: DocKind): void {
+function exOpenCreate(kind: DocKind = "tender"): void {
   exCreate.value = { kind, name: "", group_name: "", summary: "", anchors: "", focus: "" };
 }
 
@@ -591,12 +593,13 @@ onMounted(() => {
               <span class="sub-note">规则集 v{{ exVersion }}</span>
               <span v-if="exStale" class="chip-miss">有 {{ exStale }} 份已拆解文档需重新拆解</span>
               <span style="margin-left:auto" />
+              <button class="mini-btn" :disabled="exBusy" @click="exOpenCreate()">新增规则</button>
               <button class="mini-btn" :disabled="exBusy" @click="openExTest()">测试规则</button>
               <button class="mini-btn" :disabled="exBusy" @click="openExHistory">规则历史</button>
               <button class="mini-btn" :disabled="exBusy" @click="exReset()">恢复默认</button>
             </div>
 
-            <template v-for="g in exGroups" :key="g.kind">
+            <template v-for="g in exVisibleGroups" :key="g.kind">
               <div class="sec-lab" :style="g.kind === 'tender' ? '' : 'margin-top:14px'">
                 {{ g.label }} · {{ g.items.length }} 项（启用 {{ g.enabled_count }}）
                 <button class="mini-btn" style="float:right;margin-top:-2px" :disabled="exBusy" @click="exOpenCreate(g.kind)">新增规则</button>
@@ -674,15 +677,7 @@ onMounted(() => {
                   </div>
                 </div>
               </div>
-
-              <div v-if="!g.items.length" class="empty-state">
-                <b>{{ g.label }}暂无规则</b>该类型文档不会被拆解；可「新增规则」后生效（如公告正文、资格要求）。
-              </div>
             </template>
-
-            <p class="sub-note" style="margin-top:10px">
-              抽取 = docx 表格结构化解析 + 锚点定位章节区间、内容原样复制（表格还原表格、段落还原段落）；规则由项目负责人 2026-09-16 标注定稿，2026-09-29 起支持自定义调整。规则变更后已拆解文档会标记「规则已变更」，重新拆解即按新规则生效。
-            </p>
           </template>
 
           <!-- 检测规则 -->
@@ -736,13 +731,21 @@ onMounted(() => {
     <!-- 新增规则 -->
     <div v-if="exCreate" class="modal-wrap" @click.self="exCreate = null">
       <div class="modal" role="dialog" aria-modal="true" aria-label="新增拆解规则">
-        <h3>新增拆解规则 · {{ exGroups.find((g) => g.kind === exCreate!.kind)?.label }}</h3>
+        <h3>新增拆解规则</h3>
         <div class="frm">
           <div class="frow">
+            <div class="f">
+              <label class="fl">适用文档类型</label>
+              <select v-model="exCreate.kind">
+                <option v-for="g in exGroups" :key="g.kind" :value="g.kind">{{ g.label }}</option>
+              </select>
+            </div>
             <div class="f">
               <label class="fl">规则名称<span style="color:var(--fatal)">*</span></label>
               <input v-model="exCreate.name" type="text" placeholder="如：合同条款">
             </div>
+          </div>
+          <div class="frow">
             <div class="f">
               <label class="fl">分组（可留空）</label>
               <input v-model="exCreate.group_name" type="text" placeholder="如：业绩与履约情况">
