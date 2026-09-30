@@ -70,7 +70,6 @@ onMounted(refreshCore);
           <span>{{ v.label }}</span>
         </button>
       </nav>
-      <div class="nav-foot">标库 BidVault v2 · 五页完整版</div>
     </aside>
 
     <div class="main">
