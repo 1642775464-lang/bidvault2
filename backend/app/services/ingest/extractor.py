@@ -53,6 +53,29 @@ _TITLE_PREFIX_RE = re.compile(
 )
 
 
+def _find_anchor_in_range(lines: list[str], anchors: list[str], lo: int) -> int | None:
+    """在 lines[lo:] 内按锚点优先序查找独立标题行（匹配语义同 §2.3），返回绝对行号。"""
+    anchors_n = [_norm(a) for a in anchors]
+    for an in anchors_n:
+        for i in range(lo, len(lines)):
+            st = _norm(lines[i])
+            if len(st) < len(an):
+                continue
+            core = st
+            m = _TITLE_PREFIX_RE.match(st)
+            if m:
+                core = st[m.end():]
+            if len(core) < len(an):
+                continue
+            if core == an:
+                return i
+            if core.startswith(an):
+                tail = core[len(an):]
+                if len(tail) <= 2 and not re.search(r"[；。，、：,（(]", tail):
+                    return i
+    return None
+
+
 def _find_anchor_with_text(lines: list[str], anchors: list[str]) -> tuple[int | None, str | None]:
     """锚点行号 + 命中锚点原文（供 preview 证据使用）。匹配语义与历史实现完全一致。"""
     norm_to_orig: dict[str, str] = {}
@@ -111,43 +134,51 @@ def has_title_prefix(text: str) -> bool:
     return bool(_TITLE_PREFIX_RE.match(_norm(text)))
 
 
-def _spec_from_rule(rule: dict[str, Any]) -> tuple[str, list[str], str]:
-    """规则项 → 抽取规格 (name, anchors, sum)。
+def _spec_from_rule(rule: dict[str, Any]) -> tuple[str, list[str], str, list[str]]:
+    """规则项 → 抽取规格 (name, start_anchors, sum, end_anchors)。
 
     锚点按 priority 升序（契约 §2.3：等价于既有「锚点顺序优先」语义）；
+    role=start（默认）为区间起点，role=end 为区间终点（v1.2，不含该行）；
     sum 取规则说明，缺省回落规则名（与既有投标侧 sum=name 行为一致）。
     group_name 由调用处取 name（既有实现即如此，BID_ITEMS 的 group 字段未参与抽取）。
     """
     name = str(rule.get("name") or "")
-    pairs: list[tuple[int, int, str]] = []
+    starts: list[tuple[int, int, str]] = []
+    ends: list[tuple[int, int, str]] = []
     for idx, a in enumerate(rule.get("anchors") or []):
         if isinstance(a, dict):
             text = str(a.get("text") or "").strip()
+            role = str(a.get("role") or "start")
             try:
                 prio = int(a.get("priority", idx + 1))
             except (TypeError, ValueError):
                 prio = idx + 1
         else:
-            text, prio = str(a).strip(), idx + 1
-        if text:
-            pairs.append((prio, idx, text))
-    pairs.sort()
+            text, role, prio = str(a).strip(), "start", idx + 1
+        if not text:
+            continue
+        (ends if role == "end" else starts).append((prio, idx, text))
+    starts.sort()
+    ends.sort()
     summary = rule.get("summary")
-    return (name, [t for _p, _i, t in pairs], str(summary) if summary else name)
+    return (name, [t for _p, _i, t in starts], str(summary) if summary else name,
+            [t for _p, _i, t in ends])
 
 
 @dataclass
 class ExtractedRegion:
     """抽取区间及证据定位（契约 §十一）：group 为原样复制结果。
 
-    行号 0-based；`anchor_line` = 命中锚点行，`end_line` = 区间排他上界（区间最后一行
+    行号 0-based；`anchor_line` = 命中起始锚点行，`end_line` = 区间排他上界（区间最后一行
     为 end_line-1）；未命中时两者与 `anchor_hit` 均为 None。
+    `end_hit` = 命中的结束锚点文本（v1.2；其行不进入区间），未配置/未命中为 None。
     """
 
     group: ExtractedGroup
     anchor_line: int | None
     end_line: int | None
     anchor_hit: str | None
+    end_hit: str | None = None
 
 
 def extract_structured_with_regions(
@@ -156,16 +187,17 @@ def extract_structured_with_regions(
 ) -> list[ExtractedRegion]:
     """抽取核心（带证据定位）：按标题锚点定位章节区间，区间内容原样复制。
 
-    `extract_structured` 为其薄包装（只取 group），两条路径共享同一实现——
-    preview 的 location/rows_count/内容与正式拆解天然一致（契约 §11.4）。
+    区间终点（契约 §2.3 v1.2）= min(下一全局边界, 起始锚点后第一个命中的本规则结束锚点行)；
+    全局边界 = 其他启用规则的起始锚点行 / 章标题行 / 文档末尾。结束锚点行不进入区间，
+    未命中回退原行为。`extract_structured` 为其薄包装（只取 group），两条路径共享同一实现。
     """
     if rules is None:
         if kind not in ("tender", "bid"):
             return []  # 未配置规则的招标公告等类型不参与结构拆解（默认行为不变）
         if kind == "tender":
-            specs = [(it["name"], it["anchors"].split("|"), it.get("sum", "")) for it in TENDER_ITEMS]
+            specs = [(it["name"], it["anchors"].split("|"), it.get("sum", ""), []) for it in TENDER_ITEMS]
         else:
-            specs = [(it["name"], it["anchors"].split("|"), it["name"]) for it in BID_ITEMS]
+            specs = [(it["name"], it["anchors"].split("|"), it["name"], []) for it in BID_ITEMS]
     else:
         specs = [_spec_from_rule(r) for r in rules]
 
@@ -173,11 +205,11 @@ def extract_structured_with_regions(
     tables = doc_tables or []
     tid_of = {id(tb): i + 1 for i, tb in enumerate(tables)}  # 表格编号（V2 行对象携带）
 
-    # 分界行：章标题 + 各锚点行
+    # 分界行：章标题 + 各规则起始锚点行
     bounds: set[int] = set()
     anchor_at: dict[int, str] = {}
     hit_of: dict[str, tuple[int, str]] = {}
-    for name, anchors, _sum in specs:
+    for name, anchors, _sum, _ends in specs:
         ai, hit = _find_anchor_with_text(lines, anchors)
         if ai is not None:
             anchor_at[ai] = name
@@ -190,7 +222,7 @@ def extract_structured_with_regions(
 
     out: list[ExtractedRegion] = []
     used_tables: set[int] = set()
-    for name, _anchors, _sum in specs:
+    for name, _anchors, _sum, end_anchors in specs:
         ai = next((i for i, nm in anchor_at.items() if nm == name), None)
         if ai is None:
             out.append(ExtractedRegion(
@@ -199,11 +231,17 @@ def extract_structured_with_regions(
             ))
             continue
         hi = next((b for b in ordered if b > ai), len(lines))
+        end_hit = None
+        if end_anchors:
+            ei = _find_anchor_in_range(lines, end_anchors, ai + 1)
+            if ei is not None and ei < hi:
+                hi = ei
+                end_hit = next(t for t in end_anchors if _norm(t) == _norm(lines[ei]) or _norm(lines[ei]).startswith(_norm(t)))
         rows = _copy_region(lines, tables, ai, hi, used_tables, tid_of)
         hit = hit_of.get(name, (ai, ""))[1]
         out.append(ExtractedRegion(
             group=ExtractedGroup(group_name=name, name=name, sum=_sum, rows=rows[:800]),
-            anchor_line=ai, end_line=hi, anchor_hit=hit,
+            anchor_line=ai, end_line=hi, anchor_hit=hit, end_hit=end_hit,
         ))
     return out
 

@@ -77,7 +77,7 @@ def test_builtin_seeded_with_expected_shape(client):
     assert first["enabled"] is True
     assert first["scope"] == "default"
     assert first["anchors"][0] == {
-        "text": "投标人须知前附表", "priority": 1, "match_mode": "contains",
+        "text": "投标人须知前附表", "priority": 1, "match_mode": "contains", "role": "start",
     }
     assert first["summary"] == "关键条款表"
     assert first["focus_fields"], "关注字段应随内置规则播种"

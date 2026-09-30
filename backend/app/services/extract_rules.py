@@ -202,7 +202,7 @@ def _loads(raw: str | None, fallback: Any) -> Any:
 
 
 def serialize_rule(row: ExtractRule) -> dict[str, Any]:
-    """规则项 → API 形状（anchors/focus_fields 解析为数组）。"""
+    """规则项 → API 形状（anchors/focus_fields 解析为数组；role 缺省 start）。"""
     anchors = _loads(row.anchors_json, [])
     norm_anchors: list[dict[str, Any]] = []
     for idx, a in enumerate(anchors):
@@ -211,9 +211,10 @@ def serialize_rule(row: ExtractRule) -> dict[str, Any]:
                 "text": str(a.get("text", "")),
                 "priority": int(a.get("priority", idx + 1)),
                 "match_mode": str(a.get("match_mode", "contains")),
+                "role": str(a.get("role") or "start"),
             })
         else:  # 兼容纯字符串数组
-            norm_anchors.append({"text": str(a), "priority": idx + 1, "match_mode": "contains"})
+            norm_anchors.append({"text": str(a), "priority": idx + 1, "match_mode": "contains", "role": "start"})
     return {
         "id": row.id,
         "kind": row.kind,
@@ -285,16 +286,18 @@ def _validate_anchors(anchors: Any) -> list[dict[str, Any]]:
         raise ExtractRuleError("锚点至少 1 个")
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
+    start_count = 0
     for idx, raw in enumerate(anchors):
         if isinstance(raw, dict):
             text = str(raw.get("text", "")).strip()
             mode = str(raw.get("match_mode", "contains"))
+            role = str(raw.get("role") or "start")
             try:
                 priority = int(raw.get("priority", idx + 1))
             except (TypeError, ValueError):
                 raise ExtractRuleError("锚点 priority 须为整数")
         else:
-            text, mode, priority = str(raw).strip(), "contains", idx + 1
+            text, mode, priority, role = str(raw).strip(), "contains", idx + 1, "start"
         if not text:
             raise ExtractRuleError("锚点内容不能为空")
         if len(text) > _ANCHOR_TEXT_MAX:
@@ -303,6 +306,8 @@ def _validate_anchors(anchors: Any) -> list[dict[str, Any]]:
             raise ExtractRuleError(
                 f"match_mode 暂仅支持 {'/'.join(MATCH_MODES)}（{('/'.join(ALLOWED_MATCH_MODES_RESERVED))} 为预留）"
             )
+        if role not in ("start", "end"):
+            raise ExtractRuleError("锚点 role 须为 start 或 end")
         from .ingest.extractor import has_title_prefix
 
         if has_title_prefix(text):
@@ -313,7 +318,11 @@ def _validate_anchors(anchors: Any) -> list[dict[str, Any]]:
         if key in seen:
             raise ExtractRuleError(f"同一规则内锚点重复：{text}", http_status=409)
         seen.add(key)
-        out.append({"text": text, "priority": priority, "match_mode": mode})
+        if role == "start":
+            start_count += 1
+        out.append({"text": text, "priority": priority, "match_mode": mode, "role": role})
+    if start_count < 1:
+        raise ExtractRuleError("至少需要 1 个起始锚点（结束锚点不能单独存在）")
     return out
 
 

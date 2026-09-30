@@ -775,3 +775,5 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .ex-x:hover{color:var(--risk)}
 .ex-x:disabled{opacity:.35;cursor:default}
 .ex-preview{margin-top:8px;border:1px solid var(--line-soft);border-radius:6px;background:#fafbfd;padding:8px 10px;font-family:var(--mono);font-size:11.5px;color:var(--sub);max-height:180px;overflow:auto;white-space:pre-wrap}
+.ex-chip.ex-end{background:var(--risk-bg);border-color:var(--risk-line)}
+.ex-chip .ex-end-tag{color:var(--risk);font-weight:700}

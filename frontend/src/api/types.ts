@@ -135,6 +135,7 @@ export interface ExtractAnchorT {
   text: string;
   priority: number;
   match_mode: string; // 仅 contains 生效；其余为预留（不展示、不可编辑）
+  role?: "start" | "end"; // v1.2：start=区间起点（默认），end=区间终点（不含该行）
 }
 
 export interface ExtractRuleT {

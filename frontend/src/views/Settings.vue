@@ -14,11 +14,16 @@ const ruleHistory = ref<{ rule_id: string; rule_name: string; note: string; crea
 /* ---------- 拆解规则中心（契约《标库-拆解规则契约》v1.0） ---------- */
 /* 展示约束：不展示 scope、不展示/不可编辑 match_mode（契约 §2.3/§2.4） */
 
+interface ExAnchorDraft {
+  text: string;
+  role: "start" | "end";
+}
+
 interface ExDraft {
   name: string;
   group_name: string;
   summary: string;
-  anchors: string[];
+  anchors: ExAnchorDraft[];
   focus: string[];
 }
 
@@ -61,8 +66,11 @@ async function reloadEx(): Promise<void> {
   if (exHistOpen.value) await loadExHistory();
 }
 
-function exAnchorTexts(r: ExtractRuleT): string[] {
-  return r.anchors.slice().sort((a, b) => a.priority - b.priority).map((a) => a.text);
+function exAnchorDrafts(r: ExtractRuleT): ExAnchorDraft[] {
+  return r.anchors
+    .slice()
+    .sort((a, b) => a.priority - b.priority)
+    .map((a) => ({ text: a.text, role: a.role === "end" ? "end" : "start" }));
 }
 
 function toggleExEdit(r: ExtractRuleT): void {
@@ -76,7 +84,7 @@ function toggleExEdit(r: ExtractRuleT): void {
     name: r.name,
     group_name: r.group_name,
     summary: r.summary ?? "",
-    anchors: exAnchorTexts(r),
+    anchors: exAnchorDrafts(r),
     focus: r.focus_fields.slice(),
   };
   exNewAnchor.value[r.id] = "";
@@ -87,12 +95,23 @@ function exAddAnchor(r: ExtractRuleT): void {
   const d = exDraft.value[r.id];
   const v = (exNewAnchor.value[r.id] ?? "").trim();
   if (!d || !v) return;
-  if (d.anchors.includes(v)) {
+  if (d.anchors.some((a) => a.text === v)) {
     toast("该锚点已在列表中");
     return;
   }
-  d.anchors.push(v);
+  d.anchors.push({ text: v, role: "start" });
   exNewAnchor.value[r.id] = "";
+}
+
+/** 起始/结束角色切换（契约 v1.2）：结束锚点 = 区间到该标题为止（不含该行） */
+function exToggleRole(r: ExtractRuleT, idx: number): void {
+  const a = exDraft.value[r.id]?.anchors[idx];
+  if (!a) return;
+  a.role = a.role === "end" ? "start" : "end";
+  if (!exDraft.value[r.id]!.anchors.some((x) => x.role === "start")) {
+    toast("至少保留 1 个起始锚点");
+    a.role = "start";
+  }
 }
 
 function exDelAnchor(r: ExtractRuleT, idx: number): void {
@@ -138,13 +157,17 @@ async function exSave(r: ExtractRuleT): Promise<void> {
     toast("锚点至少 1 个");
     return;
   }
+  if (!d.anchors.some((a) => a.role === "start")) {
+    toast("至少保留 1 个起始锚点");
+    return;
+  }
   exBusy.value = true;
   try {
     const res = await api.patchExtractRule(r.id, {
       name: d.name.trim(),
       group_name: d.group_name.trim(),
       summary: d.summary.trim(),
-      anchors: d.anchors.map((t) => ({ text: t })),
+      anchors: d.anchors.map((a) => ({ text: a.text, role: a.role })),
       focus_fields: d.focus,
     });
     toast(res.changed === false ? "内容无变化" : "规则已保存");
@@ -645,10 +668,12 @@ onMounted(() => {
                     </div>
                   </div>
 
-                  <div class="sec-title" style="margin-top:10px">章节锚点（顺序即匹配优先；请勿带「第X章」等章节号）</div>
+                  <div class="sec-title" style="margin-top:10px">章节锚点（顺序即匹配优先；请勿带「第X章」等章节号；点「起/结」切换角色）</div>
                   <div class="rf">
-                    <span v-for="(a, ai) in exDraft[r.id].anchors" :key="a + ai" class="fchip hit ex-chip">
-                      <i class="ex-pri">{{ ai + 1 }}</i>{{ a }}
+                    <span v-for="(a, ai) in exDraft[r.id].anchors" :key="a.text + ai" class="fchip hit ex-chip" :class="{ 'ex-end': a.role === 'end' }">
+                      <i class="ex-pri">{{ ai + 1 }}</i>
+                      <i v-if="a.role === 'end'" class="ex-pri ex-end-tag">结</i>{{ a.text }}
+                      <button class="ex-x" :title="a.role === 'end' ? '点击改为起始锚点' : '点击改为结束锚点（区间到该标题为止）'" @click="exToggleRole(r, ai)">{{ a.role === "end" ? "起" : "结" }}</button>
                       <button class="ex-x" :disabled="ai === 0" @click="exMoveAnchor(r, ai, -1)">‹</button>
                       <button class="ex-x" :disabled="ai === exDraft[r.id].anchors.length - 1" @click="exMoveAnchor(r, ai, 1)">›</button>
                       <button class="ex-x" @click="exDelAnchor(r, ai)">×</button>
