@@ -274,3 +274,114 @@ def test_v14_regions_expose_src_lines():
     assert parsed.text.split("\n")[reg.src_lines[idx]] == "身份证"
     slots = [s for s, _ in parsed.doc_image_refs]
     assert reg.src_lines[idx] in slots, f"图片应归属「身份证」行 {reg.src_lines[idx]}，实际槽 {slots}"
+
+
+# ---------------------------------------------------------------- v1.5 顺序标题吸附
+
+
+def _docx_floating_layout(anchor: str, captions: list[str], end: str,
+                          t1_rows: list[str], t2_rows: list[str],
+                          imgs: list[bytes]) -> bytes:
+    """WPS 浮动排版形态：证书图在 body 中先于其标题（中间隔着简历表行）。
+
+    body 顺序：anchor → 表1(项目行) → 图×2 → 表2(1行) → 图×1 → 标题×N → end。
+    图片记账槽因此落在表格行上（复现 rId 级比对证实的错位形态）。
+    """
+    from docx import Document as Docx
+    from docx.shared import Inches
+
+    d = Docx()
+    d.add_paragraph(anchor)
+    for rows in (t1_rows, t2_rows):
+        t = d.add_table(rows=len(rows), cols=2)
+        for ri, txt in enumerate(rows):
+            t.rows[ri].cells[0].text = txt
+            t.rows[ri].cells[1].text = f"{txt}规模"
+        if rows is t1_rows:
+            for b in imgs[:2]:
+                d.add_picture(io.BytesIO(b), width=Inches(3))
+    d.add_picture(io.BytesIO(imgs[2]), width=Inches(3))
+    for c in captions:
+        d.add_paragraph(c)
+    d.add_paragraph(end)
+    buf = io.BytesIO()
+    d.save(buf)
+    return buf.getvalue()
+
+
+def _row_idx(rows: list, text: str) -> int:
+    return next(i for i, r in enumerate(rows)
+                if (r[0] if isinstance(r, list) else r) == text)
+
+
+def _extract_and_read(client, name: str, data: bytes, rule_name: str,
+                      start: str, end: str) -> tuple[list, list]:
+    """建规则 → 上传 → 等拆解完成 → 返回 (素材行, images_json)。"""
+    created = client.post("/api/extract-rules", json={
+        "kind": "bid", "name": rule_name,
+        "anchors": [{"text": start, "role": "start"},
+                    {"text": end, "role": "end"}],
+    })
+    assert created.status_code == 200, created.text
+    doc_id = _upload(client, name, data)
+    st = None
+    for _ in range(60):
+        st = client.get(f"/api/documents/{doc_id}/extract").json().get("status")
+        if st == 2:
+            break
+        import time
+        time.sleep(1)
+    assert st == 2
+    s = _session()
+    try:
+        from app.models import Material
+
+        mat = (s.query(Material)
+               .filter(Material.doc_name == name,
+                       Material.title == rule_name).first())
+        assert mat is not None, "规则区间素材应生成"
+        rows = json.loads(mat.rows_json or "[]")
+        imgs = json.loads(mat.images_json or "[]")
+    finally:
+        s.close()
+    return rows, imgs
+
+
+def test_v15_caption_snap_from_table_rows(client):
+    """契约 v1.5：图片槽落在表格行 → 向后吸附到 ≤8 行内首个未占用标题行。"""
+    data = _docx_floating_layout(
+        "候选人员档案", ["身份证", "学历证书"], "技术服务依据",
+        ["项目A", "项目B", "项目C"], ["项目D"],
+        [_png(420, 320, seed=31), _png(420, 320, seed=32), _png(420, 320, seed=33)],
+    )
+    rows, imgs = _extract_and_read(
+        client, "吸附回归文档.docx", data, "吸附回归素材",
+        "候选人员档案", "技术服务依据")
+    assert len(imgs) == 3, imgs
+    i_id, i_xl = _row_idx(rows, "身份证"), _row_idx(rows, "学历证书")
+    by_line: dict[int, list[int]] = {}
+    for im in imgs:
+        by_line.setdefault(im["line_no"], []).append(im["after_row"])
+    pairs = [v for v in by_line.values() if len(v) == 2]
+    singles = [v for v in by_line.values() if len(v) == 1]
+    assert len(pairs) == 1 and len(singles) == 1, by_line
+    # 批1（2 张，槽在表1 末行）→ 吸附「身份证」；批2 → 身份证已被占，顺延「学历证书」
+    assert pairs[0] == [i_id, i_id], f"批1 应吸附「身份证」行 {i_id}，实际 {pairs[0]}"
+    assert singles[0] == [i_xl], f"批2 应吸附「学历证书」行 {i_xl}，实际 {singles[0]}"
+
+
+def test_v15_inline_form_keeps_v14_attribution(client):
+    """v1.4 正常形态（图紧跟标题）不受吸附扰动：after_row 保持标题行。"""
+    data = _docx_with_images([
+        ("候选人员档案", None),
+        ("身份证", None), (None, _png(420, 320, seed=41)),
+        ("学历证书", None), (None, _png(420, 320, seed=42)),
+        ("技术服务方案", None),
+    ])
+    rows, imgs = _extract_and_read(
+        client, "就地回归文档.docx", data, "就地回归素材",
+        "候选人员档案", "技术服务方案")
+    i_id, i_xl = _row_idx(rows, "身份证"), _row_idx(rows, "学历证书")
+    got = sorted(im["after_row"] for im in imgs)
+    assert len(got) == 2
+    assert got == [i_id, i_xl], f"应就地归属标题行 {(i_id, i_xl)}，实际 {got}"

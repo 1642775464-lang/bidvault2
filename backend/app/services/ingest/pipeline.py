@@ -319,6 +319,45 @@ def extract_and_harvest(
                     "size": im.size, "after_row": idx,
                 })
             if picked:
+                # 契约 v1.5「顺序标题吸附」：WPS 浮动排版下，图片段在 body 中可能先于其
+                # 视觉所属的证书标题出现（中间隔着简历表行），记账槽因此落在表格行上
+                # （rId 级比对证实：证书图 2/1/4/1/2 张全部记到简历表项目行）。
+                # 同槽图片为一批，按槽位升序逐批处理：
+                # - 归属行是表格行 → 向后找 ≤8 行内首个未占用标题行（短文本行）整批迁入；
+                # - 归属行是已被先前批占用的标题行 → 同样后移，避免多批堆叠同一标题；
+                # - 其余（归属行为未占用文本行 = v1.4 正常就地形态）保持不动。
+                used_caps: set[int] = set()
+
+                def _cap(j: int) -> bool:
+                    r = g.rows[j] if 0 <= j < len(g.rows) else None
+                    # 文本行 = 单元素列表 [st]（_copy_region_with_src 的行模型）
+                    return (isinstance(r, list) and len(r) == 1
+                            and isinstance(r[0], str) and 0 < len(r[0].strip()) <= 24)
+
+                def _is_tbl(r: Any) -> bool:
+                    # 表格行 = V2 dict（{"type":"table",...}）或旧式多单元格列表
+                    return (isinstance(r, dict) and r.get("type") == "table") or (
+                        isinstance(r, list) and len(r) > 1)
+
+                batches: dict[int, list[dict[str, Any]]] = {}
+                for p in picked:
+                    batches.setdefault(p["line_no"] - 1, []).append(p)
+                for slot_k in sorted(batches):
+                    batch = batches[slot_k]
+                    base = batch[0]["after_row"]
+                    row0 = g.rows[base] if 0 <= base < len(g.rows) else None
+                    claimed = _cap(base) and base in used_caps
+                    if not _is_tbl(row0) and not claimed:
+                        continue
+                    for j in range(base + 1, len(src)):
+                        if src[j] > slot_k + 8:
+                            break
+                        if j in used_caps or not _cap(j):
+                            continue
+                        for p in batch:
+                            p["after_row"] = j
+                        used_caps.add(j)
+                        break
                 region_images_json = json.dumps(picked[:100], ensure_ascii=False)
         if title in existing:
             # 重新拆解：刷新同名素材内容（保留引用计数与分类）
