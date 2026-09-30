@@ -1,26 +1,26 @@
 @echo off
-chcp 65001 >nul
-title 标书工作台 BidVault v2
-cd /d %~dp0backend
+cd /d %~dp0
 
-if not exist .venv\Scripts\python.exe (
-    echo ================================================
-    echo   尚未安装运行环境
-    echo   请先安装 Python 3.12，并在 backend 目录执行：
-    echo   python -m venv .venv
-    echo   .venv\Scripts\pip install -e .
-    echo   然后再运行本脚本
-    echo ================================================
+if not exist "runtime\pythonw.exe" (
+    echo runtime\pythonw.exe not found. Please reinstall.
     pause
-    exit /b
+    exit /b 1
 )
 
-echo ================================================
-echo   标书工作台 BidVault v2
-echo   数据目录：bidvault2\data （备份即拷贝此目录）
-echo   启动后浏览器将自动打开 http://127.0.0.1:8000/
-echo   关闭本窗口即停止服务
-echo ================================================
+set "DATA_DIR=%LOCALAPPDATA%\BidVault\data"
+if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
+if not exist "%DATA_DIR%\logs" mkdir "%DATA_DIR%\logs"
 
-start "" cmd /c "timeout /t 4 /nobreak >nul && start http://127.0.0.1:8000/"
-.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+rem Already running -> just open the UI
+netstat -ano | find ":8000" | find "LISTENING" >nul 2>&1
+if %errorlevel%==0 (
+    start "" "http://127.0.0.1:8000/"
+    exit /b 0
+)
+
+rem Silent start: pythonw = no console window; logs go to DATA_DIR\logs\backend.log
+start "" "%~dp0runtime\pythonw.exe" -c "import sys,os;sys.path.insert(0,r'%~dp0backend');os.chdir(r'%~dp0backend');os.environ['DATA_DIR']=r'%DATA_DIR%';f=open(r'%DATA_DIR%\logs\backend.log','a',encoding='utf-8',errors='replace');sys.stdout=sys.stderr=f;import uvicorn;from app.main import app;uvicorn.run(app,host='127.0.0.1',port=8000,log_level='warning')"
+
+ping -n 7 127.0.0.1 >nul
+start "" "http://127.0.0.1:8000/"
+exit /b 0
