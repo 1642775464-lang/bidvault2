@@ -46,6 +46,10 @@ class ParsedDoc:
     doc_tables: list[TableBlock] = dataclasses_field(default_factory=list)  # docx 专属
     # docx 专属（契约 v1.3）：(行槽, rId) 有序对——图片所在段落/表格的行号账本位置
     doc_image_refs: tuple[tuple[int, str], ...] = ()
+    # docx 专属（素材溯源 v1.6）：每行所属 body 顶层子节点索引（与 text 行一一对应）
+    line_children: tuple[int, ...] = ()
+    # docx 专属（素材溯源 v1.6）：含图片但无文本的 body 子节点索引（图片段不占行槽）
+    image_children: tuple[int, ...] = ()
 
 
 _W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -243,6 +247,10 @@ def parse_docx(data: bytes) -> ParsedDoc:
     doc_tables: list[TableBlock] = []
     # (归属行槽, rId)——契约 v1.4：按 body 子项顺序记账（图片归属「紧邻其前的块」）
     image_refs: list[tuple[int, str]] = []
+    # 素材溯源（v1.6）：每行所属 body 顶层子节点索引（与 lines 一一对应），
+    # 以及「含图片但无文本」的子节点索引（图片段不占行槽，区间端扩展时并入）
+    line_children: list[int] = []
+    image_only_children: set[int] = set()
     _A_BLIP = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
     _V_IMAGEDATA = "{urn:schemas-microsoft-com:vml}imagedata"
     _R_EMBED = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
@@ -291,16 +299,20 @@ def parse_docx(data: bytes) -> ParsedDoc:
                         cnt[{"yellow": "yellow", "cyan": "cyan", "blue": "cyan", "lightGray": "gray", "gray": "gray"}.get(val, val)] += 1
         return cnt.most_common(1)[0][0] if cnt else ""
 
-    for child in doc.element.body.iterchildren():
+    for child_idx, child in enumerate(doc.element.body.iterchildren()):
         if child.tag.endswith("}p"):
             para = Paragraph(child, doc)
             # 契约 v1.5：段落文本取全部后代 w:t（para.text 只读直接子 run，会漏掉
             # w:hyperlink/w:ins 包裹的文本——实机简历文档的证书标题被漏记，导致
             # 行号账本整体前移、图片槽错位、后续表格 span 吞掉相邻标题行）
             txt = "".join(t.text or "" for t in child.iter(_W_NS + "t")).strip()
+            had_imgs = _blip_ids(child)
             _attach_images(child, has_text=bool(txt))
             if txt:
                 lines.append(txt)
+                line_children.append(child_idx)
+            elif had_imgs:
+                image_only_children.add(child_idx)
         elif child.tag.endswith("}tbl"):
             _attach_images(child)
             t = Table(child, doc)
@@ -319,6 +331,7 @@ def parse_docx(data: bytes) -> ParsedDoc:
                 # 保证 end_line - start_line + 1 == model 行数；
                 # 否则 V2 空行保留后，表尾行号会与表后段落行号碰撞导致顺序交错。
                 lines.append(" | ".join(c for c in cells if c))
+                line_children.append(child_idx)
             if hl_counter:
                 table.hl = hl_counter.most_common(1)[0][0]
             table.end_line = len(lines) - 1
@@ -330,7 +343,9 @@ def parse_docx(data: bytes) -> ParsedDoc:
             doc_tables.append(table)
     whole = "\n".join(lines)
     return ParsedDoc(text=whole, pages=[whole], doc_tables=doc_tables,
-                     doc_image_refs=tuple(image_refs))
+                     doc_image_refs=tuple(image_refs),
+                     line_children=tuple(line_children),
+                     image_children=tuple(sorted(image_only_children)))
 
 
 def parse_pdf(data: bytes) -> ParsedDoc:

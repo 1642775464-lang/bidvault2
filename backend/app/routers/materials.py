@@ -194,9 +194,10 @@ class RefIn(BaseModel):
 
 
 class OfficeDocIn(BaseModel):
-    source_document_id: str
+    # 素材溯源 v1.6：拆解素材可缺省——缺省时从素材 source_locator_json 兜底解析
+    source_document_id: str | None = None
     source_document_version_id: str | None = None  # 缺省 = source 当前正式版本
-    child_range: list[int]                          # body 顶层节点区间 [lo, hi]（含）
+    child_range: list[int] | None = None           # body 顶层节点区间 [lo, hi]（含）
     comment: str | None = None
 
 
@@ -222,8 +223,18 @@ def create_office_document(material_id: str, body: OfficeDocIn, session: Session
         return {"ok": True, "office_document_id": od.id if od else None,
                 "version": cur.version if cur else None, "existed": True}
 
-    # 来源版本：显式指定优先；缺省 = source 当前正式版本（记录进 locator，绝不静默漂移）
-    src_doc = session.get(Document, body.source_document_id)
+    # 来源解析：显式指定优先；缺省 = 素材溯源（拆解时盖章的 child_range 与来源文档）
+    stored: dict[str, Any] = {}
+    if mat.source_locator_json:
+        try:
+            stored = json.loads(mat.source_locator_json)
+        except ValueError:
+            stored = {}
+    src_doc_id = body.source_document_id or stored.get("source_document_id")
+    child_range = body.child_range or stored.get("child_range")
+    if not src_doc_id or not child_range:
+        raise HTTPException(409, "素材无可用的来源区间（既未指定也未盖溯源章）")
+    src_doc = session.get(Document, src_doc_id)
     if src_doc is None:
         raise HTTPException(404, "来源文档不存在")
     from ..models import OfficeDocument, OfficeDocumentVersion
@@ -249,7 +260,7 @@ def create_office_document(material_id: str, body: OfficeDocIn, session: Session
     src_bytes = (settings.files_dir / sv.file_path).read_bytes()
 
     # locator 校验（语义 fingerprint；不匹配则拒绝创建）
-    cr = (body.child_range[0], body.child_range[1])
+    cr = (int(child_range[0]), int(child_range[1]))
     check = source_locator.resolve(src_bytes, {"child_range": list(cr), "fingerprint": ""})
     # fingerprint 由服务按 range 计算——创建时以当前计算值入库（调用方可携带期望值比对）
     locator = {"child_range": list(cr), "fingerprint": check["fingerprint_current"],

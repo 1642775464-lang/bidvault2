@@ -371,12 +371,34 @@ def extract_and_harvest(
                         used_caps.add(j)
                         break
                 region_images_json = json.dumps(picked[:100], ensure_ascii=False)
+        # 素材溯源（v1.6）：来源文档版本 + body 顶层子节点区间——「插入工作稿」的
+        # 懒 Word 化（OOXML 保真 clone）据此定位；区间尾向后并入图片段（不占行槽）。
+        locator_json: str | None = None
+        # version_id 首拆为 None（office 建档在抽取后）：Word 化时缺省解析到来源当前版本
+        if (doc.file_type == "docx" and parsed is not None
+                and getattr(parsed, "line_children", None) and reg.src_lines):
+            li0, li1 = reg.src_lines[0], reg.src_lines[-1]
+            if 0 <= li0 < len(parsed.line_children) and 0 <= li1 < len(parsed.line_children):
+                lo_c, hi_c = parsed.line_children[li0], parsed.line_children[li1]
+                img_set = set(parsed.image_children or ())
+                while (hi_c + 1) in img_set:
+                    hi_c += 1
+                if 0 <= lo_c <= hi_c:
+                    locator_json = json.dumps({
+                        "child_range": [lo_c, hi_c],
+                        "source_document_id": doc.id,
+                        "source_document_version_id": version_id,
+                    }, ensure_ascii=False)
         if title in existing:
             # 重新拆解：刷新同名素材内容（保留引用计数与分类）
             mat = existing[title]
             mat.rows_json = new_rows or mat.rows_json
             mat.text = (g.sum or mat.text) if not g.rows else None
             mat.images_json = region_images_json
+            if locator_json:
+                mat.source_document_id = doc.id
+                mat.source_document_version_id = version_id
+                mat.source_locator_json = locator_json
             if g.rows:
                 mat.type = _detect_rows_material_type(g.rows)
         else:
@@ -391,6 +413,9 @@ def extract_and_harvest(
                 rows_json=new_rows,
                 text=g.sum if not g.rows else None,
                 images_json=region_images_json,
+                source_document_id=doc.id,
+                source_document_version_id=version_id,
+                source_locator_json=locator_json,
             )
             session.add(mat)
             existing[title] = mat

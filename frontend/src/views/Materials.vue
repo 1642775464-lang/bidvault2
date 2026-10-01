@@ -195,6 +195,20 @@ function goSource(m: Material): void {
   toast("源文档《" + m.doc_name + "》已在文档库中定位");
 }
 
+/** 素材溯源 v1.6：引用到投标文件——懒 Word 化后接力到工作台素材页签自动弹插入层。 */
+async function goInsertWorkbench(m: Material): Promise<void> {
+  if (!m.project_id) { toast("该素材未关联项目，请先在「引用到项目」中绑定"); return; }
+  try {
+    if (!m.office_document_id) {
+      await api.materialWordify(m.id);
+      toast("已生成可插入版本");
+    }
+    store.pendingInsertMaterialId = m.id;
+    navTo("workbench");
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "素材档案生成失败");
+  }
+}
 function openUse(m: Material): void {
   useId.value = m.id;
   useProj.value = m.project_id ?? "";
@@ -369,6 +383,7 @@ onMounted(async () => {
               </div>
             </span>
             <span class="sp">
+              <button class="act" @click="goInsertWorkbench(sel)">引用到投标文件</button>
               <button class="act" @click="openUse(sel)">引用到项目</button>
               <button class="act danger" @click="openDel(sel)">删除</button>
             </span>

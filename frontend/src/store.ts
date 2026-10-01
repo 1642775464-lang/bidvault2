@@ -24,6 +24,8 @@ interface Store {
   drawerOpen: boolean;
   projectModal: { open: boolean; editingId: string | null };
   uploadModal: { open: boolean; kind: "tender" | "bid"; projectId: string | null };
+  /** 素材库「引用到投标文件」跨页接力：待插入素材 id（工作台消费后清空） */
+  pendingInsertMaterialId: string | null;
 }
 
 export const store = reactive<Store>({
@@ -36,6 +38,7 @@ export const store = reactive<Store>({
   drawerOpen: false,
   projectModal: { open: false, editingId: null },
   uploadModal: { open: false, kind: "tender", projectId: null },
+  pendingInsertMaterialId: null,
 });
 
 let seq = 0;

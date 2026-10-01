@@ -454,6 +454,13 @@ export const api = {
   async materials(cat = "", q = ""): Promise<{ total: number; items: Material[] }> {
     return handle(fetch(`/api/materials${qs({ cat, q })}`));
   },
+  async materialWordify(materialId: string): Promise<{ ok: boolean; office_document_id: string | null; version: number | null; existed?: boolean }> {
+    return handle(fetch(`/api/materials/${materialId}/office-document`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }));
+  },
   async materialMeta(): Promise<{ cats: string[]; types: string[] }> {
     return handle(fetch("/api/materials/meta"));
   },

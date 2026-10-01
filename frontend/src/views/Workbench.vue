@@ -219,6 +219,7 @@ const INS_FEATURE_MAP: Record<string, string> = {
 const insState = ref<InsState>("idle");
 const insBusy = computed(() => INS_BUSY.has(insState.value));
 const insMat = ref<Material | null>(null);
+const matBusyId = ref<string | null>(null);
 const insVerId = ref("");
 const insVerList = ref<{ id: string; version: number; source: string; is_current: boolean }[]>([]);
 const insMsg = ref("");
@@ -241,11 +242,30 @@ async function loadWsMaterials(): Promise<void> {
   }
 }
 
-function openInsert(mat: Material): void {
+async function openInsert(mat0: Material): Promise<void> {
+  let mat = mat0;
   // idle 正常入口；error 允许「重新确认」（刷新版本与基线后重来）
-  if ((insState.value !== "idle" && insState.value !== "error") || !mat.office_document_id
-      || !wsOid.value) {
+  if ((insState.value !== "idle" && insState.value !== "error") || !wsOid.value) {
     return;
+  }
+  if (!mat.office_document_id) {
+    // 素材溯源 v1.6：拆解素材缺 Office 档案 → 按溯源区间懒 Word 化（OOXML 保真 clone）
+    matBusyId.value = mat.id;
+    try {
+      await api.materialWordify(mat.id);
+      await loadWsMaterials();
+      const fresh = wsMaterials.value.find((x) => x.id === mat.id);
+      if (!fresh?.office_document_id) {
+        toast("素材暂无可插入版本（来源区间缺失）");
+        return;
+      }
+      mat = fresh;
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "素材档案生成失败");
+      return;
+    } finally {
+      matBusyId.value = null;
+    }
   }
   insMat.value = mat;
   insVerId.value = "";
@@ -886,6 +906,14 @@ watch(
 );
 
 watch(() => store.activeProjectId, loadWsMaterials);
+watch(() => store.pendingInsertMaterialId, (mid) => {
+  if (!mid) return;
+  tab.value = "mats";
+  store.pendingInsertMaterialId = null;
+  const fresh = wsMaterials.value.find((x) => x.id === mid);
+  if (fresh) void openInsert(fresh);
+  else toast("素材列表加载中，请稍后在「素材」页签插入");
+});
 watch(() => store.activeProjectId, loadAiCfg);
 
 onMounted(async () => {
@@ -1160,8 +1188,8 @@ async function createWs(): Promise<void> {
                 </div>
                 <div class="vr">
                   <button class="mini-btn" @click="navTo('mats')">预览</button>
-                  <button v-if="mt.office_document_id" class="mini-btn on" :disabled="insState !== 'idle' || !wsOid"
-                          @click="openInsert(mt)">插入工作稿</button>
+                  <button class="mini-btn on" :disabled="insState !== 'idle' || !wsOid || matBusyId === mt.id"
+                          @click="openInsert(mt)">{{ matBusyId === mt.id ? "准备中…" : "插入工作稿" }}</button>
                 </div>
               </div>
             </template>
