@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ApiError, api } from "../api/client";
-import type { WorkspaceInfo } from "../api/client";
+import type { ReaderBlockT, WorkspaceInfo } from "../api/client";
 // E-0：ONLYOFFICE 编辑器与手动编辑已整体移除，工作台仅保留生产/分析链路
 import type { Material, PersonCard, Project, RiskItemT , HistCase } from "../api/types";
 import {
@@ -48,6 +48,7 @@ let wsPollSeq = 0;
 async function initWorkspace(): Promise<void> {
   const mySeq = ++wsPollSeq;
   const pid = cur.value?.id;
+  wsBlocks.value = []; // 项目切换时清掉上一项目的预览
   if (!pid) {
     wsOid.value = null;
     wsSync.value = "idle";
@@ -59,6 +60,7 @@ async function initWorkspace(): Promise<void> {
     wsOid.value = r.office_document_id;
     wsVersion.value = r.version;
     wsSync.value = "synced"; // 稳态：正式版本 + 派生数据已一致（编辑器打开本身不算保存状态）
+    void loadWsPreview();
     startWsPoll();
   } catch (e) {
     if (mySeq !== wsPollSeq) return;
@@ -87,6 +89,7 @@ async function pollWorkspace(): Promise<void> {
       if (wsPollSeq !== mySeq) return;
       wsSync.value = "saved";
       void loadWsVersions();
+      void loadWsPreview();
       // 派生同步状态：derived_from_version_id vs current_version_id
       const ws2 = await api.workspaceState(pid);
       if (wsPollSeq !== mySeq || ws2.office_document_id !== oid) return;
@@ -135,6 +138,31 @@ async function loadWsVersions(): Promise<void> {
     wsVerList.value = (await api.officeVersions(wsOid.value)).items;
   } catch {
     wsVerList.value = [];
+  }
+}
+
+/* ---------------- 工作稿预览（E-2B 阅读块只读渲染，随版本刷新） ---------------- */
+const wsBlocks = ref<ReaderBlockT[]>([]);
+const wsPvBusy = ref(false);
+const wsPvErr = ref(false);
+
+async function loadWsPreview(): Promise<void> {
+  const oid = wsOid.value;
+  if (!oid) {
+    wsBlocks.value = [];
+    wsPvErr.value = false;
+    return;
+  }
+  wsPvBusy.value = true;
+  try {
+    const r = await api.readerBlocks(oid);
+    if (oid !== wsOid.value) return; // 项目已切换，丢弃过期响应
+    wsBlocks.value = r.blocks;
+    wsPvErr.value = false;
+  } catch {
+    if (oid === wsOid.value) wsPvErr.value = true; // 加载失败保留旧内容
+  } finally {
+    wsPvBusy.value = false;
   }
 }
 
@@ -967,11 +995,32 @@ async function createWs(): Promise<void> {
         </div>
         <div class="ws-stage">
           <template v-if="cur">
-            <div v-if="wsOid" class="empty-state" style="margin:auto;text-align:center">
-              <b>工作稿已就绪</b>
-              <p class="sub-note" style="margin-top:8px">通过右侧素材推荐和风险检测面板操作，或使用「导出 Word」下载到本地编辑。</p>
+            <div v-if="!wsOid" class="empty-state" style="margin:auto"><b>工作稿初始化中…</b></div>
+            <div v-else-if="wsPvBusy && !wsBlocks.length" class="empty-state" style="margin:auto"><b>正在加载预览…</b></div>
+            <div v-else-if="wsPvErr && !wsBlocks.length" class="empty-state" style="margin:auto"><b>预览暂不可用</b></div>
+            <div v-else-if="!wsBlocks.length" class="empty-state" style="margin:auto"><b>工作稿暂无内容</b></div>
+            <div v-else class="ws-reader">
+              <div v-for="b in wsBlocks" :key="b.i" style="margin-bottom:10px">
+                <component :is="'h' + Math.min(b.level + 1, 6)"
+                           v-if="b.type === 'heading'"
+                           :style="{ margin: '12px 0 4px', fontSize: 20 - b.level * 1.5 + 'px' }">
+                  {{ b.text }}
+                </component>
+                <p v-else-if="b.type === 'para'" style="margin:4px 0;line-height:1.9">{{ b.text }}</p>
+                <div v-else-if="b.type === 'image'" class="ws-rd-img">🖼 {{ b.text }}</div>
+                <table v-else-if="b.type === 'table'" class="ws-rd-tbl">
+                  <tbody>
+                    <tr v-for="(row, ri) in b.rows" :key="ri">
+                      <td v-for="(c, ci) in row.cells" :key="ci"
+                          :colspan="c.gridspan > 1 ? c.gridspan : undefined"
+                          :style="{ background: c.vmerge === 'continue' ? 'var(--hint-bg)' : undefined }">
+                        {{ c.vmerge === 'continue' ? "" : c.text }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div v-else class="empty-state" style="margin:auto"><b>工作稿初始化中…</b></div>
           </template>
           <div v-else class="empty-state" style="margin:auto"><b>请先在顶部选择项目</b></div>
         </div>

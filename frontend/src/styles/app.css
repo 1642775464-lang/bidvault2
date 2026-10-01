@@ -392,6 +392,11 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .col-doc .ws-stage{flex:1;min-height:0;display:flex;flex-direction:column;background:#f4f6fa}
 .col-doc .office-editor{flex:1;min-height:0}
 .ws-stage .empty-state{margin:auto}
+/* 工作稿只读预览（E-2B 阅读块渲染） */
+.ws-reader{flex:1;min-height:0;overflow:auto;background:#fff;border:1px solid var(--line-soft);border-radius:10px;margin:14px 18px;padding:26px 34px}
+.ws-rd-img{border:1px dashed var(--line);padding:12px;text-align:center;color:var(--sub);font-size:12.5px;margin:8px 0}
+.ws-rd-tbl{border-collapse:collapse;width:100%;font-size:12.5px;margin:8px 0}
+.ws-rd-tbl td{border:1px solid var(--line);padding:4px 8px;color:var(--ink)}
 .doctabs{display:flex;gap:4px;padding:10px 16px 0;flex:none;border-bottom:1px solid var(--line-soft)}
 .doctabs button{border:1px solid var(--line-soft);border-bottom:none;background:#f4f6fa;color:var(--sub);font-size:12.5px;font-weight:600;padding:7px 16px;border-radius:8px 8px 0 0;cursor:pointer}
 .doctabs button.on{background:#fff;color:var(--accent-deep);border-color:var(--line)}
