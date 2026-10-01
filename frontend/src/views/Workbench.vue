@@ -227,15 +227,53 @@ const insNodeId = ref("");
 const insNodesBusy = ref(false);
 const insNodeQuery = ref("");
 const insNodeSel = computed(() => insNodes.value.find((n) => n.id === insNodeId.value) ?? null);
-/* 关键词模糊筛选：空格分词 AND 全命中；渲染截断 300 条防长目录卡顿 */
-const insNodeHits = computed(() => {
+const collapsedNodes = ref<Set<string>>(new Set());
+
+function toggleNode(id: string): void {
+  const s = new Set(collapsedNodes.value);
+  if (s.has(id)) s.delete(id);
+  else s.add(id);
+  collapsedNodes.value = s;
+}
+
+/* 目录树（参考 WPS 目录样式）：parent_id 建树、父级可折叠；搜索时分词 AND 全命中、
+   自动展开命中路径（命中节点+其中间祖先）；渲染截断 800 行防长目录卡顿 */
+const insTreeRows = computed(() => {
+  const nodes = insNodes.value;
+  if (!nodes.length) return [] as Array<OutlineNodeT & { depth: number; hasKids: boolean }>;
+  const ids = new Set(nodes.map((n) => n.id));
+  const kids = new Map<string | null, OutlineNodeT[]>();
+  for (const n of nodes) {
+    const key = n.parent_id && ids.has(n.parent_id) ? n.parent_id : null;
+    const arr = kids.get(key);
+    if (arr) arr.push(n);
+    else kids.set(key, [n]);
+  }
+  for (const arr of kids.values()) arr.sort((a, b) => a.order - b.order);
   const tokens = insNodeQuery.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const hits = !tokens.length ? insNodes.value
-    : insNodes.value.filter((n) => {
-        const tt = n.title.toLowerCase();
-        return tokens.every((k) => tt.includes(k));
-      });
-  return hits.slice(0, 300);
+  const hit = (n: OutlineNodeT): boolean =>
+    !tokens.length || tokens.every((k) => n.title.toLowerCase().includes(k));
+  const subtreeHit = new Map<string, boolean>();
+  const mark = (n: OutlineNodeT): boolean => {
+    let any = hit(n);
+    for (const c of kids.get(n.id) ?? []) if (mark(c)) any = true;
+    subtreeHit.set(n.id, any);
+    return any;
+  };
+  for (const r of kids.get(null) ?? []) mark(r);
+  const rows: Array<OutlineNodeT & { depth: number; hasKids: boolean }> = [];
+  const walk = (parent: string | null, depth: number): void => {
+    for (const n of kids.get(parent) ?? []) {
+      if (!(subtreeHit.get(n.id) ?? hit(n))) continue;
+      const hasKids = kids.has(n.id);
+      rows.push({ ...n, depth, hasKids });
+      if (rows.length >= 800) return;
+      const expand = tokens.length ? true : !collapsedNodes.value.has(n.id);
+      if (hasKids && expand) walk(n.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  return rows;
 });
 
 async function loadInsNodes(): Promise<void> {
@@ -244,6 +282,8 @@ async function loadInsNodes(): Promise<void> {
   insNodesBusy.value = true;
   try {
     insNodes.value = (await api.officeOutline(oid)).nodes;
+    // 默认展开一级章节（参考目录样式），更深层级折叠
+    collapsedNodes.value = new Set(insNodes.value.filter((n) => n.level >= 2).map((n) => n.id));
   } catch (e) {
     toast(e instanceof Error ? e.message : "章节目录加载失败");
   } finally {
@@ -308,7 +348,9 @@ async function openInsert(mat0: Material): Promise<void> {
   insErr.value = "";
   insMode.value = "append_end";
   insNodeId.value = "";
+  insNodeQuery.value = "";
   insNodes.value = []; // 每次打开重取，防章节树落后于工作稿版本
+  collapsedNodes.value = new Set();
   insState.value = "confirming";
   void (async () => {
     try {
@@ -1145,13 +1187,17 @@ async function createWs(): Promise<void> {
                 <div class="chap-pick">
                   <input class="chap-q" v-model="insNodeQuery" :disabled="insBusy || insNodesBusy"
                          placeholder="输入关键词筛选章节，可空格分词" />
-                  <div class="chap-list" role="listbox" aria-label="章节列表">
-                    <button v-for="n in insNodeHits" :key="n.id" type="button" class="chap-item"
-                            :class="{ on: n.id === insNodeId }" @click="insNodeId = n.id">
-                      <span class="lv">L{{ n.level }}</span>
-                      <span class="tt" :style="{ paddingLeft: (n.level - 1) * 8 + 'px' }">{{ n.title }}</span>
-                    </button>
-                    <div v-if="!insNodesBusy && !insNodeHits.length" class="chap-empty">无匹配章节</div>
+                  <div class="chap-list" role="tree" aria-label="章节目录">
+                    <div v-for="n in insTreeRows" :key="n.id" class="chap-row"
+                         :class="{ on: n.id === insNodeId }"
+                         :style="{ paddingLeft: 4 + n.depth * 14 + 'px' }">
+                      <button v-if="n.hasKids" type="button" class="chap-arrow"
+                              @click="toggleNode(n.id)">{{ collapsedNodes.has(n.id) ? "▸" : "▾" }}</button>
+                      <span v-else class="chap-arrow leaf" />
+                      <button type="button" class="chap-item" :class="{ on: n.id === insNodeId }"
+                              @click="insNodeId = n.id">{{ n.title }}</button>
+                    </div>
+                    <div v-if="!insNodesBusy && !insTreeRows.length" class="chap-empty">无匹配章节</div>
                   </div>
                   <div v-if="insNodeSel" class="chap-sel">已选：L{{ insNodeSel.level }} {{ insNodeSel.title }}</div>
                 </div>

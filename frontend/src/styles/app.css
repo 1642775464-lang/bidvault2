@@ -397,6 +397,19 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .ws-rd-img{border:1px dashed var(--line);padding:12px;text-align:center;color:var(--sub);font-size:12.5px;margin:8px 0}
 .ws-rd-tbl{border-collapse:collapse;width:100%;font-size:12.5px;margin:8px 0}
 .ws-rd-tbl td{border:1px solid var(--line);padding:4px 8px;color:var(--ink)}
+/* 插入弹窗章节目录树（参考 WPS 目录样式：折叠箭头+缩进+搜索筛选） */
+.chap-pick{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.chap-q{border:1px solid var(--line);border-radius:6px;padding:7px 10px;font-size:12.5px;color:var(--ink);background:#fff}
+.chap-list{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:6px;background:#fff}
+.chap-row{display:flex;align-items:center;gap:2px;padding-right:6px}
+.chap-row:hover{background:var(--accent-bg)}
+.chap-row.on{background:var(--accent-bg)}
+.chap-arrow{flex:none;width:18px;height:22px;border:none;background:none;cursor:pointer;color:var(--sub);font-size:11px;line-height:22px;padding:0;text-align:center}
+.chap-arrow.leaf{visibility:hidden}
+.chap-item{flex:1;min-width:0;text-align:left;padding:5px 4px;border:none;background:none;cursor:pointer;font-size:12.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chap-row.on .chap-item{color:var(--accent-deep);font-weight:600}
+.chap-empty{padding:12px;text-align:center;color:var(--sub);font-size:12.5px}
+.chap-sel{font-size:11.5px;color:var(--accent-deep);background:var(--accent-bg);border-radius:4px;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .doctabs{display:flex;gap:4px;padding:10px 16px 0;flex:none;border-bottom:1px solid var(--line-soft)}
 .doctabs button{border:1px solid var(--line-soft);border-bottom:none;background:#f4f6fa;color:var(--sub);font-size:12.5px;font-weight:600;padding:7px 16px;border-radius:8px 8px 0 0;cursor:pointer}
 .doctabs button.on{background:#fff;color:var(--accent-deep);border-color:var(--line)}
