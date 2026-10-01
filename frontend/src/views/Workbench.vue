@@ -225,6 +225,18 @@ const insMode = ref<"append_end" | "chapter">("append_end");
 const insNodes = ref<OutlineNodeT[]>([]);
 const insNodeId = ref("");
 const insNodesBusy = ref(false);
+const insNodeQuery = ref("");
+const insNodeSel = computed(() => insNodes.value.find((n) => n.id === insNodeId.value) ?? null);
+/* 关键词模糊筛选：空格分词 AND 全命中；渲染截断 300 条防长目录卡顿 */
+const insNodeHits = computed(() => {
+  const tokens = insNodeQuery.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const hits = !tokens.length ? insNodes.value
+    : insNodes.value.filter((n) => {
+        const tt = n.title.toLowerCase();
+        return tokens.every((k) => tt.includes(k));
+      });
+  return hits.slice(0, 300);
+});
 
 async function loadInsNodes(): Promise<void> {
   const oid = wsOid.value;
@@ -1130,10 +1142,19 @@ async function createWs(): Promise<void> {
               </div>
               <div class="frow" v-if="insMode === 'chapter'">
                 <span class="fl">章节标题</span>
-                <select v-model="insNodeId" class="f-select" :disabled="insBusy || insNodesBusy">
-                  <option value="">{{ insNodesBusy ? "章节目录加载中…" : (insNodes.length ? "请选择章节" : "点击展开加载") }}</option>
-                  <option v-for="n in insNodes" :key="n.id" :value="n.id">{{ "　".repeat(Math.max(0, n.level - 1)) }}{{ n.title }}</option>
-                </select>
+                <div class="chap-pick">
+                  <input class="chap-q" v-model="insNodeQuery" :disabled="insBusy || insNodesBusy"
+                         placeholder="输入关键词筛选章节，可空格分词" />
+                  <div class="chap-list" role="listbox" aria-label="章节列表">
+                    <button v-for="n in insNodeHits" :key="n.id" type="button" class="chap-item"
+                            :class="{ on: n.id === insNodeId }" @click="insNodeId = n.id">
+                      <span class="lv">L{{ n.level }}</span>
+                      <span class="tt" :style="{ paddingLeft: (n.level - 1) * 8 + 'px' }">{{ n.title }}</span>
+                    </button>
+                    <div v-if="!insNodesBusy && !insNodeHits.length" class="chap-empty">无匹配章节</div>
+                  </div>
+                  <div v-if="insNodeSel" class="chap-sel">已选：L{{ insNodeSel.level }} {{ insNodeSel.title }}</div>
+                </div>
               </div>
               <div class="frow"><span class="fl">当前工作稿</span><span>v{{ wsVersion ?? "—" }}</span></div>
               <div v-if="insMsg" class="ins-status">{{ insMsg }}</div>
