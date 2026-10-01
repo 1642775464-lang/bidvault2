@@ -742,7 +742,7 @@ onMounted(() => {
               <table>
                 <tbody>
                   <tr><td>产品</td><td>标库 BidVault v2（单机版招投标文件智能库）</td></tr>
-                  <tr><td>版本</td><td style="font-family:var(--mono);font-size:12px">v2.1.0（拆解规则中心）</td></tr>
+                  <tr><td>版本</td><td style="font-family:var(--mono);font-size:12px">v2.2.0（图片对位与工作稿底稿）</td></tr>
                   <tr><td>当前里程碑</td><td>M1-M5 全部交付</td></tr>
                   <tr><td>技术栈</td><td>Vue 3 + FastAPI + SQLite（WAL / FTS5 trigram）</td></tr>
                 </tbody>
