@@ -381,6 +381,7 @@ export const api = {
       material_office_document_id: string;
       material_version_id: string;
       insert_mode: string;
+      target_locator?: { para_index: number; title: string; anchor_hash: string } | null;
     },
   ): Promise<{ ok: boolean; workspace_office_document_id: string; version: number; version_id: string; material_version_id: string; insert_mode: string }> {
     return handle(fetch(`/api/office-documents/${wsOid}/material-insert`, {

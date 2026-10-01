@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ApiError, api } from "../api/client";
-import type { ReaderBlockT, WorkspaceInfo } from "../api/client";
+import type { OutlineNodeT, ReaderBlockT, WorkspaceInfo } from "../api/client";
 // E-0：ONLYOFFICE 编辑器与手动编辑已整体移除，工作台仅保留生产/分析链路
 import type { Material, PersonCard, Project, RiskItemT , HistCase } from "../api/types";
 import {
@@ -220,6 +220,28 @@ const insState = ref<InsState>("idle");
 const insBusy = computed(() => INS_BUSY.has(insState.value));
 const insMat = ref<Material | null>(null);
 const matBusyId = ref<string | null>(null);
+/* 素材溯源 v1.7：插入位置可选章节（chapter 模式，定位到最深一级标题下） */
+const insMode = ref<"append_end" | "chapter">("append_end");
+const insNodes = ref<OutlineNodeT[]>([]);
+const insNodeId = ref("");
+const insNodesBusy = ref(false);
+
+async function loadInsNodes(): Promise<void> {
+  const oid = wsOid.value;
+  if (!oid || insNodesBusy.value) return;
+  insNodesBusy.value = true;
+  try {
+    insNodes.value = (await api.officeOutline(oid)).nodes;
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "章节目录加载失败");
+  } finally {
+    insNodesBusy.value = false;
+  }
+}
+
+function onInsModeChange(): void {
+  if (insMode.value === "chapter" && !insNodes.value.length) void loadInsNodes();
+}
 const insVerId = ref("");
 const insVerList = ref<{ id: string; version: number; source: string; is_current: boolean }[]>([]);
 const insMsg = ref("");
@@ -272,6 +294,9 @@ async function openInsert(mat0: Material): Promise<void> {
   insVerList.value = [];
   insMsg.value = "";
   insErr.value = "";
+  insMode.value = "append_end";
+  insNodeId.value = "";
+  insNodes.value = []; // 每次打开重取，防章节树落后于工作稿版本
   insState.value = "confirming";
   void (async () => {
     try {
@@ -379,6 +404,16 @@ async function confirmInsert(): Promise<void> {
   const baseId = latest.current_version_id;
 
   // 4) 执行插入（423 有限重试；409/422 停下交给用户）
+  let locator: { para_index: number; title: string; anchor_hash: string } | null = null;
+  if (insMode.value === "chapter") {
+    const node = insNodes.value.find((n) => n.id === insNodeId.value);
+    if (!node) {
+      insState.value = "error";
+      insErr.value = "请选择插入的章节标题";
+      return;
+    }
+    locator = { para_index: node.para_index, title: node.title, anchor_hash: node.anchor_hash };
+  }
   insState.value = "inserting";
   let done: { version: number; version_id: string } | null = null;
   for (let attempt = 0; attempt < 3 && !done; attempt++) {
@@ -388,7 +423,8 @@ async function confirmInsert(): Promise<void> {
         material_id: mat.id,
         material_office_document_id: mat.office_document_id,
         material_version_id: insVerId.value,
-        insert_mode: "append_end",
+        insert_mode: insMode.value,
+        target_locator: locator,
       });
     } catch (e) {
       const err = e as ApiError;
@@ -1085,7 +1121,20 @@ async function createWs(): Promise<void> {
                   <option v-for="v in insVerList" :key="v.id" :value="v.id">{{ insVerLabel(v) }}</option>
                 </select>
               </div>
-              <div class="frow"><span class="fl">插入位置</span><span>工作稿末尾</span></div>
+              <div class="frow">
+                <span class="fl">插入位置</span>
+                <select v-model="insMode" class="f-select" :disabled="insBusy" @change="onInsModeChange">
+                  <option value="append_end">工作稿末尾</option>
+                  <option value="chapter">章节标题下</option>
+                </select>
+              </div>
+              <div class="frow" v-if="insMode === 'chapter'">
+                <span class="fl">章节标题</span>
+                <select v-model="insNodeId" class="f-select" :disabled="insBusy || insNodesBusy">
+                  <option value="">{{ insNodesBusy ? "章节目录加载中…" : (insNodes.length ? "请选择章节" : "点击展开加载") }}</option>
+                  <option v-for="n in insNodes" :key="n.id" :value="n.id">{{ "　".repeat(Math.max(0, n.level - 1)) }}{{ n.title }}</option>
+                </select>
+              </div>
               <div class="frow"><span class="fl">当前工作稿</span><span>v{{ wsVersion ?? "—" }}</span></div>
               <div v-if="insMsg" class="ins-status">{{ insMsg }}</div>
               <div v-if="insErr" class="ins-error">
