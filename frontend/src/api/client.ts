@@ -219,7 +219,12 @@ export const api = {
     );
   },
   async archiveOp(id: string, op: "archive" | "unarchive", body?: { result: string; result_note?: string; result_amount?: string }): Promise<{ ok: boolean }> {
-    return handle(fetch(`/api/projects/${id}/${op}`, { method: "POST", body: body ? JSON.stringify(body) : undefined }));
+    // JSON 体必须带 Content-Type，否则 FastAPI 无法解析 → 422
+    return handle(fetch(`/api/projects/${id}/${op}`, {
+      method: "POST",
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    }));
   },
 
   /* ---- 文档库 ---- */
