@@ -227,6 +227,10 @@ export const api = {
     }));
   },
 
+  async deleteProject(id: string): Promise<{ ok: boolean; name: string; documents: number; files_removed: number; folder_removed: string | null; material_refs_cleared: number }> {
+    return handle(fetch(`/api/projects/${id}`, { method: "DELETE" }));
+  },
+
   /* ---- 文档库 ---- */
   async documents(params: { kind?: string; project_id?: string; q?: string; status?: string; file_type?: string } = {}): Promise<{ total: number; items: DocItem[] }> {
     return handle(fetch(`/api/documents${qs(params)}`));

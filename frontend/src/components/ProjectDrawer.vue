@@ -13,6 +13,7 @@ import {
   store,
   toast,
   tenderOf,
+  askConfirm,
 } from "../store";
 
 const p = computed<Project | null>(() => store.projects.find((x) => x.id === store.drawerProjectId) ?? null);
@@ -48,6 +49,29 @@ const archOpen = ref(false);
 const archResult = ref<"中标" | "未中标">("中标");
 const archNote = ref("");
 const archAmount = ref("");
+
+/* 删除项目（级联：文档+拆解+工作稿+项目文件夹；素材保留） */
+const delOpen = ref(false);
+const delConfirmName = ref("");
+const delBusy = ref(false);
+
+async function confirmDelete(): Promise<void> {
+  const cur = p.value;
+  if (!cur || delBusy.value || delConfirmName.value.trim() !== cur.name) return;
+  delBusy.value = true;
+  try {
+    const r = await api.deleteProject(cur.id);
+    toast(`「${r.name || cur.name}」已删除（文档 ${r.documents} · 磁盘文件 ${r.files_removed}${r.folder_removed ? " · 项目文件夹已删" : ""}；素材已保留）`);
+    delOpen.value = false;
+    delConfirmName.value = "";
+    store.projects = store.projects.filter((x) => x.id !== cur.id);
+    closeDrawer();
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "删除失败");
+  } finally {
+    delBusy.value = false;
+  }
+}
 
 async function submitArchive(): Promise<void> {
   const cur = p.value;
@@ -217,6 +241,20 @@ function goWork(): void {
         <button v-else class="act" title="需先上传招标文件与投标文件" @click="toast('该项目还需补齐招标文件 / 投标文件，先「上传资料」')">去工作台检测</button>
         <button class="act pri" @click="openProjectModal(p.id)">编辑项目</button>
         <button v-if="!p.is_archived" class="act" @click="archOpen = !archOpen">{{ archOpen ? "收起归档登记" : "归档登记" }}</button>
+        <button class="act danger" @click="delOpen = !delOpen">{{ delOpen ? "收起删除" : "删除项目" }}</button>
+      </div>
+      <div v-if="delOpen" class="arch-form">
+        <div class="af-row" style="color:var(--risk);font-weight:600">
+          将删除项目「{{ p.name }}」及其全部文档、拆解结果与工作区项目文件夹；素材库内容保留（仅解除关联）。此操作不可恢复。
+        </div>
+        <div class="af-row">
+          <label class="fl">输入项目名称确认</label>
+          <input v-model="delConfirmName" type="text" class="af-in" :placeholder="p.name" style="flex:1;border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:12.5px">
+        </div>
+        <div class="af-row" style="justify-content:flex-end;gap:8px">
+          <button class="act" @click="delOpen = false; delConfirmName = ''">取消</button>
+          <button class="act danger" :disabled="delConfirmName.trim() !== p.name || delBusy" @click="confirmDelete">{{ delBusy ? "删除中…" : "确认删除" }}</button>
+        </div>
       </div>
       <div v-if="archOpen && !p.is_archived" class="arch-form">
         <div class="af-row">

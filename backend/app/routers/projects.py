@@ -269,6 +269,21 @@ def archive(project_id: str, body: ArchiveIn | None = None, session: Session = D
     return {"ok": True}
 
 
+@router.delete("/{project_id}")
+def delete_project(project_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """删除项目（级联）：文档/拆解/工作稿/工作区项目文件夹一并删除；素材保留仅解除关联。"""
+    from ..services.project_cleanup import delete_project_cascade
+
+    p = session.get(Project, project_id)
+    if p is None:
+        raise HTTPException(404, "项目不存在")
+    stats = delete_project_cascade(session, p)
+    audit("project_deleted",
+          detail=f"{stats['name']} · 文档 {stats['documents']} · 磁盘文件 {stats['files_removed']}"
+                 f" · 文件夹 {'已删' if stats['folder_removed'] else '无/跳过'} · 素材关联解除 {stats['material_refs_cleared']}")
+    return {"ok": True, **stats}
+
+
 @router.post("/{project_id}/unarchive")
 def unarchive(project_id: str, session: Session = Depends(get_session)) -> dict[str, Any]:
     p = session.get(Project, project_id)
