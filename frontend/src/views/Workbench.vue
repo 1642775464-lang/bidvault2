@@ -145,6 +145,9 @@ async function loadWsVersions(): Promise<void> {
 const wsBlocks = ref<ReaderBlockT[]>([]);
 const wsPvBusy = ref(false);
 const wsPvErr = ref(false);
+/* 风险「定位原文」：命中块下标 + 高亮脉冲计时器 */
+const wsHitIdx = ref<number | null>(null);
+let wsHitTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function loadWsPreview(): Promise<void> {
   const oid = wsOid.value;
@@ -895,9 +898,62 @@ async function toggleDone(r: RiskItemT): Promise<void> {
   }
 }
 
+/** 风险 → 工作稿画布定位：quote 分片 → req → 标题关键词，命中即滚动+高亮脉冲。
+ *  风险引用出自招标文件（不在工作稿内）时，用其关键短语在工作稿中找对应位置。 */
+function wsLocateCandidates(r: RiskItemT): string[] {
+  const out: string[] = [];
+  const push = (s: string | null | undefined): void => {
+    const v = (s ?? "").replace(/\s+/g, " ").trim();
+    if (v.length >= 4) out.push(v);
+  };
+  // quote 常为「编号 | 标题 | 正文」：逐段尝试，长段优先
+  const raw = (r.quote ?? "").replace(/\s+/g, " ").trim();
+  if (raw) {
+    for (const part of raw.split(/\s*[|｜]\s*/).map((x) => x.trim()).filter(Boolean).sort((a, b) => b.length - a.length)) {
+      push(part);
+    }
+  }
+  push(r.req);
+  // 标题关键词：去掉「缺失/未响应」等结论词后取核心名词段
+  const t = (r.title ?? "").replace(/[（(].*?[)）]/g, "").replace(/(缺失|未响应|偏离|缺项|缺证|不足|未提供|未附|未填|未标注)$/g, "").trim();
+  if (t.length >= 3) out.push(t);
+  return out;
+}
+
 function locate(r: RiskItemT): void {
   tab.value = "scan";
-  toast(r.quote ? "引用原文：" + r.quote.slice(0, 40) : "未找到原文引用");
+  if (!wsBlocks.value.length) {
+    toast("工作稿内容加载中，请稍后重试");
+    return;
+  }
+  const cands = wsLocateCandidates(r);
+  let hit: number | null = null;
+  let matched = "";
+  outer: for (const cand of cands) {
+    const needle = cand.replace(/\s+/g, "");
+    if (needle.length < 3) continue;
+    for (const b of wsBlocks.value) {
+      let hay = "";
+      if (b.type === "table") {
+        hay = b.rows.map((row) => row.cells.map((c) => c.text ?? "").join("")).join("");
+      } else {
+        hay = b.text ?? "";
+      }
+      hay = hay.replace(/\s+/g, "");
+      if (hay && hay.includes(needle)) { hit = b.i; matched = cand; break outer; }
+    }
+  }
+  if (hit === null) {
+    toast("工作稿中未找到对应原文（该风险引用出自招标文件）");
+    return;
+  }
+  wsHitIdx.value = hit;
+  if (wsHitTimer) clearTimeout(wsHitTimer);
+  wsHitTimer = setTimeout(() => { wsHitIdx.value = null; wsHitTimer = null; }, 4000);
+  nextTick(() => {
+    document.getElementById("ws-blk-" + hit)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    toast("已定位：" + matched.slice(0, 30));
+  });
 }
 
 function downloadReport(): void {
@@ -1118,7 +1174,8 @@ async function createWs(): Promise<void> {
             <div v-else-if="wsPvErr && !wsBlocks.length" class="empty-state" style="margin:auto"><b>预览暂不可用</b></div>
             <div v-else-if="!wsBlocks.length" class="empty-state" style="margin:auto"><b>工作稿暂无内容</b></div>
             <div v-else class="ws-reader">
-              <div v-for="b in wsBlocks" :key="b.i" style="margin-bottom:10px">
+              <div v-for="b in wsBlocks" :key="b.i" :id="'ws-blk-' + b.i"
+                   :class="{ 'ws-hit': wsHitIdx === b.i }" style="margin-bottom:10px">
                 <component :is="'h' + Math.min(b.level + 1, 6)"
                            v-if="b.type === 'heading'"
                            :style="{ margin: '12px 0 4px', fontSize: 20 - b.level * 1.5 + 'px' }">

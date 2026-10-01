@@ -409,6 +409,9 @@ mark.hit{background:#b9d7ff;border-radius:2px;padding:0 1px}
 .chap-item{flex:1;min-width:0;text-align:left;padding:5px 4px;border:none;background:none;cursor:pointer;font-size:12.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chap-row.on .chap-item{color:var(--accent-deep);font-weight:600}
 .chap-empty{padding:12px;text-align:center;color:var(--sub);font-size:12.5px}
+/* 风险「定位原文」命中块高亮脉冲（4s 后自动消退） */
+.ws-reader .ws-hit{background:var(--hl);outline:2px solid var(--hl-line);outline-offset:4px;border-radius:6px;animation:wsHitPulse 1.1s ease-in-out 2}
+@keyframes wsHitPulse{0%,100%{background:var(--hl)}50%{background:#fff3bf}}
 .chap-sel{font-size:11.5px;color:var(--accent-deep);background:var(--accent-bg);border-radius:4px;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .doctabs{display:flex;gap:4px;padding:10px 16px 0;flex:none;border-bottom:1px solid var(--line-soft)}
 .doctabs button{border:1px solid var(--line-soft);border-bottom:none;background:#f4f6fa;color:var(--sub);font-size:12.5px;font-weight:600;padding:7px 16px;border-radius:8px 8px 0 0;cursor:pointer}
