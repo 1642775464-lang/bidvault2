@@ -75,6 +75,10 @@ def build_outline(docx_bytes: bytes) -> dict[str, Any]:
             tail_parts.append(texts[j])
             if sum(len(t) for t in tail_parts) >= TAIL_CHARS:
                 break
+        # 同级弹栈必须先于取父：否则 L1 会挂到前一个 L1 下，整棵树串成单链
+        # （实机：开标一览表/分项报价表等全部 L1 被链到投标函下，根节点只剩 1 个）
+        while stack and stack[-1]["level"] >= level:
+            stack.pop()
         node = {
             "id": uuid.uuid4().hex,
             "parent_id": stack[-1]["id"] if stack else None,
@@ -85,8 +89,6 @@ def build_outline(docx_bytes: bytes) -> dict[str, Any]:
             "anchor_hash": _anchor(title, "".join(tail_parts)),
         }
         nodes.append(node)
-        while stack and stack[-1]["level"] >= level:
-            stack.pop()
         stack.append(node)
 
     return {"version": 1, "nodes": nodes}
