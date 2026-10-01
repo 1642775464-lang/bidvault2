@@ -399,16 +399,33 @@ onMounted(async () => {
                     内容指纹：{{ sourceInfo?.fingerprint ?? "—" }}<br>
                     创建时间：{{ sel.updated_at?.slice(0, 19).replace("T", " ") || "—" }}
                   </div>
-                  <div class="wp-sec" contenteditable="false">AI / 结构化数据（派生自 Word 正文，只读）</div>
                   <template v-if="sel.rows && sel.rows.length">
-                    <table class="realtable" contenteditable="false">
-                      <tr v-for="(r, ri) in sel.rows" :key="'m' + ri">
-                        <td v-for="(c, ci) in r" :key="ci">{{ c }}</td>
-                      </tr>
-                    </table>
+                    <div class="wp-sec" contenteditable="false">{{ sel.type }}内容</div>
+                    <template v-for="seg in rowSegments(sel.rows)" :key="seg.key">
+                      <!-- 段落 / 单列行 -->
+                      <p v-if="seg.kind === 'para'" class="wp-p" contenteditable="false" style="text-indent:2em">{{ seg.text }}</p>
+                      <!-- V2 表格（同一 tid 连续行归一张表，保留合并单元格与列宽） -->
+                      <table v-else class="realtable" contenteditable="false" :data-tid="seg.v2!.tid">
+                        <colgroup>
+                          <col v-for="(w, wi) in seg.v2!.columnWidthsTwips" :key="wi" :style="w > 0 ? { width: twipsToPx(w) + 'px' } : undefined">
+                        </colgroup>
+                        <tr v-for="(row, ri) in seg.rows" :key="ri">
+                          <template v-for="c in row.cells" :key="c.id">
+                            <td v-if="!c.merged" :colspan="c.colSpan > 1 ? c.colSpan : undefined" :rowspan="c.rowSpan > 1 ? c.rowSpan : undefined">{{ c.text }}</td>
+                          </template>
+                        </tr>
+                      </table>
+                      <!-- 契约 v1.4：图片证据就地插入（该行之后） -->
+                      <div v-if="imgsAfterRow(seg.endIdx).length" class="imgs">
+                        <div v-for="im in imgsAfterRow(seg.endIdx)" :key="im.file_name" class="imgcell">
+                          <a :href="'/api/files/' + im.file_name" target="_blank" :title="'原文档第 ' + im.line_no + ' 行'">
+                            <img :src="'/api/files/' + im.file_name" loading="lazy">
+                          </a>
+                        </div>
+                      </div>
+                    </template>
                   </template>
-                  <div v-if="sel.text" class="wp-p" contenteditable="false" style="white-space:pre-wrap">{{ sel.text }}</div>
-                  <div class="wp-p" contenteditable="false" style="text-align:center;text-indent:0;font-size:12px;color:var(--dim)">以上数据由 Word 正文解析派生，只读展示</div>
+                  <div v-else-if="sel.text" class="wp-p" contenteditable="false" style="white-space:pre-wrap">{{ sel.text }}</div>
                 </div>
               </div>
             </template>
