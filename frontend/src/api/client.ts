@@ -393,6 +393,26 @@ export const api = {
   async aiGatewayConfig(wsOid: string): Promise<{ provider: string; base_url: string; model: string; timeout_s: number; api_key_ref: string; has_key: boolean }> {
     return handle(fetch(`/api/office-documents/${wsOid}/ai-gateway/config`));
   },
+  /* 全局网关配置（设置页「模型服务」自配模型；不依赖工作文档） */
+  async globalGateway(): Promise<{
+    provider: string; base_url: string; model: string; timeout_s: number;
+    api_key_ref: string; has_key: boolean; secret_source: string;
+  }> {
+    return handle(fetch("/api/ai-gateway"));
+  },
+  async saveGlobalGateway(body: {
+    provider?: string; base_url?: string; model?: string; timeout_s?: number;
+    api_key_ref?: string; api_key?: string;
+  }): Promise<{ provider: string; base_url: string; model: string; timeout_s: number; api_key_ref: string; has_key: boolean; secret_source: string }> {
+    return handle(fetch("/api/ai-gateway", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }));
+  },
+  async testGlobalGateway(): Promise<{ ok: boolean; provider: string; model: string; latency_ms: number; chars: number }> {
+    return handle(fetch("/api/ai-gateway/test", { method: "POST" }));
+  },
   async aiGatewayTest(wsOid: string): Promise<{ ok: boolean; provider: string; model: string; latency_ms: number; chars: number }> {
     return handle(fetch(`/api/office-documents/${wsOid}/ai-gateway/test`, { method: "POST" }));
   },

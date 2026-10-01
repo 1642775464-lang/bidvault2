@@ -26,10 +26,28 @@ PROMPT = (
 _MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"}
 
 
+def _resolve_vision_key() -> str:
+    """视觉模型密钥：用户自配（凭据管理器）优先，其次环境变量 ZHIPU_API_KEY。
+
+    与 AI 网关同一密钥通道——用户在设置「模型服务」保存的密钥对视觉识别同样生效。
+    """
+    settings = get_settings()
+    try:
+        from .ai_gateway import resolve_secret_store
+
+        got = resolve_secret_store().get_key("ZHIPU_API_KEY")
+        if got:
+            return got
+    except Exception:  # noqa: BLE001  凭据不可用时回退环境变量
+        pass
+    return settings.zhipu_api_key
+
+
 def analyze_image(img_bytes: bytes, ext: str) -> dict[str, Any]:
     """调 GLM-4V-Flash 识别单张图片，返回解析后的 JSON（失败抛异常）。"""
     settings = get_settings()
-    if not settings.zhipu_api_key:
+    api_key = _resolve_vision_key()
+    if not api_key:
         msg = "GLM API Key 未配置"
         raise RuntimeError(msg)
     mime = _MIME.get(ext.lower(), "image/png")
@@ -47,7 +65,7 @@ def analyze_image(img_bytes: bytes, ext: str) -> dict[str, Any]:
     }
     r = httpx.post(
         f"{settings.zhipu_base_url}/chat/completions",
-        headers={"Authorization": f"Bearer {settings.zhipu_api_key}"},
+        headers={"Authorization": f"Bearer {api_key}"},
         json=body,
         timeout=60,
     )

@@ -15,6 +15,7 @@ from sqlalchemy import text
 from .config import get_settings
 from .db import get_session, make_engine
 from .routers import (
+    ai_gateway,
     backup,
     detect,
     documents,
@@ -22,11 +23,11 @@ from .routers import (
     extract_rules,
     materials,
     onlyoffice,
+    outline,
     paths,
     people,
     preview,
     projects,
-    outline,
     search,
     workspace,
 )
@@ -183,6 +184,7 @@ app.include_router(preview.router)
 app.include_router(detect.router)
 app.include_router(extract_rules.router)
 app.include_router(editor_sessions.router)
+app.include_router(ai_gateway.router)
 app.include_router(onlyoffice.router)
 app.include_router(onlyoffice.office_router)
 app.include_router(onlyoffice.ai_router)
@@ -209,9 +211,15 @@ def health() -> dict[str, Any]:
     usage = shutil.disk_usage(s.data_dir)
     free_gb = round(usage.free / 1073741824, 1)
     used_pct = round(usage.used / usage.total * 100, 1)
+    try:
+        from .services.ai_gateway import resolve_secret_store
+
+        glm_ready = bool(resolve_secret_store().get_key("ZHIPU_API_KEY") or s.zhipu_api_key)
+    except Exception:  # noqa: BLE001  凭据后端不可用时不虚报
+        glm_ready = bool(s.zhipu_api_key)
     return {
         "status": "ok",
-        "glm_configured": bool(s.zhipu_api_key),
+        "glm_configured": glm_ready,
         "scan_interval": s.scan_interval_seconds,
         "data_dir": str(s.data_dir),
         "counts": counts,

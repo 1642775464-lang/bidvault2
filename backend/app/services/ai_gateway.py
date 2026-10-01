@@ -175,6 +175,40 @@ class EnvSecretStore:
         return os.environ.get(ref) or None
 
 
+class UserSecretStore:
+    """用户自配密钥：Windows 凭据管理器优先，其次环境变量（ref 即环境变量名）。
+
+    用户通过设置「模型服务」保存的密钥写入凭据管理器（TargetName=bv-ai-<ref>），
+    不落明文文件、不回显；未配置时回退环境变量，保证既有部署（.env/ZHIPU_API_KEY）不受影响。
+    """
+
+    _PREFIX = "bv-ai-"
+
+    def source(self) -> str:
+        return "user"
+
+    def get_key(self, ref: str) -> str | None:
+        import os
+
+        if not ref:
+            return None
+        try:
+            from ..config import _wincred_read
+
+            got = _wincred_read(self._PREFIX + ref)
+            if got:
+                return got
+        except Exception:  # noqa: BLE001  凭据不可用回退环境变量
+            pass
+        return os.environ.get(ref) or None
+
+    def set_key(self, ref: str, value: str) -> bool:
+        """写入凭据管理器；返回是否成功（失败由调用方明确报错，不静默降级存明文）。"""
+        from ..config import _wincred_write
+
+        return _wincred_write(self._PREFIX + ref, value)
+
+
 class NullSecretStore:
     """正式产品占位：未接入 Windows 宿主组件前，任何 ref 都解析不到密钥。"""
 
@@ -186,7 +220,7 @@ class NullSecretStore:
 
 
 def resolve_secret_store() -> SecretStore:
-    return EnvSecretStore()
+    return UserSecretStore()
 
 
 # ---------------- 出网 URL 校验（防 SSRF） ----------------

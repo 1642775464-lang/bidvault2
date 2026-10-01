@@ -467,8 +467,107 @@ async function doRestore(name: string): Promise<void> {
   }
 }
 
+/* ---------- 模型服务：AI 网关全局配置（用户可自配其他模型） ---------- */
+const gw = ref<{
+  provider: string; base_url: string; model: string; timeout_s: number;
+  api_key_ref: string; has_key: boolean; secret_source: string;
+} | null>(null);
+const gwForm = ref({ provider: "", base_url: "", model: "", timeout_s: 60, api_key_ref: "", api_key: "" });
+const gwBusy = ref(false);
+const gwTestMsg = ref("");
+const gwExpanded = ref(false);
+
+/** 预设：常见 OpenAI 兼容服务，选中后自动填 base_url 与模型名（仍可手改） */
+const GW_PRESETS: { label: string; provider: string; base_url: string; model: string; key_ref: string; hint: string }[] = [
+  { label: "智谱 GLM", provider: "openai_compatible", base_url: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash", key_ref: "ZHIPU_API_KEY", hint: "默认 · 免费" },
+  { label: "DeepSeek", provider: "openai_compatible", base_url: "https://api.deepseek.com/v1", model: "deepseek-chat", key_ref: "DEEPSEEK_API_KEY", hint: "文本质量高" },
+  { label: "通义千问", provider: "openai_compatible", base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus", key_ref: "DASHSCOPE_API_KEY", hint: "阿里云" },
+  { label: "Kimi", provider: "openai_compatible", base_url: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k", key_ref: "MOONSHOT_API_KEY", hint: "长上下文" },
+  { label: "OpenAI", provider: "openai_compatible", base_url: "https://api.openai.com/v1", model: "gpt-4o-mini", key_ref: "OPENAI_API_KEY", hint: "需可访问" },
+  { label: "自定义", provider: "openai_compatible", base_url: "", model: "", key_ref: "BIDVAULT_AI_KEY", hint: "任意 OpenAI 兼容服务" },
+];
+
+async function loadGlobalGateway(): Promise<void> {
+  try {
+    const r = await api.globalGateway();
+    gw.value = r;
+    gwForm.value = {
+      provider: r.provider || "openai_compatible",
+      base_url: r.base_url,
+      model: r.model,
+      timeout_s: r.timeout_s || 60,
+      api_key_ref: r.api_key_ref || "BIDVAULT_AI_KEY",
+      api_key: "",
+    };
+  } catch {
+    gw.value = null;
+  }
+}
+
+function applyPreset(p: (typeof GW_PRESETS)[number]): void {
+  gwForm.value.provider = p.provider;
+  gwForm.value.base_url = p.base_url;
+  gwForm.value.model = p.model;
+  gwForm.value.api_key_ref = p.key_ref;
+  gwTestMsg.value = "";
+}
+
+async function saveGlobalGateway(): Promise<void> {
+  if (gwBusy.value) return;
+  gwBusy.value = true;
+  gwTestMsg.value = "";
+  try {
+    const body: Record<string, unknown> = {
+      provider: gwForm.value.provider,
+      base_url: gwForm.value.base_url.trim(),
+      model: gwForm.value.model.trim(),
+      timeout_s: gwForm.value.timeout_s,
+      api_key_ref: gwForm.value.api_key_ref.trim(),
+    };
+    // 仅在用户实际输入时提交密钥（留空＝保留原密钥）
+    if (gwForm.value.api_key.trim()) body.api_key = gwForm.value.api_key.trim();
+    const r = await api.saveGlobalGateway(body as Parameters<typeof api.saveGlobalGateway>[0]);
+    gw.value = r;
+    gwForm.value.api_key = "";
+    toast("模型服务配置已保存");
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "保存失败");
+  } finally {
+    gwBusy.value = false;
+  }
+}
+
+async function clearGatewayKey(): Promise<void> {
+  if (!window.confirm("确认清除已保存的 API 密钥？（清除后需重新填写才能调用模型）")) return;
+  gwBusy.value = true;
+  try {
+    const r = await api.saveGlobalGateway({ api_key: "__clear__" });
+    gw.value = r;
+    toast("已清除密钥");
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "清除失败");
+  } finally {
+    gwBusy.value = false;
+  }
+}
+
+async function testGlobalGateway(): Promise<void> {
+  if (gwBusy.value) return;
+  gwBusy.value = true;
+  gwTestMsg.value = "测试中…";
+  try {
+    const r = await api.testGlobalGateway();
+    gwTestMsg.value = `连接成功 · ${r.model} · ${r.latency_ms}ms`;
+  } catch (e) {
+    gwTestMsg.value = e instanceof Error ? e.message : "连接失败";
+  } finally {
+    gwBusy.value = false;
+  }
+}
+
 onMounted(() => {
   void loadSecData();
+  void loadGlobalGateway();
 });
 </script>
 
@@ -512,19 +611,64 @@ onMounted(() => {
 
           <!-- 模型服务 -->
           <template v-else-if="section === '模型服务'">
+            <!-- AI 网关：当前配置 + 用户自配 -->
+            <div class="gwcard" :class="{ on: gw?.has_key }">
+              <div class="gw-head">
+                <span class="gw-t">
+                  <b>AI 服务（网关）</b>
+                  <span class="chip-role" :class="gw?.has_key ? 'r-admin' : 'r-viewer'">{{ gw?.has_key ? "已连接" : "未配置" }}</span>
+                </span>
+                <span class="gw-actions">
+                  <button class="mini-btn" :disabled="gwBusy" @click="testGlobalGateway">连接测试</button>
+                  <button class="mini-btn" @click="gwExpanded = !gwExpanded">{{ gwExpanded ? "收起" : "配置" }}</button>
+                </span>
+              </div>
+              <div class="gw-sum">
+                <span v-if="gw && gw.provider">{{ gw.model || "（未填模型名）" }} · {{ gw.base_url || "（未填地址）" }}</span>
+                <span v-else>尚未配置模型服务（AI 助手与拆解增强不可用）</span>
+                <span v-if="gwTestMsg" class="gw-test" :class="{ ok: gwTestMsg.includes('连接成功') }">{{ gwTestMsg }}</span>
+              </div>
+
+              <div v-if="gwExpanded" class="gw-form">
+                <div class="gw-presets">
+                  <button v-for="p in GW_PRESETS" :key="p.label" type="button" class="gw-chip"
+                          :class="{ on: gwForm.base_url === p.base_url && gwForm.model === p.model }"
+                          @click="applyPreset(p)">{{ p.label }}<span class="h">{{ p.hint }}</span></button>
+                </div>
+                <div class="frow">
+                  <span class="fl">服务地址</span>
+                  <input v-model="gwForm.base_url" type="text" class="gw-in"
+                         placeholder="https://api.example.com/v1" />
+                </div>
+                <div class="frow">
+                  <span class="fl">模型名称</span>
+                  <input v-model="gwForm.model" type="text" class="gw-in" placeholder="如 deepseek-chat" />
+                </div>
+                <div class="frow">
+                  <span class="fl">API 密钥</span>
+                  <input v-model="gwForm.api_key" type="password" class="gw-in"
+                         :placeholder="gw?.has_key ? '已保存（留空则不变）' : '粘贴你的密钥'" autocomplete="new-password" />
+                </div>
+                <div class="frow">
+                  <span class="fl">超时（秒）</span>
+                  <input v-model.number="gwForm.timeout_s" type="number" min="5" max="600" class="gw-in gw-num" />
+                </div>
+                <div class="gw-foot">
+                  <button v-if="gw?.has_key" class="mini-btn" :disabled="gwBusy" @click="clearGatewayKey">清除密钥</button>
+                  <span class="gw-note">密钥经本机系统凭据保存，不写入配置文件</span>
+                  <button class="btn-primary" :disabled="gwBusy" @click="saveGlobalGateway">保存配置</button>
+                </div>
+              </div>
+            </div>
+
             <div class="pcards">
               <div class="pcard" :class="{ on: health?.glm_configured }">
                 <div class="ph">
-                  <b>GLM-4-Flash</b>
-                  <span class="chip-role" :class="health?.glm_configured ? 'r-admin' : 'r-viewer'">{{ health?.glm_configured ? "已连接" : "未连接" }}</span>
+                  <b>GLM-4V-Flash</b>
+                  <span class="chip-role" :class="health?.glm_configured ? 'r-admin' : 'r-viewer'">{{ health?.glm_configured ? "已接入" : "未配置" }}</span>
                 </div>
-                <div class="pd">文本结构化抽取（拆解增强）· 免费模型</div>
-                <div class="pm">zhipu api · server-side</div>
-              </div>
-              <div class="pcard" :class="{ on: health?.glm_configured }">
-                <div class="ph"><b>GLM-4V-Flash</b><span class="chip-role" :class="health?.glm_configured ? 'r-admin' : 'r-viewer'">{{ health?.glm_configured ? "已接入" : "未配置" }}</span></div>
                 <div class="pd">图片证据字段识别 · 素材库「AI 识别字段」按钮触发</div>
-                <div class="pm">zhipu api · server-side</div>
+                <div class="pm">需 ZHIPU_API_KEY 环境变量</div>
               </div>
               <div class="pcard on">
                 <div class="ph"><b>PaddleOCR</b><span class="chip-role r-admin">已接入</span></div>
