@@ -84,6 +84,26 @@ def clone_material(docx_bytes: bytes, child_range: tuple[int, int],
         body.append(node)
     body.append(copy.deepcopy(chosen))
 
+    # 评审层剥离（素材溯源 v1.6 补充）：批注属源文档评审痕迹，不属素材内容——
+    # 删除 commentRangeStart/End 与 commentReference 参照 run（插入引擎对 comments
+    # 显式拒绝，带着批注素材永远插不进工作稿）。跟踪修订 ins/del 不剥（剥离即改内容，
+    # 维持显式拒绝）。孤立 word/comments.xml 部件随「冗余安全策略」保留，无引用不参与插入。
+    for tag in (_W + "commentRangeStart", _W + "commentRangeEnd"):
+        for el in root.findall(f".//{tag}"):
+            parent = el.getparent()
+            if parent is not None:
+                parent.remove(el)
+    for ref in root.findall(f".//" + _W + "commentReference"):
+        parent = ref.getparent()
+        if parent is None:
+            continue
+        if parent.tag == _W + "r":
+            grand = parent.getparent()
+            if grand is not None:
+                grand.remove(parent)
+        else:
+            parent.remove(ref)
+
     new_doc_xml = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
     # core.xml 更新标题（若存在）

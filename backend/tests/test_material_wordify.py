@@ -150,3 +150,44 @@ def test_wordify_without_provenance_rejected(client):
     _ = cfg
     r = client.post(f"/api/materials/{mid}/office-document", json={})
     assert r.status_code == 409
+
+
+def test_clone_strips_comments():
+    """批注属源文档评审层：clone 产物剥离批注锚点与参照 run（插入引擎拒绝清单不再命中）。"""
+    import zipfile
+
+    from app.services.ooxml_clone import clone_material
+
+    buf = io.BytesIO()
+    d = Docx()
+    d.add_paragraph("投标人须知前附表")
+    tb = d.add_table(rows=1, cols=2)
+    tb.cell(0, 0).text = "A"
+    tb.cell(0, 1).text = "B"
+    d.add_paragraph("评标办法前附表")
+    d.save(buf)
+    src = buf.getvalue()
+    # 注入批注锚点（模拟带批注的源文档：批注区间起 + 参照 run）
+    zin = zipfile.ZipFile(io.BytesIO(src))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "word/document.xml":
+                x = data.decode("utf-8")
+                x = x.replace(
+                    "<w:sectPr",
+                    '<w:commentRangeStart w:id="9"/>'
+                    '<w:r><w:commentReference w:id="9"/></w:r><w:sectPr',
+                    1,
+                )
+                data = x.encode("utf-8")
+            zout.writestr(item, data)
+    crafted = out.getvalue()
+
+    cloned = clone_material(crafted, (0, 2), "带批注素材")
+    z = zipfile.ZipFile(io.BytesIO(cloned))
+    doc_xml = z.read("word/document.xml").decode("utf-8")
+    assert "commentReference" not in doc_xml
+    assert "commentRangeStart" not in doc_xml
+    assert "评标办法前附表" in doc_xml

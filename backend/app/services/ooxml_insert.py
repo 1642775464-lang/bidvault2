@@ -39,6 +39,8 @@ _STYLE_REF_TAGS = (_W + "pStyle", _W + "rStyle", _W + "tblStyle")
 _MEDIA_CT = {
     "png": "image/png", "jpeg": "image/jpeg", "jpg": "image/jpeg", "gif": "image/gif",
     "bmp": "image/bmp", "tiff": "image/tiff", "emf": "image/x-emf", "wmf": "image/x-wmf",
+    # HD Photo/JPEG XR（WPS 扫描件常用：a14:imgProps@r:embed 引用，PNG/JPEG 作回退）
+    "wdp": "image/vnd.ms-photo", "jxr": "image/jxr",
 }
 
 
@@ -252,7 +254,8 @@ class OOXMLInsertEngine:
                     continue
                 rid_map[rid] = _next_rid()
                 _add_rel(ws_rels, rid_map[rid], rel_type, target, "External")
-            elif kind == "image":
+            elif kind in ("image", "hdphoto"):
+                # hdphoto = blip 增强层（a14:imgProps@r:embed），与内部图像同构：整部件拷入
                 if mode == "External":
                     rid_map[rid] = _next_rid()
                     _add_rel(ws_rels, rid_map[rid], rel_type, target, "External")
